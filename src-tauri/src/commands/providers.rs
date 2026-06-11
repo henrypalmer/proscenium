@@ -86,6 +86,14 @@ pub async fn delete_provider_impl(pool: &SqlitePool, provider_id: &str) -> Resul
         .map_err(|e| format!("Failed to delete provider: {e}"))?;
     // Credential cleanup is best-effort; the provider row is already gone.
     let _ = keychain::delete_secret(provider_id);
+    // Don't leave the active-provider setting pointing at a deleted profile.
+    if let Ok(Some(active)) =
+        db::settings::get(pool, crate::commands::catalog::ACTIVE_PROVIDER_KEY).await
+    {
+        if active == provider_id {
+            let _ = db::settings::delete(pool, crate::commands::catalog::ACTIVE_PROVIDER_KEY).await;
+        }
+    }
     Ok(())
 }
 

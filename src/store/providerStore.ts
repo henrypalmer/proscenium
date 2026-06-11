@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as api from "../lib/tauri";
 import type { Provider, ProviderInput } from "../types";
+import { useCatalogStore } from "./catalogStore";
 
 interface ProviderState {
   providers: Provider[];
@@ -32,11 +33,17 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       .concat(saved)
       .sort((a, b) => a.createdAt - b.createdAt);
     set({ providers });
+    // The first saved provider becomes the active one (kicks off the
+    // initial catalog refresh in the background).
+    if (!useCatalogStore.getState().activeProvider) {
+      await useCatalogStore.getState().setActive(saved.id);
+    }
     return saved;
   },
 
   remove: async (id) => {
     await api.deleteProvider(id);
     set({ providers: get().providers.filter((p) => p.id !== id) });
+    await useCatalogStore.getState().handleProviderDeleted(id);
   },
 }));

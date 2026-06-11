@@ -59,6 +59,104 @@ pub struct ProviderInput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Category {
+    pub id: String,
+    pub name: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveChannel {
+    pub id: String,
+    pub name: String,
+    pub category_id: String,
+    pub category_name: String,
+    pub logo_url: Option<String>,
+    pub stream_url: String,
+    pub stream_ext: String,
+    pub epg_channel_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovieItem {
+    pub id: String,
+    pub name: String,
+    pub category_id: String,
+    pub category_name: String,
+    pub poster_url: Option<String>,
+    pub stream_url: String,
+    pub container_ext: String,
+    pub release_year: Option<i64>,
+    pub rating: Option<String>,
+    pub added_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesItem {
+    pub id: String,
+    pub name: String,
+    pub category_id: String,
+    pub category_name: String,
+    pub poster_url: Option<String>,
+    pub release_year: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeItem {
+    pub id: String,
+    pub series_id: String,
+    pub season: i64,
+    pub episode: i64,
+    pub title: String,
+    pub stream_url: String,
+    pub container_ext: String,
+    pub duration_seconds: Option<i64>,
+    pub poster_url: Option<String>,
+}
+
+/// Everything one full refresh produces; persisted atomically.
+#[derive(Debug, Clone, Default)]
+pub struct CatalogData {
+    pub live_categories: Vec<Category>,
+    pub live_channels: Vec<LiveChannel>,
+    pub vod_categories: Vec<Category>,
+    pub movies: Vec<MovieItem>,
+    pub series_categories: Vec<Category>,
+    pub series: Vec<SeriesItem>,
+    pub episodes: Vec<EpisodeItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogSummary {
+    pub live_channels: i64,
+    pub movies: i64,
+    pub series: i64,
+}
+
+/// Payload for the `catalog:refresh_progress` event (spec §16).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshProgress {
+    pub stage: String,
+    pub progress: f32,
+}
+
+/// Payload for the `catalog:refresh_complete` event (spec §16).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshComplete {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct XtreamAccountInfo {
     pub status: Option<String>,
     /// Unix seconds.

@@ -4,6 +4,8 @@ Cross-platform desktop IPTV client built with Tauri v2 (Rust) + React + TypeScri
 
 ## Status
 
+Milestone 2 (Content Refresh & Catalog Storage) is implemented: full Xtream catalog fetch (6 endpoints), M3U parsing with gzip support and content-type inference, atomic catalog persistence with FTS5 indexing, refresh progress UI with failure toasts, and the 6-hour stale-cache background refresh on startup.
+
 Milestone 1 (Project Scaffold & Provider Authentication) is implemented:
 
 - Tauri v2 shell with React + TypeScript + Tailwind frontend.

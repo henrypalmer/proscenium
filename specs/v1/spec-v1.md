@@ -1223,13 +1223,13 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - Toast notification on refresh failure; stale cache remains usable.
 
 **Acceptance Criteria:**
-- [ ] Full catalog refresh completes for a provider with 50,000+ items.
-- [ ] Progress indicator is visible during refresh; UI remains interactive.
-- [ ] On app restart, catalog loads from cache in under 500ms with no network request.
-- [ ] Background refresh triggers automatically when cache is older than 6 hours.
-- [ ] Refresh failure shows a toast; existing catalog data is unaffected.
-- [ ] M3U playlists parse correctly including gzip-encoded files.
-- [ ] FTS5 search tables are populated and queryable after refresh.
+- [x] Full catalog refresh completes for a provider with 50,000+ items. *(test: `refresh_50k_items_completes_and_cache_reads_fast` — 50k items persisted in ~1.5s)*
+- [x] Progress indicator is visible during refresh; UI remains interactive. *(Header progress bar + stage label driven by `catalog:refresh_progress` events; refresh runs in the Rust async runtime so the WebView never blocks)*
+- [x] On app restart, catalog loads from cache in under 500ms with no network request. *(test: cache reopen + browse query on 50k items = ~14ms; verified live — relaunch served cached counts without refetch)*
+- [x] Background refresh triggers automatically when cache is older than 6 hours. *(staleness unit test; verified live — stale provider auto-refreshed on launch, fresh provider untouched on relaunch)*
+- [x] Refresh failure shows a toast; existing catalog data is unaffected. *(test: `refresh_failure_preserves_existing_catalog` — transaction rollback keeps data and `last_refreshed`; `Toast` wired to `catalog:refresh_complete` failures)*
+- [x] M3U playlists parse correctly including gzip-encoded files. *(parser tests incl. malformed-line skipping; gzip verified both as unit round-trip and end-to-end over HTTP)*
+- [x] FTS5 search tables are populated and queryable after refresh. *(MATCH queries asserted after refresh and after catalog replacement; stale entries removed)*
 
 ---
 

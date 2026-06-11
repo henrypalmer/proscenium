@@ -27,6 +27,11 @@ pub fn run() {
             let db_path = data_dir.join("proscenium.db");
             let pool = tauri::async_runtime::block_on(db::init(&db_path))?;
             app.manage(db::Db(pool));
+            app.manage(commands::catalog::RefreshGuard::default());
+            // Background stale-cache check (spec §5.2 startup trigger).
+            tauri::async_runtime::spawn(commands::catalog::startup_stale_check(
+                app.handle().clone(),
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -34,6 +39,10 @@ pub fn run() {
             commands::providers::list_providers,
             commands::providers::delete_provider,
             commands::providers::test_provider_connection,
+            commands::catalog::get_active_provider,
+            commands::catalog::set_active_provider,
+            commands::catalog::refresh_catalog,
+            commands::catalog::get_catalog_summary,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

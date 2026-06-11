@@ -1,5 +1,7 @@
+pub mod catalog;
 pub mod providers;
 pub mod schema;
+pub mod settings;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;

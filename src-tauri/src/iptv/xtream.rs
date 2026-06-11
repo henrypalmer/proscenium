@@ -1,8 +1,210 @@
-//! Xtream Codes API client. Milestone 1 covers authentication only; the
-//! catalog endpoints arrive in Milestone 2.
+//! Xtream Codes API client: authentication and the six catalog fetch
+//! endpoints (spec §5.2 / §6).
 
-use crate::models::{ConnectionTestResult, XtreamAccountInfo};
+use crate::models::{
+    CatalogData, Category, ConnectionTestResult, LiveChannel, MovieItem, SeriesItem,
+    XtreamAccountInfo,
+};
 use serde_json::Value;
+use std::collections::HashMap;
+
+pub struct XtreamCreds<'a> {
+    pub server_url: &'a str,
+    pub username: &'a str,
+    pub password: &'a str,
+}
+
+impl XtreamCreds<'_> {
+    fn base(&self) -> &str {
+        self.server_url.trim_end_matches('/')
+    }
+}
+
+async fn get_action(
+    client: &reqwest::Client,
+    creds: &XtreamCreds<'_>,
+    action: &str,
+) -> Result<Value, String> {
+    let url = format!("{}/player_api.php", creds.base());
+    let response = client
+        .get(&url)
+        .query(&[
+            ("username", creds.username),
+            ("password", creds.password),
+            ("action", action),
+        ])
+        .send()
+        .await
+        .map_err(|_| {
+            format!(
+                "Could not connect to {}. Check the server address and your internet connection.",
+                creds.server_url
+            )
+        })?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "The server responded with HTTP {} for {action}.",
+            response.status()
+        ));
+    }
+    response
+        .json()
+        .await
+        .map_err(|_| format!("The server returned an invalid response for {action}."))
+}
+
+fn parse_categories(body: &Value) -> Vec<Category> {
+    let Some(items) = body.as_array() else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            Some(Category {
+                id: value_to_string(&item["category_id"])?,
+                name: value_to_string(&item["category_name"])?,
+                sort_order: i as i64,
+            })
+        })
+        .collect()
+}
+
+fn category_names(cats: &[Category]) -> HashMap<&str, &str> {
+    cats.iter().map(|c| (c.id.as_str(), c.name.as_str())).collect()
+}
+
+fn lookup<'a>(names: &HashMap<&str, &'a str>, id: &str) -> String {
+    names.get(id).copied().unwrap_or("Uncategorized").to_string()
+}
+
+/// `year` field, or the leading `YYYY` of a `releaseDate`-style field.
+fn year_from(item: &Value) -> Option<i64> {
+    if let Some(y) = value_to_i64(&item["year"]) {
+        return Some(y);
+    }
+    for key in ["releaseDate", "release_date"] {
+        if let Some(date) = item[key].as_str() {
+            if date.len() >= 4 {
+                if let Ok(y) = date[..4].parse() {
+                    return Some(y);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Run the full six-endpoint catalog refresh (spec §5.2). Episodes are not
+/// fetched here: `get_series_info` is per-series and is requested on demand
+/// when a series is opened (Milestone 5).
+pub async fn fetch_catalog(
+    creds: &XtreamCreds<'_>,
+    mut on_stage: impl FnMut(&str, f32),
+) -> Result<CatalogData, String> {
+    let client = super::http_client()?;
+    let mut data = CatalogData::default();
+
+    on_stage("Live categories", 0.0 / 7.0);
+    data.live_categories = parse_categories(&get_action(&client, creds, "get_live_categories").await?);
+
+    on_stage("Live channels", 1.0 / 7.0);
+    let names = category_names(&data.live_categories);
+    if let Some(items) = get_action(&client, creds, "get_live_streams").await?.as_array() {
+        for item in items {
+            let Some(id) = value_to_string(&item["stream_id"]) else {
+                continue;
+            };
+            let Some(name) = value_to_string(&item["name"]) else {
+                continue;
+            };
+            let category_id = value_to_string(&item["category_id"]).unwrap_or_else(|| "0".into());
+            data.live_channels.push(LiveChannel {
+                stream_url: format!(
+                    "{}/live/{}/{}/{}.ts",
+                    creds.base(),
+                    creds.username,
+                    creds.password,
+                    id
+                ),
+                id,
+                name,
+                category_name: lookup(&names, &category_id),
+                category_id,
+                logo_url: value_to_string(&item["stream_icon"]).filter(|s| !s.is_empty()),
+                stream_ext: "ts".into(),
+                epg_channel_id: value_to_string(&item["epg_channel_id"]).filter(|s| !s.is_empty()),
+            });
+        }
+    }
+
+    on_stage("Movie categories", 2.0 / 7.0);
+    data.vod_categories = parse_categories(&get_action(&client, creds, "get_vod_categories").await?);
+
+    on_stage("Movies", 3.0 / 7.0);
+    let names = category_names(&data.vod_categories);
+    if let Some(items) = get_action(&client, creds, "get_vod_streams").await?.as_array() {
+        for item in items {
+            let Some(id) = value_to_string(&item["stream_id"]) else {
+                continue;
+            };
+            let Some(name) = value_to_string(&item["name"]) else {
+                continue;
+            };
+            let category_id = value_to_string(&item["category_id"]).unwrap_or_else(|| "0".into());
+            let ext = value_to_string(&item["container_extension"])
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "mp4".into());
+            data.movies.push(MovieItem {
+                stream_url: format!(
+                    "{}/movie/{}/{}/{}.{}",
+                    creds.base(),
+                    creds.username,
+                    creds.password,
+                    id,
+                    ext
+                ),
+                id,
+                category_name: lookup(&names, &category_id),
+                category_id,
+                poster_url: value_to_string(&item["stream_icon"]).filter(|s| !s.is_empty()),
+                container_ext: ext,
+                release_year: year_from(item),
+                rating: value_to_string(&item["rating"]).filter(|s| !s.is_empty()),
+                added_at: value_to_i64(&item["added"]),
+                name,
+            });
+        }
+    }
+
+    on_stage("Series categories", 4.0 / 7.0);
+    data.series_categories =
+        parse_categories(&get_action(&client, creds, "get_series_categories").await?);
+
+    on_stage("Series", 5.0 / 7.0);
+    let names = category_names(&data.series_categories);
+    if let Some(items) = get_action(&client, creds, "get_series").await?.as_array() {
+        for item in items {
+            let Some(id) = value_to_string(&item["series_id"]) else {
+                continue;
+            };
+            let Some(name) = value_to_string(&item["name"]) else {
+                continue;
+            };
+            let category_id = value_to_string(&item["category_id"]).unwrap_or_else(|| "0".into());
+            data.series.push(SeriesItem {
+                id,
+                name,
+                category_name: lookup(&names, &category_id),
+                category_id,
+                poster_url: value_to_string(&item["cover"]).filter(|s| !s.is_empty()),
+                release_year: year_from(item),
+            });
+        }
+    }
+
+    Ok(data)
+}
 
 /// `GET {server}/player_api.php?username={u}&password={p}` and interpret the
 /// account-info response (spec §5.1).

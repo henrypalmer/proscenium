@@ -8,10 +8,12 @@ import {
 import Header from "./components/layout/Header";
 import Sidebar from "./components/layout/Sidebar";
 import ProviderForm from "./components/providers/ProviderForm";
+import Toast from "./components/common/Toast";
 import LiveTV from "./pages/LiveTV";
 import Movies from "./pages/Movies";
 import Settings from "./pages/Settings";
 import TVShows from "./pages/TVShows";
+import { useCatalogStore } from "./store/catalogStore";
 import { useProviderStore } from "./store/providerStore";
 
 function FirstLaunch() {
@@ -57,7 +59,12 @@ export default function App() {
   const load = useProviderStore((s) => s.load);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+      await useCatalogStore
+        .getState()
+        .init(useProviderStore.getState().providers);
+    })();
   }, [load]);
 
   if (!loaded) {
@@ -67,6 +74,7 @@ export default function App() {
   return (
     <BrowserRouter>
       {providers.length === 0 ? <FirstLaunch /> : <Shell />}
+      <Toast />
     </BrowserRouter>
   );
 }

@@ -36,3 +36,19 @@ export interface ConnectionTestResult {
   message: string;
   accountInfo: XtreamAccountInfo | null;
 }
+
+export interface CatalogSummary {
+  liveChannels: number;
+  movies: number;
+  series: number;
+}
+
+export interface RefreshProgress {
+  stage: string;
+  progress: number; // 0..1
+}
+
+export interface RefreshComplete {
+  success: boolean;
+  error?: string;
+}
