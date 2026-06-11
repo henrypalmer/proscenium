@@ -1,0 +1,5 @@
+# This machine has no MSVC Build Tools; the GNU toolchain links with the
+# locally installed MinGW-w64 gcc instead. Remove this pin (or switch the
+# channel to plain "stable") on machines with Visual Studio C++ Build Tools.
+[toolchain]
+channel = "stable-x86_64-pc-windows-gnu"

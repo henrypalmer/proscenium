@@ -1,0 +1,150 @@
+//! Schema definitions (spec §15). Applied idempotently on every launch.
+
+use sqlx::SqlitePool;
+
+const SCHEMA: &str = r#"
+-- Providers
+CREATE TABLE IF NOT EXISTS providers (
+  id             TEXT PRIMARY KEY,       -- UUID
+  name           TEXT NOT NULL,
+  type           TEXT NOT NULL CHECK (type IN ('xtream', 'm3u')),
+  server_url     TEXT,
+  username       TEXT,
+  password       TEXT,                   -- Keychain reference key, never the secret
+  playlist_url   TEXT,
+  local_file_path TEXT,
+  last_refreshed INTEGER,                -- Unix timestamp, nullable
+  created_at     INTEGER NOT NULL        -- Unix timestamp
+);
+
+-- Live channels
+CREATE TABLE IF NOT EXISTS live_channels (
+  id             TEXT NOT NULL,
+  provider_id    TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name           TEXT NOT NULL,
+  category_id    TEXT NOT NULL,
+  category_name  TEXT NOT NULL,
+  logo_url       TEXT,
+  stream_url     TEXT NOT NULL,
+  stream_ext     TEXT NOT NULL,
+  epg_channel_id TEXT,
+  PRIMARY KEY (id, provider_id)
+);
+
+-- Live channel categories (for sidebar population)
+CREATE TABLE IF NOT EXISTS live_categories (
+  id           TEXT NOT NULL,
+  provider_id  TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (id, provider_id)
+);
+
+-- Movies
+CREATE TABLE IF NOT EXISTS movies (
+  id             TEXT NOT NULL,
+  provider_id    TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name           TEXT NOT NULL,
+  category_id    TEXT NOT NULL,
+  category_name  TEXT NOT NULL,
+  poster_url     TEXT,
+  stream_url     TEXT NOT NULL,
+  container_ext  TEXT NOT NULL,
+  release_year   INTEGER,
+  rating         TEXT,
+  imdb_id        TEXT,
+  imdb_rating    REAL,
+  added_at       INTEGER,               -- Unix timestamp
+  PRIMARY KEY (id, provider_id)
+);
+
+-- VOD categories
+CREATE TABLE IF NOT EXISTS vod_categories (
+  id           TEXT NOT NULL,
+  provider_id  TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (id, provider_id)
+);
+
+-- TV series
+CREATE TABLE IF NOT EXISTS series (
+  id             TEXT NOT NULL,
+  provider_id    TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name           TEXT NOT NULL,
+  category_id    TEXT NOT NULL,
+  category_name  TEXT NOT NULL,
+  poster_url     TEXT,
+  release_year   INTEGER,
+  imdb_id        TEXT,
+  imdb_rating    REAL,
+  PRIMARY KEY (id, provider_id)
+);
+
+-- Series categories
+CREATE TABLE IF NOT EXISTS series_categories (
+  id           TEXT NOT NULL,
+  provider_id  TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (id, provider_id)
+);
+
+-- Episodes
+CREATE TABLE IF NOT EXISTS episodes (
+  id               TEXT NOT NULL,
+  series_id        TEXT NOT NULL,
+  provider_id      TEXT NOT NULL,
+  season           INTEGER NOT NULL,
+  episode          INTEGER NOT NULL,
+  title            TEXT NOT NULL,
+  stream_url       TEXT NOT NULL,
+  container_ext    TEXT NOT NULL,
+  duration_seconds INTEGER,
+  poster_url       TEXT,
+  PRIMARY KEY (id, provider_id),
+  FOREIGN KEY (series_id, provider_id) REFERENCES series(id, provider_id) ON DELETE CASCADE
+);
+
+-- App settings (key-value store)
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Cached cover art (local disk path index)
+CREATE TABLE IF NOT EXISTS image_cache (
+  url           TEXT PRIMARY KEY,
+  local_path    TEXT NOT NULL,
+  cached_at     INTEGER NOT NULL,       -- Unix timestamp
+  expires_at    INTEGER NOT NULL        -- Unix timestamp (cached_at + 30 days)
+);
+
+-- Indexes for common query patterns
+CREATE INDEX IF NOT EXISTS idx_live_channels_provider    ON live_channels(provider_id);
+CREATE INDEX IF NOT EXISTS idx_live_channels_category    ON live_channels(provider_id, category_id);
+CREATE INDEX IF NOT EXISTS idx_movies_provider           ON movies(provider_id);
+CREATE INDEX IF NOT EXISTS idx_movies_category           ON movies(provider_id, category_id);
+CREATE INDEX IF NOT EXISTS idx_series_provider           ON series(provider_id);
+CREATE INDEX IF NOT EXISTS idx_series_category           ON series(provider_id, category_id);
+CREATE INDEX IF NOT EXISTS idx_episodes_series           ON episodes(series_id, provider_id);
+
+-- Full-text search virtual tables (populated during catalog refresh, Milestone 2)
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_live_channels USING fts5(
+  id, provider_id, name, category_name,
+  content='live_channels', content_rowid='rowid'
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_movies USING fts5(
+  id, provider_id, name, category_name,
+  content='movies', content_rowid='rowid'
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_series USING fts5(
+  id, provider_id, name, category_name,
+  content='series', content_rowid='rowid'
+);
+"#;
+
+pub async fn apply(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::raw_sql(SCHEMA).execute(pool).await?;
+    Ok(())
+}

@@ -1,0 +1,72 @@
+import { useEffect } from "react";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+} from "react-router-dom";
+import Header from "./components/layout/Header";
+import Sidebar from "./components/layout/Sidebar";
+import ProviderForm from "./components/providers/ProviderForm";
+import LiveTV from "./pages/LiveTV";
+import Movies from "./pages/Movies";
+import Settings from "./pages/Settings";
+import TVShows from "./pages/TVShows";
+import { useProviderStore } from "./store/providerStore";
+
+function FirstLaunch() {
+  return (
+    <main className="flex h-full items-center justify-center overflow-y-auto p-6">
+      <div className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-900/60 p-8">
+        <h1 className="text-xl font-semibold text-white">
+          Welcome to Proscenium
+        </h1>
+        <p className="mt-1 mb-6 text-sm text-zinc-400">
+          Add your IPTV provider to get started.
+        </p>
+        <ProviderForm onSaved={() => undefined} />
+      </div>
+    </main>
+  );
+}
+
+function Shell() {
+  return (
+    <div className="flex h-full">
+      <Sidebar />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Header />
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <Routes>
+            <Route path="/" element={<Navigate to="/live" replace />} />
+            <Route path="/live" element={<LiveTV />} />
+            <Route path="/movies" element={<Movies />} />
+            <Route path="/shows" element={<TVShows />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/live" replace />} />
+          </Routes>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const loaded = useProviderStore((s) => s.loaded);
+  const providers = useProviderStore((s) => s.providers);
+  const load = useProviderStore((s) => s.load);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!loaded) {
+    return <div className="h-full bg-zinc-950" />;
+  }
+
+  return (
+    <BrowserRouter>
+      {providers.length === 0 ? <FirstLaunch /> : <Shell />}
+    </BrowserRouter>
+  );
+}
