@@ -14,7 +14,7 @@ import uuid
 playlist = os.path.join(tempfile.gettempdir(), "proscenium-seed.m3u")
 with open(playlist, "w", encoding="utf-8") as f:
     f.write("#EXTM3U\n")
-    for i in range(3000):
+    for i in range(12000):
         f.write(
             f'#EXTINF:-1 tvg-id="seed{i}" group-title="Group {i % 25}",Seed Channel {i}\n'
         )

@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import * as api from "../lib/tauri";
+import { inTauri } from "../lib/tauri";
 import type {
   CatalogSummary,
   Provider,
@@ -8,19 +9,27 @@ import type {
   RefreshProgress,
 } from "../types";
 
+export interface ToastMessage {
+  message: string;
+  kind: "error" | "info";
+}
+
 interface CatalogState {
   activeProvider: Provider | null;
   refreshing: boolean;
   stage: string | null;
   progress: number;
   summary: CatalogSummary | null;
-  toast: string | null;
+  toast: ToastMessage | null;
+  /** Bumped after every successful refresh so views reload their data. */
+  refreshTick: number;
   /** Resolve the active provider, load cached counts, attach event listeners. */
   init: (providers: Provider[]) => Promise<void>;
   setActive: (providerId: string) => Promise<void>;
   refresh: () => Promise<void>;
   loadSummary: () => Promise<void>;
   handleProviderDeleted: (providerId: string) => Promise<void>;
+  notify: (message: string, kind?: ToastMessage["kind"]) => void;
   dismissToast: () => void;
 }
 
@@ -33,9 +42,11 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   progress: 0,
   summary: null,
   toast: null,
+  refreshTick: 0,
 
   init: async (providers) => {
-    if (!listenersAttached) {
+    // Tauri events don't exist in the browser dev mock.
+    if (!listenersAttached && inTauri) {
       listenersAttached = true;
       await listen<RefreshProgress>("catalog:refresh_progress", (event) => {
         set({
@@ -47,11 +58,15 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
       await listen<RefreshComplete>("catalog:refresh_complete", (event) => {
         set({ refreshing: false, stage: null, progress: 0 });
         if (event.payload.success) {
+          set({ refreshTick: get().refreshTick + 1 });
           void get().loadSummary();
         } else {
           // Spec §5.2: non-blocking toast; the stale cache stays usable.
           set({
-            toast: `Catalog refresh failed: ${event.payload.error ?? "unknown error"}`,
+            toast: {
+              message: `Catalog refresh failed: ${event.payload.error ?? "unknown error"}`,
+              kind: "error",
+            },
           });
         }
       });
@@ -107,6 +122,8 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     set({ activeProvider: active });
     if (active) await get().loadSummary();
   },
+
+  notify: (message, kind = "info") => set({ toast: { message, kind } }),
 
   dismissToast: () => set({ toast: null }),
 }));

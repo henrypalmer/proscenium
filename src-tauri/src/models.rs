@@ -132,6 +132,16 @@ pub struct CatalogData {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PaginatedResult<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+    /// 1-based page number this result corresponds to.
+    pub page: i64,
+    pub page_size: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CatalogSummary {
     pub live_channels: i64,
     pub movies: i64,

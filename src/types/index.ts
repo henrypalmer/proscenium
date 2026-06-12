@@ -37,6 +37,30 @@ export interface ConnectionTestResult {
   accountInfo: XtreamAccountInfo | null;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  sortOrder: number;
+}
+
+export interface LiveChannel {
+  id: string;
+  name: string;
+  categoryId: string;
+  categoryName: string;
+  logoUrl: string | null;
+  streamUrl: string;
+  streamExt: string;
+  epgChannelId: string | null;
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number; // 1-based
+  pageSize: number;
+}
+
 export interface CatalogSummary {
   liveChannels: number;
   movies: number;

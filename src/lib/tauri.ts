@@ -1,10 +1,25 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
+import { mockInvoke } from "./devMock";
 import type {
   CatalogSummary,
+  Category,
   ConnectionTestResult,
+  LiveChannel,
+  PaginatedResult,
   Provider,
   ProviderInput,
 } from "../types";
+
+/** True when running inside the Tauri shell (vs. a plain browser). */
+export const inTauri = isTauri();
+
+const invoke: typeof tauriInvoke = inTauri
+  ? tauriInvoke
+  : (mockInvoke as typeof tauriInvoke);
+
+if (!inTauri) {
+  console.info("[proscenium] running outside Tauri — using the dev mock backend");
+}
 
 export function upsertProvider(provider: ProviderInput): Promise<Provider> {
   return invoke("upsert_provider", { provider });
@@ -38,4 +53,17 @@ export function refreshCatalog(providerId: string): Promise<void> {
 
 export function getCatalogSummary(providerId: string): Promise<CatalogSummary> {
   return invoke("get_catalog_summary", { providerId });
+}
+
+export function getLiveCategories(providerId: string): Promise<Category[]> {
+  return invoke("get_live_categories", { providerId });
+}
+
+export function getLiveChannels(
+  providerId: string,
+  categoryId: string | undefined,
+  page: number,
+  pageSize: number,
+): Promise<PaginatedResult<LiveChannel>> {
+  return invoke("get_live_channels", { providerId, categoryId, page, pageSize });
 }

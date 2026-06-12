@@ -5,7 +5,8 @@ use crate::db::{self, Db};
 use crate::iptv::{m3u, xtream};
 use crate::keychain;
 use crate::models::{
-    CatalogSummary, Provider, ProviderType, RefreshComplete, RefreshProgress,
+    CatalogSummary, Category, LiveChannel, PaginatedResult, Provider, ProviderType,
+    RefreshComplete, RefreshProgress,
 };
 use sqlx::SqlitePool;
 use std::collections::HashSet;
@@ -208,6 +209,29 @@ pub async fn set_active_provider(app: AppHandle, provider_id: String) -> Result<
 #[tauri::command]
 pub async fn refresh_catalog(app: AppHandle, provider_id: String) -> Result<(), String> {
     run_refresh(app, provider_id).await
+}
+
+#[tauri::command]
+pub async fn get_live_categories(
+    state: State<'_, Db>,
+    provider_id: String,
+) -> Result<Vec<Category>, String> {
+    db::catalog::live_categories(&state.0, &provider_id)
+        .await
+        .map_err(|e| format!("Failed to read live categories: {e}"))
+}
+
+#[tauri::command]
+pub async fn get_live_channels(
+    state: State<'_, Db>,
+    provider_id: String,
+    category_id: Option<String>,
+    page: i64,
+    page_size: i64,
+) -> Result<PaginatedResult<LiveChannel>, String> {
+    db::catalog::live_channels_page(&state.0, &provider_id, category_id.as_deref(), page, page_size)
+        .await
+        .map_err(|e| format!("Failed to read live channels: {e}"))
 }
 
 #[tauri::command]

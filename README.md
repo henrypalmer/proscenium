@@ -4,6 +4,8 @@ Cross-platform desktop IPTV client built with Tauri v2 (Rust) + React + TypeScri
 
 ## Status
 
+Milestone 3 (Live TV Browser) is implemented: category sidebar with "All Channels" and A–Z/provider-order sorting, virtualized channel list paged on demand (60fps+ with 12k channels, ~25 rows in the DOM), lazy logos with placeholder fallback, skeleton loading rows, and a right-click context menu (Play / Open in External Player — wired to the player in Milestone 4). The frontend also gained a browser-only mock backend (`src/lib/devMock.ts`) so `npm run dev` works outside the Tauri shell.
+
 Milestone 2 (Content Refresh & Catalog Storage) is implemented: full Xtream catalog fetch (6 endpoints), M3U parsing with gzip support and content-type inference, atomic catalog persistence with FTS5 indexing, refresh progress UI with failure toasts, and the 6-hour stale-cache background refresh on startup.
 
 Milestone 1 (Project Scaffold & Provider Authentication) is implemented:

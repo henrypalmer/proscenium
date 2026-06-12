@@ -43,6 +43,8 @@ pub fn run() {
             commands::catalog::set_active_provider,
             commands::catalog::refresh_catalog,
             commands::catalog::get_catalog_summary,
+            commands::catalog::get_live_categories,
+            commands::catalog::get_live_channels,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

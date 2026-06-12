@@ -1,7 +1,10 @@
 //! Catalog persistence: atomic full-catalog replacement and FTS5 sync.
 
-use crate::models::{CatalogData, CatalogSummary};
+use crate::models::{CatalogData, CatalogSummary, Category, LiveChannel, PaginatedResult};
+use sqlx::sqlite::SqliteRow;
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool, Transaction};
+
+pub const MAX_PAGE_SIZE: i64 = 500;
 
 /// Rows per INSERT statement. SQLite's bind limit is 32k variables; the
 /// widest table (movies) has 14 columns, so 400 rows stays well under it.
@@ -153,6 +156,93 @@ async fn insert_categories(
         qb.build().execute(&mut **tx).await?;
     }
     Ok(())
+}
+
+/// Live categories in provider-defined order. Categories without any
+/// channel are hidden (spec §12: empty categories are not shown).
+pub async fn live_categories(
+    pool: &SqlitePool,
+    provider_id: &str,
+) -> Result<Vec<Category>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT c.id, c.name, c.sort_order FROM live_categories c
+         WHERE c.provider_id = ?
+           AND EXISTS (SELECT 1 FROM live_channels ch
+                       WHERE ch.provider_id = c.provider_id AND ch.category_id = c.id)
+         ORDER BY c.sort_order, c.name COLLATE NOCASE",
+    )
+    .bind(provider_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| Category {
+            id: r.get("id"),
+            name: r.get("name"),
+            sort_order: r.get("sort_order"),
+        })
+        .collect())
+}
+
+fn row_to_live_channel(row: &SqliteRow) -> LiveChannel {
+    LiveChannel {
+        id: row.get("id"),
+        name: row.get("name"),
+        category_id: row.get("category_id"),
+        category_name: row.get("category_name"),
+        logo_url: row.get("logo_url"),
+        stream_url: row.get("stream_url"),
+        stream_ext: row.get("stream_ext"),
+        epg_channel_id: row.get("epg_channel_id"),
+    }
+}
+
+/// One page of channels, alphabetical (case-insensitive), optionally
+/// filtered to a category. `page` is 1-based; out-of-range pages return an
+/// empty `items` with the correct `total`.
+pub async fn live_channels_page(
+    pool: &SqlitePool,
+    provider_id: &str,
+    category_id: Option<&str>,
+    page: i64,
+    page_size: i64,
+) -> Result<PaginatedResult<LiveChannel>, sqlx::Error> {
+    let page = page.max(1);
+    let page_size = page_size.clamp(1, MAX_PAGE_SIZE);
+
+    let (count_sql, items_sql) = match category_id {
+        Some(_) => (
+            "SELECT COUNT(*) FROM live_channels WHERE provider_id = ? AND category_id = ?",
+            "SELECT * FROM live_channels WHERE provider_id = ? AND category_id = ?
+             ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?",
+        ),
+        None => (
+            "SELECT COUNT(*) FROM live_channels WHERE provider_id = ?",
+            "SELECT * FROM live_channels WHERE provider_id = ?
+             ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?",
+        ),
+    };
+
+    let mut count_query = sqlx::query(count_sql).bind(provider_id);
+    let mut items_query = sqlx::query(items_sql).bind(provider_id);
+    if let Some(cat) = category_id {
+        count_query = count_query.bind(cat);
+        items_query = items_query.bind(cat);
+    }
+
+    let total: i64 = count_query.fetch_one(pool).await?.get(0);
+    let rows = items_query
+        .bind(page_size)
+        .bind((page - 1) * page_size)
+        .fetch_all(pool)
+        .await?;
+
+    Ok(PaginatedResult {
+        items: rows.iter().map(row_to_live_channel).collect(),
+        total,
+        page,
+        page_size,
+    })
 }
 
 pub async fn summary(pool: &SqlitePool, provider_id: &str) -> Result<CatalogSummary, sqlx::Error> {

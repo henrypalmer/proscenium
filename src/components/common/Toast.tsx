@@ -16,9 +16,17 @@ export default function Toast() {
 
   if (!toast) return null;
 
+  const isError = toast.kind === "error";
+
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex max-w-md items-start gap-3 rounded-lg border border-red-900 bg-zinc-900 px-4 py-3 shadow-lg">
-      <p className="text-sm text-red-300">{toast}</p>
+    <div
+      className={`fixed bottom-4 right-4 z-50 flex max-w-md items-start gap-3 rounded-lg border bg-zinc-900 px-4 py-3 shadow-lg ${
+        isError ? "border-red-900" : "border-zinc-700"
+      }`}
+    >
+      <p className={`text-sm ${isError ? "text-red-300" : "text-zinc-200"}`}>
+        {toast.message}
+      </p>
       <button
         onClick={dismiss}
         aria-label="Dismiss notification"

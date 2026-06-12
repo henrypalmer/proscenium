@@ -129,6 +129,10 @@ CREATE INDEX IF NOT EXISTS idx_series_provider           ON series(provider_id);
 CREATE INDEX IF NOT EXISTS idx_series_category           ON series(provider_id, category_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_series           ON episodes(series_id, provider_id);
 
+-- Supplementary to §15: alphabetical paging over large catalogs (§10) needs
+-- an ordered index or every page query re-sorts the full table.
+CREATE INDEX IF NOT EXISTS idx_live_channels_name ON live_channels(provider_id, name COLLATE NOCASE);
+
 -- Full-text search virtual tables (populated during catalog refresh, Milestone 2)
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_live_channels USING fts5(
   id, provider_id, name, category_name,
