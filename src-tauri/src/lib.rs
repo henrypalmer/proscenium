@@ -29,6 +29,7 @@ pub fn run() {
             let pool = tauri::async_runtime::block_on(db::init(&db_path))?;
             app.manage(db::Db(pool));
             app.manage(commands::catalog::RefreshGuard::default());
+            app.manage(commands::catalog::DetailCache::default());
             app.manage(commands::playback::PlayerHandle::default());
             app.manage(commands::playback::VideoHost::default());
             // Background stale-cache check (spec §5.2 startup trigger).
@@ -48,6 +49,13 @@ pub fn run() {
             commands::catalog::get_catalog_summary,
             commands::catalog::get_live_categories,
             commands::catalog::get_live_channels,
+            commands::catalog::get_vod_categories,
+            commands::catalog::get_movies,
+            commands::catalog::get_series_categories,
+            commands::catalog::get_series,
+            commands::catalog::get_episodes,
+            commands::catalog::get_movie_detail,
+            commands::catalog::get_series_detail,
             commands::playback::resolve_stream_url,
             commands::playback::open_in_external_player,
             commands::playback::mpv_load_url,

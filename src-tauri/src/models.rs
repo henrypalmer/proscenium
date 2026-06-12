@@ -118,6 +118,27 @@ pub struct EpisodeItem {
     pub poster_url: Option<String>,
 }
 
+/// Movie row enriched with on-demand metadata (Xtream `get_vod_info`).
+/// §15 has no description column, so this metadata is session-cached only.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovieDetail {
+    #[serde(flatten)]
+    pub movie: MovieItem,
+    pub description: Option<String>,
+    pub genre: Option<String>,
+    pub duration_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesDetail {
+    #[serde(flatten)]
+    pub series: SeriesItem,
+    pub description: Option<String>,
+    pub genre: Option<String>,
+}
+
 /// Everything one full refresh produces; persisted atomically.
 #[derive(Debug, Clone, Default)]
 pub struct CatalogData {

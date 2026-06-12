@@ -4,12 +4,17 @@ import type {
   CatalogSummary,
   Category,
   ConnectionTestResult,
+  EpisodesBySeason,
   LiveChannel,
+  Movie,
+  MovieDetail,
   MpvState,
   PaginatedResult,
   PlayableContentType,
   Provider,
   ProviderInput,
+  Series,
+  SeriesDetail,
 } from "../types";
 
 /** True when running inside the Tauri shell (vs. a plain browser). */
@@ -68,6 +73,53 @@ export function getLiveChannels(
   pageSize: number,
 ): Promise<PaginatedResult<LiveChannel>> {
   return invoke("get_live_channels", { providerId, categoryId, page, pageSize });
+}
+
+export function getVodCategories(providerId: string): Promise<Category[]> {
+  return invoke("get_vod_categories", { providerId });
+}
+
+export function getMovies(
+  providerId: string,
+  categoryId: string | undefined,
+  page: number,
+  pageSize: number,
+): Promise<PaginatedResult<Movie>> {
+  return invoke("get_movies", { providerId, categoryId, page, pageSize });
+}
+
+export function getSeriesCategories(providerId: string): Promise<Category[]> {
+  return invoke("get_series_categories", { providerId });
+}
+
+export function getSeries(
+  providerId: string,
+  categoryId: string | undefined,
+  page: number,
+  pageSize: number,
+): Promise<PaginatedResult<Series>> {
+  return invoke("get_series", { providerId, categoryId, page, pageSize });
+}
+
+export function getEpisodes(
+  providerId: string,
+  seriesId: string,
+): Promise<EpisodesBySeason> {
+  return invoke("get_episodes", { providerId, seriesId });
+}
+
+export function getMovieDetail(
+  providerId: string,
+  movieId: string,
+): Promise<MovieDetail> {
+  return invoke("get_movie_detail", { providerId, movieId });
+}
+
+export function getSeriesDetail(
+  providerId: string,
+  seriesId: string,
+): Promise<SeriesDetail> {
+  return invoke("get_series_detail", { providerId, seriesId });
 }
 
 export function resolveStreamUrl(

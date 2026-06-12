@@ -1,6 +1,9 @@
 //! Catalog persistence: atomic full-catalog replacement and FTS5 sync.
 
-use crate::models::{CatalogData, CatalogSummary, Category, LiveChannel, PaginatedResult};
+use crate::models::{
+    CatalogData, CatalogSummary, Category, EpisodeItem, LiveChannel, MovieItem, PaginatedResult,
+    SeriesItem,
+};
 use sqlx::sqlite::SqliteRow;
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool, Transaction};
 
@@ -243,6 +246,225 @@ pub async fn live_channels_page(
         page,
         page_size,
     })
+}
+
+fn row_to_movie(row: &SqliteRow) -> MovieItem {
+    MovieItem {
+        id: row.get("id"),
+        name: row.get("name"),
+        category_id: row.get("category_id"),
+        category_name: row.get("category_name"),
+        poster_url: row.get("poster_url"),
+        stream_url: row.get("stream_url"),
+        container_ext: row.get("container_ext"),
+        release_year: row.get("release_year"),
+        rating: row.get("rating"),
+        added_at: row.get("added_at"),
+    }
+}
+
+fn row_to_series(row: &SqliteRow) -> SeriesItem {
+    SeriesItem {
+        id: row.get("id"),
+        name: row.get("name"),
+        category_id: row.get("category_id"),
+        category_name: row.get("category_name"),
+        poster_url: row.get("poster_url"),
+        release_year: row.get("release_year"),
+    }
+}
+
+fn row_to_episode(row: &SqliteRow) -> EpisodeItem {
+    EpisodeItem {
+        id: row.get("id"),
+        series_id: row.get("series_id"),
+        season: row.get("season"),
+        episode: row.get("episode"),
+        title: row.get("title"),
+        stream_url: row.get("stream_url"),
+        container_ext: row.get("container_ext"),
+        duration_seconds: row.get("duration_seconds"),
+        poster_url: row.get("poster_url"),
+    }
+}
+
+/// Shared pagination plumbing for the three catalog tables: count + one
+/// alphabetical (case-insensitive) page, optionally filtered by category.
+async fn catalog_page<T>(
+    pool: &SqlitePool,
+    table: &str,
+    provider_id: &str,
+    category_id: Option<&str>,
+    page: i64,
+    page_size: i64,
+    map: fn(&SqliteRow) -> T,
+) -> Result<PaginatedResult<T>, sqlx::Error> {
+    let page = page.max(1);
+    let page_size = page_size.clamp(1, MAX_PAGE_SIZE);
+
+    let category_filter = if category_id.is_some() { " AND category_id = ?" } else { "" };
+    let count_sql = format!("SELECT COUNT(*) FROM {table} WHERE provider_id = ?{category_filter}");
+    let items_sql = format!(
+        "SELECT * FROM {table} WHERE provider_id = ?{category_filter}
+         ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?"
+    );
+
+    let mut count_query = sqlx::query(&count_sql).bind(provider_id);
+    let mut items_query = sqlx::query(&items_sql).bind(provider_id);
+    if let Some(category) = category_id {
+        count_query = count_query.bind(category);
+        items_query = items_query.bind(category);
+    }
+
+    let total: i64 = count_query.fetch_one(pool).await?.get(0);
+    let rows = items_query
+        .bind(page_size)
+        .bind((page - 1) * page_size)
+        .fetch_all(pool)
+        .await?;
+
+    Ok(PaginatedResult {
+        items: rows.iter().map(map).collect(),
+        total,
+        page,
+        page_size,
+    })
+}
+
+pub async fn movies_page(
+    pool: &SqlitePool,
+    provider_id: &str,
+    category_id: Option<&str>,
+    page: i64,
+    page_size: i64,
+) -> Result<PaginatedResult<MovieItem>, sqlx::Error> {
+    catalog_page(pool, "movies", provider_id, category_id, page, page_size, row_to_movie).await
+}
+
+pub async fn series_page(
+    pool: &SqlitePool,
+    provider_id: &str,
+    category_id: Option<&str>,
+    page: i64,
+    page_size: i64,
+) -> Result<PaginatedResult<SeriesItem>, sqlx::Error> {
+    catalog_page(pool, "series", provider_id, category_id, page, page_size, row_to_series).await
+}
+
+/// Categories in provider order, hiding ones with no content (spec §12).
+async fn non_empty_categories(
+    pool: &SqlitePool,
+    category_table: &str,
+    content_table: &str,
+    provider_id: &str,
+) -> Result<Vec<Category>, sqlx::Error> {
+    let sql = format!(
+        "SELECT c.id, c.name, c.sort_order FROM {category_table} c
+         WHERE c.provider_id = ?
+           AND EXISTS (SELECT 1 FROM {content_table} x
+                       WHERE x.provider_id = c.provider_id AND x.category_id = c.id)
+         ORDER BY c.sort_order, c.name COLLATE NOCASE"
+    );
+    let rows = sqlx::query(&sql).bind(provider_id).fetch_all(pool).await?;
+    Ok(rows
+        .iter()
+        .map(|r| Category {
+            id: r.get("id"),
+            name: r.get("name"),
+            sort_order: r.get("sort_order"),
+        })
+        .collect())
+}
+
+pub async fn vod_categories(
+    pool: &SqlitePool,
+    provider_id: &str,
+) -> Result<Vec<Category>, sqlx::Error> {
+    non_empty_categories(pool, "vod_categories", "movies", provider_id).await
+}
+
+pub async fn series_categories(
+    pool: &SqlitePool,
+    provider_id: &str,
+) -> Result<Vec<Category>, sqlx::Error> {
+    non_empty_categories(pool, "series_categories", "series", provider_id).await
+}
+
+pub async fn movie_by_id(
+    pool: &SqlitePool,
+    provider_id: &str,
+    movie_id: &str,
+) -> Result<Option<MovieItem>, sqlx::Error> {
+    let row = sqlx::query("SELECT * FROM movies WHERE provider_id = ? AND id = ?")
+        .bind(provider_id)
+        .bind(movie_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.as_ref().map(row_to_movie))
+}
+
+pub async fn series_by_id(
+    pool: &SqlitePool,
+    provider_id: &str,
+    series_id: &str,
+) -> Result<Option<SeriesItem>, sqlx::Error> {
+    let row = sqlx::query("SELECT * FROM series WHERE provider_id = ? AND id = ?")
+        .bind(provider_id)
+        .bind(series_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.as_ref().map(row_to_series))
+}
+
+pub async fn episodes_for_series(
+    pool: &SqlitePool,
+    provider_id: &str,
+    series_id: &str,
+) -> Result<Vec<EpisodeItem>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT * FROM episodes WHERE provider_id = ? AND series_id = ?
+         ORDER BY season, episode",
+    )
+    .bind(provider_id)
+    .bind(series_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.iter().map(row_to_episode).collect())
+}
+
+/// Replace one series' episodes (used by the on-demand Xtream fetch).
+pub async fn replace_series_episodes(
+    pool: &SqlitePool,
+    provider_id: &str,
+    series_id: &str,
+    episodes: &[EpisodeItem],
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM episodes WHERE provider_id = ? AND series_id = ?")
+        .bind(provider_id)
+        .bind(series_id)
+        .execute(&mut *tx)
+        .await?;
+    for chunk in episodes.chunks(CHUNK) {
+        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
+            "INSERT OR REPLACE INTO episodes
+             (id, provider_id, series_id, season, episode, title, stream_url, container_ext, duration_seconds, poster_url) ",
+        );
+        qb.push_values(chunk, |mut b, e| {
+            b.push_bind(&e.id)
+                .push_bind(provider_id)
+                .push_bind(&e.series_id)
+                .push_bind(e.season)
+                .push_bind(e.episode)
+                .push_bind(&e.title)
+                .push_bind(&e.stream_url)
+                .push_bind(&e.container_ext)
+                .push_bind(e.duration_seconds)
+                .push_bind(&e.poster_url);
+        });
+        qb.build().execute(&mut *tx).await?;
+    }
+    tx.commit().await
 }
 
 pub async fn summary(pool: &SqlitePool, provider_id: &str) -> Result<CatalogSummary, sqlx::Error> {

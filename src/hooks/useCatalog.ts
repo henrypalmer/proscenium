@@ -1,23 +1,31 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import * as api from "../lib/tauri";
-import type { LiveChannel } from "../types";
+import type { LiveChannel, Movie, PaginatedResult, Series } from "../types";
 
 export const PAGE_SIZE = 200;
 
+type PageFetcher<T> = (
+  providerId: string,
+  categoryId: string | undefined,
+  page: number,
+  pageSize: number,
+) => Promise<PaginatedResult<T>>;
+
 /**
- * Sparse, page-on-demand channel loading for the virtualized list. Items are
+ * Sparse, page-on-demand item loading for virtualized lists/grids. Items are
  * fetched in PAGE_SIZE chunks as the visible range reaches them; `getItem`
  * returns undefined for rows whose page hasn't landed yet (rendered as
  * skeletons).
  */
-export function usePagedLiveChannels(
+export function usePagedItems<T>(
   providerId: string | null,
   categoryId: string | null,
   version: number,
+  fetchPage: PageFetcher<T>,
 ) {
   const [total, setTotal] = useState<number | null>(null);
   const [, bump] = useReducer((x: number) => x + 1, 0);
-  const items = useRef<(LiveChannel | undefined)[]>([]);
+  const items = useRef<(T | undefined)[]>([]);
   const pages = useRef<Map<number, "loading" | "done">>(new Map());
   // Invalidates in-flight responses from a previous provider/category.
   const generation = useRef(0);
@@ -28,7 +36,7 @@ export function usePagedLiveChannels(
       pages.current.set(page, "loading");
       const gen = generation.current;
       try {
-        const result = await api.getLiveChannels(
+        const result = await fetchPage(
           providerId,
           categoryId ?? undefined,
           page,
@@ -46,7 +54,7 @@ export function usePagedLiveChannels(
         if (gen === generation.current) pages.current.delete(page);
       }
     },
-    [providerId, categoryId],
+    [providerId, categoryId, fetchPage],
   );
 
   useEffect(() => {
@@ -73,4 +81,33 @@ export function usePagedLiveChannels(
     getItem: (index: number) => items.current[index],
     ensureRange,
   };
+}
+
+export function usePagedLiveChannels(
+  providerId: string | null,
+  categoryId: string | null,
+  version: number,
+) {
+  return usePagedItems<LiveChannel>(
+    providerId,
+    categoryId,
+    version,
+    api.getLiveChannels,
+  );
+}
+
+export function usePagedMovies(
+  providerId: string | null,
+  categoryId: string | null,
+  version: number,
+) {
+  return usePagedItems<Movie>(providerId, categoryId, version, api.getMovies);
+}
+
+export function usePagedSeries(
+  providerId: string | null,
+  categoryId: string | null,
+  version: number,
+) {
+  return usePagedItems<Series>(providerId, categoryId, version, api.getSeries);
 }

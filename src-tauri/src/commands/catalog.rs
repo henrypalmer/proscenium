@@ -5,11 +5,11 @@ use crate::db::{self, Db};
 use crate::iptv::{m3u, xtream};
 use crate::keychain;
 use crate::models::{
-    CatalogSummary, Category, LiveChannel, PaginatedResult, Provider, ProviderType,
-    RefreshComplete, RefreshProgress,
+    CatalogSummary, Category, EpisodeItem, LiveChannel, MovieDetail, MovieItem, PaginatedResult,
+    Provider, ProviderType, RefreshComplete, RefreshProgress, SeriesDetail, SeriesItem,
 };
 use sqlx::SqlitePool;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -22,6 +22,15 @@ pub const DEFAULT_CACHE_TTL_HOURS: i64 = 6;
 /// from the manual button racing the startup stale check).
 #[derive(Default)]
 pub struct RefreshGuard(pub Mutex<HashSet<String>>);
+
+/// Session cache for on-demand Xtream detail metadata, keyed by
+/// `{provider_id}/{content_id}`. The §15 schema has no description/genre
+/// columns, so this metadata is never persisted — it lives for the app run.
+#[derive(Default)]
+pub struct DetailCache {
+    movies: Mutex<HashMap<String, xtream::VodInfo>>,
+    series: Mutex<HashMap<String, xtream::SeriesInfo>>,
+}
 
 fn now_unix() -> i64 {
     SystemTime::now()
@@ -188,6 +197,164 @@ pub async fn startup_stale_check(app: AppHandle) {
     }
 }
 
+/// Owned Xtream credentials for `provider`, or `None` when it's an M3U
+/// provider (which has no on-demand detail endpoints).
+async fn xtream_creds_for(
+    pool: &SqlitePool,
+    provider_id: &str,
+) -> Result<Option<(String, String, String)>, String> {
+    let provider = db::providers::get(pool, provider_id)
+        .await
+        .map_err(|e| format!("Failed to load provider: {e}"))?
+        .ok_or_else(|| format!("Provider {provider_id} does not exist."))?;
+    if provider.provider_type != ProviderType::Xtream {
+        return Ok(None);
+    }
+    let server = provider.server_url.ok_or("Provider has no server URL.")?;
+    let username = provider.username.ok_or("Provider has no username.")?;
+    let password = keychain::get_secret(&provider.id)?;
+    Ok(Some((server, username, password)))
+}
+
+/// Episodes for a series, grouped by season. For Xtream providers whose
+/// episodes are not cached yet, fetches `get_series_info` on demand and
+/// persists the result (spec §16 / Milestone 5).
+pub async fn get_episodes_impl(
+    pool: &SqlitePool,
+    provider_id: &str,
+    series_id: &str,
+) -> Result<BTreeMap<i64, Vec<EpisodeItem>>, String> {
+    let mut episodes = db::catalog::episodes_for_series(pool, provider_id, series_id)
+        .await
+        .map_err(|e| format!("Failed to read episodes: {e}"))?;
+
+    if episodes.is_empty() {
+        if let Some((server, username, password)) = xtream_creds_for(pool, provider_id).await? {
+            let creds = xtream::XtreamCreds {
+                server_url: &server,
+                username: &username,
+                password: &password,
+            };
+            let info = xtream::fetch_series_info(&creds, series_id).await?;
+            db::catalog::replace_series_episodes(pool, provider_id, series_id, &info.episodes)
+                .await
+                .map_err(|e| format!("Failed to save episodes: {e}"))?;
+            episodes = info.episodes;
+        }
+    }
+
+    let mut grouped: BTreeMap<i64, Vec<EpisodeItem>> = BTreeMap::new();
+    for episode in episodes {
+        grouped.entry(episode.season).or_default().push(episode);
+    }
+    Ok(grouped)
+}
+
+/// Movie detail: the cached row, enriched with `get_vod_info` metadata for
+/// Xtream providers. A metadata fetch failure degrades to the bare row
+/// (description is spec'd as "if available") and is not cached, so a later
+/// open retries.
+pub async fn get_movie_detail_impl(
+    pool: &SqlitePool,
+    cache: &DetailCache,
+    provider_id: &str,
+    movie_id: &str,
+) -> Result<MovieDetail, String> {
+    let movie = db::catalog::movie_by_id(pool, provider_id, movie_id)
+        .await
+        .map_err(|e| format!("Failed to read the movie: {e}"))?
+        .ok_or_else(|| format!("No movie with id {movie_id} in the catalog."))?;
+
+    let key = format!("{provider_id}/{movie_id}");
+    let cached = cache.movies.lock().unwrap().get(&key).cloned();
+    let meta = match cached {
+        Some(meta) => meta,
+        None => match xtream_creds_for(pool, provider_id).await? {
+            Some((server, username, password)) => {
+                let creds = xtream::XtreamCreds {
+                    server_url: &server,
+                    username: &username,
+                    password: &password,
+                };
+                match xtream::fetch_vod_info(&creds, movie_id).await {
+                    Ok(meta) => {
+                        cache.movies.lock().unwrap().insert(key, meta.clone());
+                        meta
+                    }
+                    Err(_) => xtream::VodInfo::default(),
+                }
+            }
+            None => xtream::VodInfo::default(),
+        },
+    };
+
+    Ok(MovieDetail {
+        movie,
+        description: meta.description,
+        genre: meta.genre,
+        duration_seconds: meta.duration_seconds,
+    })
+}
+
+/// Series detail, enriched with `get_series_info` metadata for Xtream
+/// providers. The episode list from the same response is persisted so the
+/// subsequent `get_episodes` call is served from the database.
+pub async fn get_series_detail_impl(
+    pool: &SqlitePool,
+    cache: &DetailCache,
+    provider_id: &str,
+    series_id: &str,
+) -> Result<SeriesDetail, String> {
+    let series = db::catalog::series_by_id(pool, provider_id, series_id)
+        .await
+        .map_err(|e| format!("Failed to read the series: {e}"))?
+        .ok_or_else(|| format!("No series with id {series_id} in the catalog."))?;
+
+    let key = format!("{provider_id}/{series_id}");
+    let cached = cache.series.lock().unwrap().get(&key).cloned();
+    let meta = match cached {
+        Some(meta) => meta,
+        None => match xtream_creds_for(pool, provider_id).await? {
+            Some((server, username, password)) => {
+                let creds = xtream::XtreamCreds {
+                    server_url: &server,
+                    username: &username,
+                    password: &password,
+                };
+                match xtream::fetch_series_info(&creds, series_id).await {
+                    Ok(info) => {
+                        if !info.episodes.is_empty() {
+                            db::catalog::replace_series_episodes(
+                                pool,
+                                provider_id,
+                                series_id,
+                                &info.episodes,
+                            )
+                            .await
+                            .map_err(|e| format!("Failed to save episodes: {e}"))?;
+                        }
+                        // Episodes live in SQLite now; cache only the metadata.
+                        let meta = xtream::SeriesInfo {
+                            episodes: Vec::new(),
+                            ..info
+                        };
+                        cache.series.lock().unwrap().insert(key, meta.clone());
+                        meta
+                    }
+                    Err(_) => xtream::SeriesInfo::default(),
+                }
+            }
+            None => xtream::SeriesInfo::default(),
+        },
+    };
+
+    Ok(SeriesDetail {
+        series,
+        description: meta.description,
+        genre: meta.genre,
+    })
+}
+
 #[tauri::command]
 pub async fn get_active_provider(state: State<'_, Db>) -> Result<Option<Provider>, String> {
     get_active_provider_impl(&state.0).await
@@ -232,6 +399,81 @@ pub async fn get_live_channels(
     db::catalog::live_channels_page(&state.0, &provider_id, category_id.as_deref(), page, page_size)
         .await
         .map_err(|e| format!("Failed to read live channels: {e}"))
+}
+
+#[tauri::command]
+pub async fn get_vod_categories(
+    state: State<'_, Db>,
+    provider_id: String,
+) -> Result<Vec<Category>, String> {
+    db::catalog::vod_categories(&state.0, &provider_id)
+        .await
+        .map_err(|e| format!("Failed to read movie genres: {e}"))
+}
+
+#[tauri::command]
+pub async fn get_movies(
+    state: State<'_, Db>,
+    provider_id: String,
+    category_id: Option<String>,
+    page: i64,
+    page_size: i64,
+) -> Result<PaginatedResult<MovieItem>, String> {
+    db::catalog::movies_page(&state.0, &provider_id, category_id.as_deref(), page, page_size)
+        .await
+        .map_err(|e| format!("Failed to read movies: {e}"))
+}
+
+#[tauri::command]
+pub async fn get_series_categories(
+    state: State<'_, Db>,
+    provider_id: String,
+) -> Result<Vec<Category>, String> {
+    db::catalog::series_categories(&state.0, &provider_id)
+        .await
+        .map_err(|e| format!("Failed to read series genres: {e}"))
+}
+
+#[tauri::command]
+pub async fn get_series(
+    state: State<'_, Db>,
+    provider_id: String,
+    category_id: Option<String>,
+    page: i64,
+    page_size: i64,
+) -> Result<PaginatedResult<SeriesItem>, String> {
+    db::catalog::series_page(&state.0, &provider_id, category_id.as_deref(), page, page_size)
+        .await
+        .map_err(|e| format!("Failed to read series: {e}"))
+}
+
+#[tauri::command]
+pub async fn get_episodes(
+    state: State<'_, Db>,
+    provider_id: String,
+    series_id: String,
+) -> Result<BTreeMap<i64, Vec<EpisodeItem>>, String> {
+    get_episodes_impl(&state.0, &provider_id, &series_id).await
+}
+
+#[tauri::command]
+pub async fn get_movie_detail(
+    state: State<'_, Db>,
+    cache: State<'_, DetailCache>,
+    provider_id: String,
+    movie_id: String,
+) -> Result<MovieDetail, String> {
+    get_movie_detail_impl(&state.0, &cache, &provider_id, &movie_id).await
+}
+
+#[tauri::command]
+pub async fn get_series_detail(
+    state: State<'_, Db>,
+    cache: State<'_, DetailCache>,
+    provider_id: String,
+    series_id: String,
+) -> Result<SeriesDetail, String> {
+    get_series_detail_impl(&state.0, &cache, &provider_id, &series_id).await
 }
 
 #[tauri::command]

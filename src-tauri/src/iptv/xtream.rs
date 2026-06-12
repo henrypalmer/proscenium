@@ -2,7 +2,7 @@
 //! endpoints (spec §5.2 / §6).
 
 use crate::models::{
-    CatalogData, Category, ConnectionTestResult, LiveChannel, MovieItem, SeriesItem,
+    CatalogData, Category, ConnectionTestResult, EpisodeItem, LiveChannel, MovieItem, SeriesItem,
     XtreamAccountInfo,
 };
 use serde_json::Value;
@@ -204,6 +204,137 @@ pub async fn fetch_catalog(
     }
 
     Ok(data)
+}
+
+async fn get_action_with_id(
+    client: &reqwest::Client,
+    creds: &XtreamCreds<'_>,
+    action: &str,
+    id_key: &str,
+    id: &str,
+) -> Result<Value, String> {
+    let url = format!("{}/player_api.php", creds.base());
+    let response = client
+        .get(&url)
+        .query(&[
+            ("username", creds.username),
+            ("password", creds.password),
+            ("action", action),
+            (id_key, id),
+        ])
+        .send()
+        .await
+        .map_err(|_| {
+            format!(
+                "Could not connect to {}. Check the server address and your internet connection.",
+                creds.server_url
+            )
+        })?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "The server responded with HTTP {} for {action}.",
+            response.status()
+        ));
+    }
+    response
+        .json()
+        .await
+        .map_err(|_| format!("The server returned an invalid response for {action}."))
+}
+
+/// `plot` is the canonical Xtream field; some panels use `description`.
+fn description_from(info: &Value) -> Option<String> {
+    ["plot", "description"]
+        .iter()
+        .find_map(|k| value_to_string(&info[*k]).filter(|s| !s.is_empty()))
+}
+
+/// On-demand movie metadata (spec §6 `get_vod_info`, Milestone 5).
+#[derive(Debug, Clone, Default)]
+pub struct VodInfo {
+    pub description: Option<String>,
+    pub genre: Option<String>,
+    pub duration_seconds: Option<i64>,
+}
+
+pub async fn fetch_vod_info(creds: &XtreamCreds<'_>, vod_id: &str) -> Result<VodInfo, String> {
+    let client = super::http_client()?;
+    let body = get_action_with_id(&client, creds, "get_vod_info", "vod_id", vod_id).await?;
+    let info = &body["info"];
+    Ok(VodInfo {
+        description: description_from(info),
+        genre: value_to_string(&info["genre"]).filter(|s| !s.is_empty()),
+        duration_seconds: value_to_i64(&info["duration_secs"]),
+    })
+}
+
+/// On-demand series metadata and episode list (spec §6 `get_series_info`,
+/// Milestone 5 — episodes are fetched per series when one is opened).
+#[derive(Debug, Clone, Default)]
+pub struct SeriesInfo {
+    pub description: Option<String>,
+    pub genre: Option<String>,
+    pub episodes: Vec<EpisodeItem>,
+}
+
+pub async fn fetch_series_info(
+    creds: &XtreamCreds<'_>,
+    series_id: &str,
+) -> Result<SeriesInfo, String> {
+    let client = super::http_client()?;
+    let body = get_action_with_id(&client, creds, "get_series_info", "series_id", series_id).await?;
+    let info = &body["info"];
+
+    // `episodes` is usually an object keyed by season number, but some
+    // panels return an array of per-season arrays.
+    let season_lists: Vec<&Value> = match &body["episodes"] {
+        Value::Object(map) => map.values().collect(),
+        Value::Array(items) => items.iter().collect(),
+        _ => Vec::new(),
+    };
+
+    let mut episodes = Vec::new();
+    for list in season_lists {
+        let Some(items) = list.as_array() else {
+            continue;
+        };
+        for (i, item) in items.iter().enumerate() {
+            let Some(id) = value_to_string(&item["id"]) else {
+                continue;
+            };
+            let episode = value_to_i64(&item["episode_num"]).unwrap_or(i as i64 + 1);
+            let ext = value_to_string(&item["container_extension"])
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "mp4".into());
+            episodes.push(EpisodeItem {
+                stream_url: format!(
+                    "{}/series/{}/{}/{}.{}",
+                    creds.base(),
+                    creds.username,
+                    creds.password,
+                    id,
+                    ext
+                ),
+                id,
+                series_id: series_id.to_string(),
+                season: value_to_i64(&item["season"]).unwrap_or(1),
+                title: value_to_string(&item["title"])
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| format!("Episode {episode}")),
+                episode,
+                container_ext: ext,
+                duration_seconds: value_to_i64(&item["info"]["duration_secs"]),
+                poster_url: value_to_string(&item["info"]["movie_image"]).filter(|s| !s.is_empty()),
+            });
+        }
+    }
+    episodes.sort_by_key(|e| (e.season, e.episode));
+
+    Ok(SeriesInfo {
+        description: description_from(info),
+        genre: value_to_string(&info["genre"]).filter(|s| !s.is_empty()),
+        episodes,
+    })
 }
 
 /// `GET {server}/player_api.php?username={u}&password={p}` and interpret the

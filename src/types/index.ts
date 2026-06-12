@@ -54,6 +54,55 @@ export interface LiveChannel {
   epgChannelId: string | null;
 }
 
+export interface Movie {
+  id: string;
+  name: string;
+  categoryId: string;
+  categoryName: string;
+  posterUrl: string | null;
+  streamUrl: string;
+  containerExt: string;
+  releaseYear: number | null;
+  rating: string | null;
+  addedAt: number | null;
+}
+
+export interface Series {
+  id: string;
+  name: string;
+  categoryId: string;
+  categoryName: string;
+  posterUrl: string | null;
+  releaseYear: number | null;
+}
+
+export interface Episode {
+  id: string;
+  seriesId: string;
+  season: number;
+  episode: number;
+  title: string;
+  streamUrl: string;
+  containerExt: string;
+  durationSeconds: number | null;
+  posterUrl: string | null;
+}
+
+/** Movie row plus on-demand metadata (Xtream vod_info; session-cached). */
+export interface MovieDetail extends Movie {
+  description: string | null;
+  genre: string | null;
+  durationSeconds: number | null;
+}
+
+export interface SeriesDetail extends Series {
+  description: string | null;
+  genre: string | null;
+}
+
+/** Keyed by season number (JSON object keys arrive as strings). */
+export type EpisodesBySeason = Record<number, Episode[]>;
+
 export interface PaginatedResult<T> {
   items: T[];
   total: number;

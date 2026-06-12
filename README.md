@@ -1,8 +1,10 @@
 # Proscenium
 
-Cross-platform desktop IPTV client built with Tauri v2 (Rust) + React + TypeScript + Tailwind CSS. See [specs/v1/spec-v1.md](specs/v1/spec-v1.md) for the full product specification.
+Cross-platform desktop IPTV client built with Tauri v2 (Rust) + React + TypeScript + Tailwind CSS. See [spec-v1.md](spec-v1.md) for the full product specification.
 
 ## Status
+
+Milestone 5 (VOD Browser — Movies & TV Shows) is implemented: Movies and TV Shows sections with genre sidebars, a shared virtualized poster grid (responsive column count, lazy poster art with placeholder fallback, ~48 cells in the DOM for 12k items), movie and series detail views with on-demand Xtream metadata (`get_vod_info` / `get_series_info`, session-cached; episodes fetched per series and persisted), a season selector with per-season episode lists, and play / external-player launch from detail views and episode rows.
 
 Milestone 4 (Built-in Player & External Player Handoff) is implemented: libmpv loaded dynamically at runtime (LGPL-compliant) renders into a native window behind a transparent WebView, with hardware decode (D3D11VA) on by default, full transport controls, audio/subtitle track selection, all §5.6 keyboard shortcuts, 10s/30s buffering thresholds, and external player handoff (mpv/VLC/custom). `libmpv-2.dll` (from mpv-winbuild) must sit next to the executable — see DEVELOPMENT.md.
 
