@@ -13,6 +13,13 @@ crate-type = ["lib"]
 test = false
 doctest = false
 
+[features]
+# Enabled for production builds (the Tauri CLI does this automatically).
+# Without it the binary tries to load the dev server URL instead of the
+# embedded frontend assets. For direct cargo builds:
+#   cargo build --release --features custom-protocol
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -26,3 +33,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "gzi
 uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
 flate2 = "1"
+libloading = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm"] }

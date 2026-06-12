@@ -165,6 +165,58 @@ pub struct RefreshComplete {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackInfo {
+    pub id: i64,
+    pub title: Option<String>,
+    pub lang: Option<String>,
+    pub codec: Option<String>,
+}
+
+/// Built-in player state (spec §16 `MpvState`, plus `hwdecCurrent` so the
+/// active hardware decoder is observable).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MpvState {
+    pub playing: bool,
+    pub paused: bool,
+    /// Seconds.
+    pub position: f64,
+    /// Seconds; None for live streams.
+    pub duration: Option<f64>,
+    /// 0–100.
+    pub volume: f64,
+    pub muted: bool,
+    pub buffering: bool,
+    pub audio_tracks: Vec<TrackInfo>,
+    pub subtitle_tracks: Vec<TrackInfo>,
+    pub active_audio_track: Option<i64>,
+    pub active_subtitle_track: Option<i64>,
+    pub error: Option<String>,
+    pub hwdec_current: Option<String>,
+}
+
+impl Default for MpvState {
+    fn default() -> Self {
+        Self {
+            playing: false,
+            paused: false,
+            position: 0.0,
+            duration: None,
+            volume: 100.0,
+            muted: false,
+            buffering: false,
+            audio_tracks: Vec::new(),
+            subtitle_tracks: Vec::new(),
+            active_audio_track: None,
+            active_subtitle_track: None,
+            error: None,
+            hwdec_current: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct XtreamAccountInfo {

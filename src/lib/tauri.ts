@@ -5,7 +5,9 @@ import type {
   Category,
   ConnectionTestResult,
   LiveChannel,
+  MpvState,
   PaginatedResult,
+  PlayableContentType,
   Provider,
   ProviderInput,
 } from "../types";
@@ -67,3 +69,34 @@ export function getLiveChannels(
 ): Promise<PaginatedResult<LiveChannel>> {
   return invoke("get_live_channels", { providerId, categoryId, page, pageSize });
 }
+
+export function resolveStreamUrl(
+  providerId: string,
+  contentType: PlayableContentType,
+  contentId: string,
+): Promise<string> {
+  return invoke("resolve_stream_url", { providerId, contentType, contentId });
+}
+
+export function openInExternalPlayer(
+  streamUrl: string,
+  player?: "mpv" | "vlc" | "custom",
+): Promise<void> {
+  return invoke("open_in_external_player", { streamUrl, player });
+}
+
+export const mpv = {
+  loadUrl: (url: string): Promise<void> => invoke("mpv_load_url", { url }),
+  play: (): Promise<void> => invoke("mpv_play"),
+  pause: (): Promise<void> => invoke("mpv_pause"),
+  stop: (): Promise<void> => invoke("mpv_stop"),
+  seek: (seconds: number): Promise<void> => invoke("mpv_seek", { seconds }),
+  setVolume: (volume: number): Promise<void> =>
+    invoke("mpv_set_volume", { volume }),
+  setMute: (muted: boolean): Promise<void> => invoke("mpv_set_mute", { muted }),
+  setAudioTrack: (trackId: number): Promise<void> =>
+    invoke("mpv_set_audio_track", { trackId }),
+  setSubtitleTrack: (trackId: number): Promise<void> =>
+    invoke("mpv_set_subtitle_track", { trackId }),
+  getState: (): Promise<MpvState> => invoke("mpv_get_state"),
+};

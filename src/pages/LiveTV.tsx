@@ -4,6 +4,7 @@ import CategoryPanel from "../components/layout/CategoryPanel";
 import ChannelList from "../components/live/ChannelList";
 import * as api from "../lib/tauri";
 import { useCatalogStore } from "../store/catalogStore";
+import { usePlayerStore } from "../store/playerStore";
 import type { Category, LiveChannel } from "../types";
 
 interface MenuState {
@@ -58,9 +59,26 @@ export default function LiveTV() {
     );
   }
 
-  // Playback ships in Milestone 4; the interactions exist now.
-  const notYet = (channel: LiveChannel, what: string) =>
-    notify(`${what} for "${channel.name}" arrives with the player in Milestone 4.`);
+  const providerIdForPlayback = activeProvider.id;
+  const play = (channel: LiveChannel) =>
+    void usePlayerStore.getState().openContent({
+      providerId: providerIdForPlayback,
+      contentType: "live",
+      contentId: channel.id,
+      title: channel.name,
+    });
+  const openExternal = async (channel: LiveChannel) => {
+    try {
+      const url = await api.resolveStreamUrl(
+        providerIdForPlayback,
+        "live",
+        channel.id,
+      );
+      await api.openInExternalPlayer(url);
+    } catch (e) {
+      notify(String(e), "error");
+    }
+  };
 
   return (
     <div className="flex h-full">
@@ -77,7 +95,7 @@ export default function LiveTV() {
           categoryId={selected}
           showCategory={selected === null}
           version={refreshTick}
-          onActivate={(channel) => notYet(channel, "Playback")}
+          onActivate={play}
           onContextMenu={(channel, x, y) => setMenu({ channel, x, y })}
         />
       </div>
@@ -87,13 +105,10 @@ export default function LiveTV() {
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            {
-              label: "Play",
-              onSelect: () => notYet(menu.channel, "Playback"),
-            },
+            { label: "Play", onSelect: () => play(menu.channel) },
             {
               label: "Open in External Player",
-              onSelect: () => notYet(menu.channel, "External player launch"),
+              onSelect: () => void openExternal(menu.channel),
             },
           ]}
         />

@@ -3,6 +3,7 @@ pub mod db;
 pub mod iptv;
 pub mod keychain;
 pub mod models;
+pub mod mpv;
 
 use std::time::Instant;
 use tauri::Manager;
@@ -28,6 +29,8 @@ pub fn run() {
             let pool = tauri::async_runtime::block_on(db::init(&db_path))?;
             app.manage(db::Db(pool));
             app.manage(commands::catalog::RefreshGuard::default());
+            app.manage(commands::playback::PlayerHandle::default());
+            app.manage(commands::playback::VideoHost::default());
             // Background stale-cache check (spec §5.2 startup trigger).
             tauri::async_runtime::spawn(commands::catalog::startup_stale_check(
                 app.handle().clone(),
@@ -45,7 +48,45 @@ pub fn run() {
             commands::catalog::get_catalog_summary,
             commands::catalog::get_live_categories,
             commands::catalog::get_live_channels,
+            commands::playback::resolve_stream_url,
+            commands::playback::open_in_external_player,
+            commands::playback::mpv_load_url,
+            commands::playback::mpv_play,
+            commands::playback::mpv_pause,
+            commands::playback::mpv_stop,
+            commands::playback::mpv_seek,
+            commands::playback::mpv_set_volume,
+            commands::playback::mpv_set_mute,
+            commands::playback::mpv_set_audio_track,
+            commands::playback::mpv_set_subtitle_track,
+            commands::playback::mpv_get_state,
         ])
+        .on_window_event(|window, event| {
+            // Keep the native video window glued behind the app window.
+            #[cfg(target_os = "windows")]
+            if matches!(
+                event,
+                tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::Moved(_)
+                    | tauri::WindowEvent::Focused(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                use std::sync::atomic::Ordering;
+                use tauri::Manager;
+                let host = window
+                    .app_handle()
+                    .state::<commands::playback::VideoHost>()
+                    .0
+                    .load(Ordering::SeqCst);
+                if host != 0 {
+                    if let Ok(parent) = window.hwnd() {
+                        mpv::video_host::fit_to_parent(host, parent.0 as isize);
+                    }
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            let _ = (window, event);
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |handle, event| {

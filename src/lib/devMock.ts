@@ -11,6 +11,7 @@ import type {
   Category,
   ConnectionTestResult,
   LiveChannel,
+  MpvState,
   PaginatedResult,
   Provider,
 } from "../types";
@@ -85,6 +86,84 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// --- Mock mpv state machine (drives the player UI in browser dev) ---
+
+function defaultMpvState(): MpvState {
+  return {
+    playing: false,
+    paused: false,
+    position: 0,
+    duration: null,
+    volume: 100,
+    muted: false,
+    buffering: false,
+    audioTracks: [],
+    subtitleTracks: [],
+    activeAudioTrack: null,
+    activeSubtitleTrack: null,
+    error: null,
+    hwdecCurrent: null,
+  };
+}
+
+const mockMpv = {
+  state: defaultMpvState(),
+  ticker: null as number | null,
+  lastContentType: "live" as string,
+
+  load(url: string) {
+    this.stopTicker();
+    this.state = {
+      ...defaultMpvState(),
+      volume: this.state.volume,
+      muted: this.state.muted,
+      buffering: true,
+    };
+    // URLs containing "fail" simulate a dead stream; "slow" buffers forever
+    // (exercises the 10s notice / 30s error thresholds).
+    if (url.includes("fail")) {
+      window.setTimeout(() => {
+        this.state = {
+          ...this.state,
+          buffering: false,
+          error: "loading failed (simulated)",
+        };
+      }, 1000);
+      return;
+    }
+    if (url.includes("slow")) return; // buffering never resolves
+    window.setTimeout(() => {
+      this.state = {
+        ...this.state,
+        playing: true,
+        paused: false,
+        buffering: false,
+        duration: this.lastContentType === "live" ? null : 1320,
+        audioTracks: [
+          { id: 1, title: "Stereo", lang: "eng", codec: "aac" },
+          { id: 2, title: "Surround 5.1", lang: "eng", codec: "ac3" },
+        ],
+        subtitleTracks: [{ id: 1, title: "English", lang: "eng", codec: "subrip" }],
+        activeAudioTrack: 1,
+        activeSubtitleTrack: null,
+        hwdecCurrent: "d3d11va (mock)",
+      };
+      this.ticker = window.setInterval(() => {
+        if (this.state.playing && !this.state.paused) {
+          this.state = { ...this.state, position: this.state.position + 0.4 };
+        }
+      }, 400);
+    }, 1200);
+  },
+
+  stopTicker() {
+    if (this.ticker !== null) {
+      window.clearInterval(this.ticker);
+      this.ticker = null;
+    }
+  },
+};
+
 type Args = Record<string, unknown>;
 
 export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
@@ -135,6 +214,51 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       return provider as T;
     case "delete_provider":
       return undefined as T;
+    case "resolve_stream_url": {
+      mockMpv.lastContentType = a.contentType as string;
+      return `mock://stream/${a.contentType}/${a.contentId}` as T;
+    }
+    case "open_in_external_player":
+      console.info("[devMock] external player:", a.streamUrl);
+      return undefined as T;
+    case "mpv_load_url":
+      mockMpv.load(a.url as string);
+      return undefined as T;
+    case "mpv_play":
+      mockMpv.state = { ...mockMpv.state, paused: false };
+      return undefined as T;
+    case "mpv_pause":
+      mockMpv.state = { ...mockMpv.state, paused: true };
+      return undefined as T;
+    case "mpv_stop":
+      mockMpv.stopTicker();
+      mockMpv.state = defaultMpvState();
+      return undefined as T;
+    case "mpv_seek":
+      mockMpv.state = { ...mockMpv.state, position: a.seconds as number };
+      return undefined as T;
+    case "mpv_set_volume":
+      mockMpv.state = { ...mockMpv.state, volume: a.volume as number };
+      return undefined as T;
+    case "mpv_set_mute":
+      mockMpv.state = { ...mockMpv.state, muted: a.muted as boolean };
+      return undefined as T;
+    case "mpv_set_audio_track":
+      mockMpv.state = {
+        ...mockMpv.state,
+        activeAudioTrack: a.trackId as number,
+      };
+      return undefined as T;
+    case "mpv_set_subtitle_track": {
+      const id = a.trackId as number;
+      mockMpv.state = {
+        ...mockMpv.state,
+        activeSubtitleTrack: id < 0 ? null : id,
+      };
+      return undefined as T;
+    }
+    case "mpv_get_state":
+      return { ...mockMpv.state } as T;
     default:
       throw new Error(`devMock: unhandled command "${cmd}"`);
   }

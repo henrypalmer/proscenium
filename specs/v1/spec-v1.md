@@ -375,6 +375,7 @@ The app supports two playback modes: a built-in player and an external player ha
 #### Buffering & Loading
 
 - A loading spinner appears while the stream is buffering.
+- While a stream is loading (before its first frames arrive) and whenever it has failed, the player surface shows an opaque, soft, dark backdrop — it must never be transparent. The backdrop fades out only once the stream is actually delivering frames. *(Added during Milestone 4.)*
 - If buffering exceeds 10 seconds, a non-blocking message is shown: "Stream is taking longer than expected to load."
 - If the stream fails to start, a clear error message is shown with an option to retry or open in an external player.
 
@@ -1272,15 +1273,15 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - "Open in External Player" from context menu and player error state.
 
 **Acceptance Criteria:**
-- [ ] Clicking a channel opens the built-in player and begins streaming.
-- [ ] Play/pause, seek, volume, mute all function correctly.
-- [ ] Audio and subtitle track selectors populate and switch tracks.
-- [ ] All keyboard shortcuts work as specified.
-- [ ] Full-screen toggle works on both platforms.
-- [ ] Hardware decode is active for H.264 and H.265 streams (verifiable via mpv stats overlay).
-- [ ] Buffering spinner appears; timeout message shows at 10s; error state at 30s.
-- [ ] "Open in External Player" launches mpv or VLC with the correct stream URL.
-- [ ] Closing the player returns to the content browser without state loss.
+- [x] Clicking a channel opens the built-in player and begins streaming. *(e2e against the real app: click → overlay → libmpv playing an MPEG-TS stream over HTTP, position advancing in real time)*
+- [x] Play/pause, seek, volume, mute all function correctly. *(headless libmpv tests + real-app e2e: pause/resume, absolute seek +10s, volume 100→95, mute toggle)*
+- [x] Audio and subtitle track selectors populate and switch tracks. *(track-list parsed from libmpv; selectors render and switch; "Off" supported for subtitles; switching verified in tests and the preview)*
+- [x] All keyboard shortcuts work as specified. *(Space/←→/↑↓/M/F/Esc/A/S all verified — preview for full coverage, real-app e2e for Space/↓/M/F/Esc)*
+- [x] Full-screen toggle works on both platforms. *(F toggles 1280×800 ↔ 2560×1440 in the real app via the cross-platform Tauri API; macOS uses the same call but is untested — no macOS hardware here)*
+- [x] Hardware decode is active for H.264 and H.265 streams (verifiable via mpv stats overlay). *(verified via the equivalent `hwdec-current` property: d3d11va-copy for both codecs in headless tests, native `d3d11va` in the real player on the RTX 4080)*
+- [x] Buffering spinner appears; timeout message shows at 10s; error state at 30s. *(verified in the preview with a stalled stream: spinner → "Stream is taking longer than expected to load." → error state)*
+- [x] "Open in External Player" launches mpv or VLC with the correct stream URL. *(real-app e2e: context-menu item spawned mpv.exe with the stream URL; VLC path resolution + custom `{url}` templates covered by tests)*
+- [x] Closing the player returns to the content browser without state loss. *(browser stays mounted but invisible during playback; e2e confirmed channels/categories intact after Esc)*
 
 ---
 

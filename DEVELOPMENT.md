@@ -79,10 +79,13 @@ npm run build
 ```powershell
 npm run build                                      # produces dist/ (embedded into the exe)
 cd src-tauri
-cargo build --release
+cargo build --release --features custom-protocol   # WITHOUT the feature the exe loads the dev URL!
 Copy-Item "$env:USERPROFILE\.cargo\registry\src\index.crates.io-*\webview2-com-sys-*\x64\WebView2Loader.dll" target\release\
+Copy-Item lib\libmpv-2.dll target\release\         # built-in player engine
 .\target\release\proscenium.exe
 ```
+
+(`npm run tauri build` handles all of this automatically except the libmpv copy.)
 
 ## App data
 

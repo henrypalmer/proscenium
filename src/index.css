@@ -11,3 +11,9 @@ body {
   @apply bg-zinc-950 text-zinc-100 antialiased;
   overscroll-behavior: none;
 }
+
+/* While the built-in player is open the page background goes transparent so
+   the native mpv video window behind the WebView shows through. */
+body.player-open {
+  background: transparent;
+}

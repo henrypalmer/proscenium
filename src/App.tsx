@@ -9,11 +9,13 @@ import Header from "./components/layout/Header";
 import Sidebar from "./components/layout/Sidebar";
 import ProviderForm from "./components/providers/ProviderForm";
 import Toast from "./components/common/Toast";
+import PlayerOverlay from "./components/player/PlayerOverlay";
 import LiveTV from "./pages/LiveTV";
 import Movies from "./pages/Movies";
 import Settings from "./pages/Settings";
 import TVShows from "./pages/TVShows";
 import { useCatalogStore } from "./store/catalogStore";
+import { usePlayerStore } from "./store/playerStore";
 import { useProviderStore } from "./store/providerStore";
 
 function FirstLaunch() {
@@ -33,8 +35,12 @@ function FirstLaunch() {
 }
 
 function Shell() {
+  // While the player is open, the browser stays mounted (state, scroll, and
+  // selections survive) but stops painting so the native video can show
+  // through the transparent page background.
+  const playerOpen = usePlayerStore((s) => s.open);
   return (
-    <div className="flex h-full">
+    <div className={`flex h-full ${playerOpen ? "invisible" : ""}`}>
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header />
@@ -65,6 +71,12 @@ export default function App() {
         .getState()
         .init(useProviderStore.getState().providers);
     })();
+    // Dev/e2e hook: lets tooling inspect and drive the stores.
+    (window as unknown as Record<string, unknown>).__proscenium = {
+      player: usePlayerStore,
+      catalog: useCatalogStore,
+      providers: useProviderStore,
+    };
   }, [load]);
 
   if (!loaded) {
@@ -74,6 +86,7 @@ export default function App() {
   return (
     <BrowserRouter>
       {providers.length === 0 ? <FirstLaunch /> : <Shell />}
+      <PlayerOverlay />
       <Toast />
     </BrowserRouter>
   );

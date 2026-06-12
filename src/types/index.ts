@@ -76,3 +76,28 @@ export interface RefreshComplete {
   success: boolean;
   error?: string;
 }
+
+export interface TrackInfo {
+  id: number;
+  title: string | null;
+  lang: string | null;
+  codec: string | null;
+}
+
+export interface MpvState {
+  playing: boolean;
+  paused: boolean;
+  position: number; // seconds
+  duration: number | null; // null for live streams
+  volume: number; // 0-100
+  muted: boolean;
+  buffering: boolean;
+  audioTracks: TrackInfo[];
+  subtitleTracks: TrackInfo[];
+  activeAudioTrack: number | null;
+  activeSubtitleTrack: number | null;
+  error: string | null;
+  hwdecCurrent: string | null;
+}
+
+export type PlayableContentType = "live" | "movie" | "episode";
