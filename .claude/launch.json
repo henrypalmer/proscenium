@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vite-dev",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set PATH=C:\\Users\\henry\\AppData\\Roaming\\fnm\\node-versions\\v22.16.0\\installation;%PATH% && npm run dev"
+      ],
+      "port": 1420
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(cargo test)",
+      "PowerShell(cargo test *)",
+      "PowerShell(cargo check)",
+      "PowerShell(cargo check *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(Select-String *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(objdump *)"
+    ]
+  }
+}
