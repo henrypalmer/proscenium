@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Proscenium is a cross-platform desktop IPTV client: Tauri v2 (Rust backend) + React + TypeScript + Tailwind CSS v4 + Zustand. The product spec is `SPEC.md` (repo root); work proceeds in milestones (M1 providers/auth, M2 catalog refresh/storage, M3 live TV browser, M4 built-in mpv player, M5 VOD browser, M6 search, M7 settings/error-handling/distribution are done). `DEVELOPMENT.md` has full setup and troubleshooting; `README.md` summarizes milestone status.
+Proscenium is a cross-platform desktop IPTV client: Tauri v2 (Rust backend) + React + TypeScript + Tailwind CSS v4 + Zustand. The product spec is `SPEC.md` (repo root); work proceeds in milestones (M1 providers/auth, M2 catalog refresh/storage, M3 live TV browser, M4 built-in mpv player, M5 VOD browser, M6 search, M7 settings/error-handling/distribution are done; M8 resume playback/watch progress is specified but not yet implemented — see SPEC.md §5.9 + Milestone 8). `DEVELOPMENT.md` has full setup and troubleshooting; `README.md` summarizes milestone status.
 
 ## Commands
 

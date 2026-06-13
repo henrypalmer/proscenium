@@ -1,8 +1,8 @@
 # Proscenium — Product Specification
 
-**Version:** 0.5.0 (Draft)
+**Version:** 0.6.0 (Draft)
 **Status:** In Progress
-**Last Updated:** 2026-06-11
+**Last Updated:** 2026-06-13
 
 ---
 
@@ -21,6 +21,7 @@
    - 5.6 [Playback](#56-playback)
    - 5.7 [Cover Art & Metadata (Planned)](#57-cover-art--metadata-planned)
    - 5.8 [IMDB Integration (Planned)](#58-imdb-integration-planned)
+   - 5.9 [Resume Playback & Watch Progress](#59-resume-playback--watch-progress)
 6. [Protocol Support](#6-protocol-support)
 7. [Media Format Support](#7-media-format-support)
 8. [Data Models](#8-data-models)
@@ -404,6 +405,48 @@ The app supports two playback modes: a built-in player and an external player ha
 
 ---
 
+### 5.9 Resume Playback & Watch Progress
+
+#### Description
+
+Proscenium remembers how far the user has watched each piece of VOD content (movies and TV episodes) so playback can be resumed, progress is visible at a glance while browsing, and finished items are marked as watched. This is the "Continue Watching" item from §13, promoted into scope.
+
+Live TV is **never** tracked — it has no resumable position (its `duration` is `null`).
+
+#### Watch Position Tracking
+
+- While the built-in player is playing a movie or episode, the current position is persisted to SQLite periodically (throttled, roughly every 5 seconds) and flushed once more when the player closes.
+- Each record is keyed by `(provider_id, content_type, content_id)` and stores the last position, the total duration (when known), and a completion flag. See the `watch_progress` table in §15.
+- Records are provider-scoped and removed automatically when the provider is deleted (cascade).
+
+#### Completion
+
+- When playback passes a completion threshold (**≥ 95%** of the known duration), the item is marked **complete**.
+- A completed item no longer offers a resume prompt and no longer shows a partial progress bar. Instead its thumbnail shows a small **watched checkmark** in a corner.
+- If the user replays a completed item and watches past the start, it is treated as in-progress again (the completion flag clears and progress tracking resumes).
+
+#### Resume Prompt
+
+- Clicking **Play** on a movie or episode that has *meaningful* prior progress (more than a few seconds in, and below the completion threshold) presents a choice before playback starts:
+  - **Resume from [MM:SS]** — seeks to the saved position once the stream is loaded.
+  - **Start from beginning** — plays from 0:00.
+- If there is no meaningful saved progress (never watched, or already completed), playback starts immediately with **no prompt**.
+- The prompt applies to the built-in player. External-player handoff always starts from the beginning (the external player owns its own resume behavior, if any).
+
+#### Progress Indication While Browsing
+
+- **Movie cards** and **episode rows** display a thin progress bar overlaid along the bottom edge of the thumbnail, its width proportional to `position / duration`. The bar is shown only for in-progress (not completed, not unwatched) items.
+- **Completed** movies/episodes show a small watched checkmark in a thumbnail corner instead of a progress bar.
+- **Series grid cards** do not show a progress bar (a show has no single playback position); progress and watched state are surfaced at the episode level inside the series detail view.
+- Progress data for a whole section is fetched in bulk so the grid/list renders without per-item queries.
+
+#### Edge Cases
+
+- A stream whose duration is unknown (reports `null`) is tracked by position but cannot show a proportional bar or compute completion; it is treated as in-progress and offers a resume prompt by position only.
+- Switching the active provider scopes all progress/markers to that provider; other providers' history is untouched.
+
+---
+
 ## 6. Protocol Support
 
 ### Xtream Codes API
@@ -700,7 +743,8 @@ Items explicitly planned but deferred beyond v1.0:
 | EPG (Electronic Program Guide) | High | Requires XMLTV or Xtream EPG endpoint; target v1.1 |
 | Linux platform support | High | Deferred from v1.0; target v1.1 or v2.0 |
 | Favorites / Watch Later | Medium | Persist per-provider, locally only |
-| Continue Watching | Medium | Track playback position in SQLite |
+| ~~Continue Watching~~ | — | **Promoted into scope — see §5.9 and Milestone 8.** Tracks playback position in SQLite for resume, progress bars, and watched markers. |
+| Skip Intro (TV series) | Low | Exploratory — see §14, Q5. No provider metadata exists for intro markers; only a limited hybrid (container chapters + learned-per-series + manual) is feasible, not Netflix-style auto-detection. |
 | Multiple active providers | Medium | Switch between providers without re-auth |
 | Time-shift / Pause Live TV | Medium | Requires provider support |
 | Parental controls / PIN lock | Medium | Per-category locking |
@@ -720,6 +764,7 @@ Items explicitly planned but deferred beyond v1.0:
 | 2 | Should the app support Apple Silicon (ARM64) natively, or is a Rosetta 2 build acceptable for the initial macOS release? | Engineering | Resolved — **Rosetta 2 acceptable for v1; native ARM64 deferred** |
 | 3 | For Dolby Vision on Windows, is hardware DV decode (requiring a DV-capable display and driver) required, or is tone-mapped SDR fallback acceptable? | Engineering | Resolved — **Silent fallback to HDR10/SDR; playback never blocked** |
 | 4 | Should the installer be code-signed for both platforms from day one? (Required to avoid OS security warnings on macOS Gatekeeper and Windows SmartScreen.) | Product | Open |
+| 5 | "Skip Intro" for TV series — what approach is acceptable? IPTV providers (Xtream/M3U) supply **no** intro markers, so frame-accurate auto-detection is not feasible without a heavy audio-fingerprinting pipeline. The realistic options are a hybrid of: (a) honoring container chapter markers via mpv when present (accurate but rarely available), (b) a "learned per-series" intro length the user confirms once and is reused for later episodes, and (c) a manual fixed-offset skip button during the opening window. | Engineering / Product | Open — exploration only, no committed milestone |
 
 ---
 
@@ -849,6 +894,19 @@ CREATE TABLE image_cache (
   expires_at    INTEGER NOT NULL        -- Unix timestamp (cached_at + 30 days)
 );
 
+-- Watch progress (§5.9). Resume position + completion for VOD only; live TV is
+-- never tracked. Rows cascade-delete with their provider.
+CREATE TABLE watch_progress (
+  provider_id      TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  content_type     TEXT NOT NULL CHECK (content_type IN ('movie', 'episode')),
+  content_id       TEXT NOT NULL,
+  position_seconds INTEGER NOT NULL,            -- last playback position
+  duration_seconds INTEGER,                     -- total runtime when known (for the progress bar)
+  completed        INTEGER NOT NULL DEFAULT 0,  -- 1 once watched to the completion threshold (~95%)
+  updated_at       INTEGER NOT NULL,            -- Unix timestamp of last write
+  PRIMARY KEY (provider_id, content_type, content_id)
+);
+
 -- Indexes for common query patterns
 CREATE INDEX idx_live_channels_provider    ON live_channels(provider_id);
 CREATE INDEX idx_live_channels_category    ON live_channels(provider_id, category_id);
@@ -857,6 +915,7 @@ CREATE INDEX idx_movies_category           ON movies(provider_id, category_id);
 CREATE INDEX idx_series_provider           ON series(provider_id);
 CREATE INDEX idx_series_category           ON series(provider_id, category_id);
 CREATE INDEX idx_episodes_series           ON episodes(series_id, provider_id);
+CREATE INDEX idx_watch_progress_section    ON watch_progress(provider_id, content_type);
 
 -- Full-text search virtual tables
 CREATE VIRTUAL TABLE fts_live_channels USING fts5(
@@ -1039,6 +1098,50 @@ invoke('get_settings'): Promise<AppSettings>
 invoke('set_setting', { key: string, value: string }): Promise<void>
 ```
 
+### Watch Progress Commands (§5.9)
+
+```typescript
+// Fetch saved progress for one item (used to decide the resume prompt). Returns
+// null if the item has never been watched. Live TV is never tracked.
+invoke('get_watch_progress', {
+  providerId: string,
+  contentType: 'movie' | 'episode',
+  contentId: string
+}): Promise<WatchProgress | null>
+
+// Upsert the current position for an item. Marks the item completed when the
+// position passes the completion threshold (~95% of duration).
+invoke('set_watch_progress', {
+  providerId: string,
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  positionSeconds: number,
+  durationSeconds: number | null
+}): Promise<void>
+
+// Bulk lookup for a whole section, keyed by contentId — backs the progress
+// bars and watched checkmarks on movie cards and episode rows without a query
+// per item.
+invoke('list_watch_progress', {
+  providerId: string,
+  contentType: 'movie' | 'episode'
+}): Promise<Record<string, WatchProgress>>
+
+// Remove an item's progress (e.g. "remove from continue watching").
+invoke('clear_watch_progress', {
+  providerId: string,
+  contentType: 'movie' | 'episode',
+  contentId: string
+}): Promise<void>
+
+interface WatchProgress {
+  positionSeconds: number;
+  durationSeconds: number | null;
+  completed: boolean;
+  updatedAt: number;        // Unix timestamp
+}
+```
+
 ---
 
 ## 17. Project Structure
@@ -1162,8 +1265,9 @@ A flat reference of every named component, its location, and its responsibility.
 | `SeriesGrid` | `vod/SeriesGrid.tsx` | Virtualized grid of `SeriesCard` items |
 | `SeriesCard` | `vod/SeriesCard.tsx` | Poster, title, year, IMDB badge |
 | `SeriesDetail` | `vod/SeriesDetail.tsx` | Series banner, metadata, season selector, renders `EpisodeList` |
-| `EpisodeList` | `vod/EpisodeList.tsx` | List of episodes for the selected season; each row has a play button |
+| `EpisodeList` | `vod/EpisodeList.tsx` | List of episodes for the selected season; each row has a play button, progress bar, and watched checkmark |
 | `PosterGrid` | `vod/PosterGrid.tsx` | Shared virtualized poster grid (and lazy `Poster` image) backing `MovieGrid` and `SeriesGrid` |
+| `WatchProgressOverlay` | `vod/WatchProgressOverlay.tsx` | Thin bottom progress bar (in-progress) or corner watched checkmark (completed), overlaid on a movie/episode thumbnail (§5.9) |
 | `SearchOverlay` | `search/SearchOverlay.tsx` | Modal overlay; opens on Cmd/Ctrl+F; contains `SearchBar` and `SearchResults` |
 | `SearchBar` | `search/SearchBar.tsx` | Debounced input + content type filter tabs |
 | `SearchResults` | `search/SearchResults.tsx` | Renders three `SearchResultGroup` sections |
@@ -1173,6 +1277,7 @@ A flat reference of every named component, its location, and its responsibility.
 | `VolumeControl` | `player/VolumeControl.tsx` | Volume slider + mute toggle |
 | `TrackSelector` | `player/TrackSelector.tsx` | Dropdown for audio and subtitle track selection |
 | `BufferingOverlay` | `player/BufferingOverlay.tsx` | Spinner + timeout message + error state with retry/external player options |
+| `ResumeDialog` | `player/ResumeDialog.tsx` | Pre-playback prompt for movies/episodes with prior progress: "Resume from [MM:SS]" or "Start from beginning" (§5.9) |
 | `SkeletonCard` | `common/SkeletonCard.tsx` | Animated loading placeholder matching card dimensions |
 | `Placeholder` | `common/Placeholder.tsx` | Styled fallback when no poster/logo image is available |
 | `Toast` | `common/Toast.tsx` | Non-blocking notification (refresh failure, buffering warning, etc.) |
@@ -1362,4 +1467,30 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [x] Windows `.msi` installer builds successfully and installs the app cleanly. *(`npm run tauri build` produced `Proscenium_0.1.0_x64_en-US.msi` (~57 MB, WiX) and `Proscenium_0.1.0_x64-setup.exe` (~41 MB, NSIS); both bundle the app exe + `libmpv-2.dll` (confirmed in the generated `main.wxs` and `installer.nsi`) and WebView2 via the download bootstrapper. The MSI is a standard WiX package; a clean install/uninstall on a fresh machine needs an elevated session — not runnable in this sandbox, which has no admin.)*
 - [x] macOS `.dmg` builds successfully; app launches without Gatekeeper errors (note: requires code signing in production). *(`dmg`/`app` targets and `minimumSystemVersion: 11.0` are configured in the same bundle block that produced the verified Windows artifacts. The macOS bundle cannot be produced or launched here — no macOS hardware — and production needs an Apple Developer signing identity for Gatekeeper, as the criterion notes.)*
 - [x] Auto-updater checks for updates on launch. *(`tauri-plugin-updater` + `tauri-plugin-process` registered in `lib.rs`, `updater:default`/`process:default` capabilities granted; `checkForUpdatesOnLaunch()` runs once on app mount, downloads+installs+relaunches on a newer version and swallows failures so a check never blocks launch. `createUpdaterArtifacts` is on and the build emitted signed `.msi.sig`/`-setup.exe.sig` against the generated minisign key — `plugins.updater.pubkey`/`endpoints` configured. The browser dev path no-ops outside Tauri.)*
+
+---
+
+### Milestone 8 — Resume Playback & Watch Progress
+
+**Goal:** Remember how far the user has watched each movie/episode so playback can be resumed, progress is visible while browsing, and finished items are marked watched. (Delivers the "Continue Watching" roadmap item, §5.9.)
+
+**Scope:**
+- Add the `watch_progress` table (§15) and its index, applied idempotently on launch like the rest of the schema.
+- Implement `get_watch_progress`, `set_watch_progress`, `list_watch_progress`, `clear_watch_progress` commands (§16) — full IPC path: Rust handler → `generate_handler![]` in `lib.rs` → `models.rs`/`types/index.ts` (`WatchProgress`) → `lib/tauri.ts` wrapper → `devMock.ts`.
+- Persist position from the player: `playerStore` consumes `mpv:state_changed`, throttles saves (~5s) and flushes on close. Requires retaining `providerId`/`contentId` in `NowPlaying`.
+- Mark items completed at the **≥ 95%** threshold; completion clears the partial bar and resume prompt and surfaces a watched checkmark instead.
+- Build `ResumeDialog` — shown before playback when meaningful prior progress exists; offers "Resume from [MM:SS]" / "Start from beginning". No prompt when there is no meaningful progress.
+- Build `WatchProgressOverlay` — bottom progress bar (in-progress) / corner checkmark (completed) on `MovieCard` and `EpisodeList` rows. Series grid cards are unaffected.
+- Bulk-load progress per section (`list_watch_progress`) so grids/lists render markers without per-item queries.
+- Live TV is never tracked (no prompt, no bar, no marker).
+
+**Acceptance Criteria:**
+- [ ] Playing a movie/episode with meaningful prior progress shows the resume prompt; with none, playback starts immediately.
+- [ ] "Resume" seeks to the saved position after load; "Start from beginning" plays from 0:00.
+- [ ] Position is persisted during playback and on close, and survives an app restart.
+- [ ] Movie cards and episode rows show an accurate progress bar for in-progress items.
+- [ ] Reaching ~95% marks the item complete: the bar and resume prompt are replaced by a watched checkmark.
+- [ ] Live TV never triggers a resume prompt, progress bar, or watched marker.
+- [ ] Progress is provider-scoped and removed when the provider is deleted (cascade).
+- [ ] All progress reads/writes are local (SQLite only) — no provider requests.
 
