@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import * as api from "../../lib/tauri";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
+import { useProgressStore } from "../../store/progressStore";
 import EpisodeList from "./EpisodeList";
 import { Poster } from "./PosterGrid";
 import type {
@@ -43,6 +44,8 @@ export default function SeriesDetail({
       } catch {
         // Metadata is optional; the base row already renders.
       }
+      // Watch progress for episode rows (spec §5.9).
+      void useProgressStore.getState().loadSection(providerId, "episode");
       try {
         const grouped = await api.getEpisodes(providerId, series.id);
         if (cancelled) return;
@@ -183,6 +186,7 @@ export default function SeriesDetail({
               {season !== null && episodes[season] && (
                 <div className="mt-4">
                   <EpisodeList
+                    providerId={providerId}
                     episodes={episodes[season]}
                     onPlay={play}
                     onOpenExternal={(e) => void openExternal(e)}

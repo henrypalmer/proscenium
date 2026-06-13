@@ -120,6 +120,19 @@ CREATE TABLE IF NOT EXISTS image_cache (
   expires_at    INTEGER NOT NULL        -- Unix timestamp (cached_at + 30 days)
 );
 
+-- Watch progress (§5.9). Resume position + completion for VOD only; live TV is
+-- never tracked. Rows cascade-delete with their provider.
+CREATE TABLE IF NOT EXISTS watch_progress (
+  provider_id      TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  content_type     TEXT NOT NULL CHECK (content_type IN ('movie', 'episode')),
+  content_id       TEXT NOT NULL,
+  position_seconds INTEGER NOT NULL,            -- last playback position
+  duration_seconds INTEGER,                     -- total runtime when known (for the progress bar)
+  completed        INTEGER NOT NULL DEFAULT 0,  -- 1 once watched to the completion threshold (~95%)
+  updated_at       INTEGER NOT NULL,            -- Unix timestamp of last write
+  PRIMARY KEY (provider_id, content_type, content_id)
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_live_channels_provider    ON live_channels(provider_id);
 CREATE INDEX IF NOT EXISTS idx_live_channels_category    ON live_channels(provider_id, category_id);
@@ -128,6 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_movies_category           ON movies(provider_id, 
 CREATE INDEX IF NOT EXISTS idx_series_provider           ON series(provider_id);
 CREATE INDEX IF NOT EXISTS idx_series_category           ON series(provider_id, category_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_series           ON episodes(series_id, provider_id);
+CREATE INDEX IF NOT EXISTS idx_watch_progress_section    ON watch_progress(provider_id, content_type);
 
 -- Supplementary to §15: alphabetical paging over large catalogs (§10) needs
 -- an ordered index or every page query re-sorts the full table.

@@ -7,6 +7,7 @@ import MovieGrid from "../components/vod/MovieGrid";
 import * as api from "../lib/tauri";
 import { useCatalogStore } from "../store/catalogStore";
 import { usePlayerStore } from "../store/playerStore";
+import { useProgressStore } from "../store/progressStore";
 import type { Category, Movie } from "../types";
 
 interface MenuState {
@@ -35,6 +36,8 @@ export default function Movies() {
       setCategories([]);
       return;
     }
+    // Watch progress for the movie grid overlays (spec §5.9).
+    void useProgressStore.getState().loadSection(providerId, "movie");
     let cancelled = false;
     void api.getVodCategories(providerId).then(
       (cats) => {

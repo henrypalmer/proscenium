@@ -169,6 +169,20 @@ pub struct CatalogSummary {
     pub series: i64,
 }
 
+/// Saved watch progress for one VOD item (spec §5.9). Live TV is never tracked.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchProgress {
+    /// Last playback position, seconds.
+    pub position_seconds: i64,
+    /// Total runtime when known, seconds.
+    pub duration_seconds: Option<i64>,
+    /// True once watched to the completion threshold (~95%).
+    pub completed: bool,
+    /// Unix seconds of the last write.
+    pub updated_at: i64,
+}
+
 /// Content-type narrowing for the `search` command (spec §16).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]

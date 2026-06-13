@@ -243,9 +243,13 @@ pub async fn open_in_external_player(
 }
 
 #[tauri::command]
-pub async fn mpv_load_url(app: AppHandle, url: String) -> Result<(), String> {
+pub async fn mpv_load_url(
+    app: AppHandle,
+    url: String,
+    start_seconds: Option<f64>,
+) -> Result<(), String> {
     let player = ensure_player(&app).await?;
-    player.load_url(&url)
+    player.load_url(&url, start_seconds)
 }
 
 #[tauri::command]

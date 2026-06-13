@@ -11,6 +11,7 @@ import ProviderForm from "./components/providers/ProviderForm";
 import Toast from "./components/common/Toast";
 import WarningBanner from "./components/common/WarningBanner";
 import PlayerOverlay from "./components/player/PlayerOverlay";
+import ResumeDialog from "./components/player/ResumeDialog";
 import SearchOverlay from "./components/search/SearchOverlay";
 import LiveTV from "./pages/LiveTV";
 import Movies from "./pages/Movies";
@@ -18,6 +19,7 @@ import Settings from "./pages/Settings";
 import TVShows from "./pages/TVShows";
 import { useCatalogStore } from "./store/catalogStore";
 import { usePlayerStore } from "./store/playerStore";
+import { useProgressStore } from "./store/progressStore";
 import { useProviderStore } from "./store/providerStore";
 import { useSettingsStore } from "./store/settingsStore";
 import { checkForUpdatesOnLaunch } from "./lib/updater";
@@ -85,6 +87,7 @@ export default function App() {
       player: usePlayerStore,
       catalog: useCatalogStore,
       providers: useProviderStore,
+      progress: useProgressStore,
     };
   }, [load]);
 
@@ -96,6 +99,7 @@ export default function App() {
     <BrowserRouter>
       {providers.length === 0 ? <FirstLaunch /> : <Shell />}
       <PlayerOverlay />
+      <ResumeDialog />
       <Toast />
     </BrowserRouter>
   );

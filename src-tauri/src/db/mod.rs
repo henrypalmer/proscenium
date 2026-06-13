@@ -3,6 +3,7 @@ pub mod image_cache;
 pub mod providers;
 pub mod schema;
 pub mod settings;
+pub mod watch;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;

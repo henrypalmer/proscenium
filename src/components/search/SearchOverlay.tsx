@@ -156,6 +156,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
             </p>
           ) : (
             <SearchResults
+              providerId={providerId}
               query={query}
               loading={loading}
               results={results}

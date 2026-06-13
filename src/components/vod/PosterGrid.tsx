@@ -7,7 +7,16 @@ import Placeholder from "../common/Placeholder";
  * Lazy 2:3 poster image with `Placeholder` fallback for missing or failed
  * art (spec §10 image loading). Shared by MovieCard and SeriesCard.
  */
-export function Poster({ url, title }: { url: string | null; title: string }) {
+export function Poster({
+  url,
+  title,
+  overlay,
+}: {
+  url: string | null;
+  title: string;
+  /** Optional overlay (e.g. watch-progress bar/checkmark) drawn over the art. */
+  overlay?: ReactNode;
+}) {
   const [state, setState] = useState<"loading" | "loaded" | "error">(
     url ? "loading" : "error",
   );
@@ -27,6 +36,7 @@ export function Poster({ url, title }: { url: string | null; title: string }) {
           }`}
         />
       )}
+      {overlay}
     </div>
   );
 }

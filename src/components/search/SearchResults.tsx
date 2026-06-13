@@ -10,6 +10,7 @@ import type {
 } from "../../types";
 
 interface SearchResultsProps {
+  providerId: string;
   query: string;
   loading: boolean;
   results: SearchResultsData | null;
@@ -23,6 +24,7 @@ const noop = () => undefined;
 /** The three content-type groups (spec §5.5), the friendly no-results
  * state, and the idle hint before anything has been typed. */
 export default function SearchResults({
+  providerId,
   query,
   loading,
   results,
@@ -87,7 +89,12 @@ export default function SearchResults({
         testId="search-group-movies"
         getKey={(m) => m.id}
         renderItem={(movie) => (
-          <MovieCard movie={movie} onActivate={onOpenMovie} onContextMenu={noop} />
+          <MovieCard
+            movie={movie}
+            providerId={providerId}
+            onActivate={onOpenMovie}
+            onContextMenu={noop}
+          />
         )}
       />
       <SearchResultGroup

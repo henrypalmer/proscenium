@@ -89,7 +89,7 @@ fn wait_for(
 #[test]
 fn plays_h264_pauses_seeks_and_adjusts_volume() {
     let player = headless_player(false);
-    player.load_url(h264_file().to_str().unwrap()).unwrap();
+    player.load_url(h264_file().to_str().unwrap(), None).unwrap();
 
     // Begins playing: position advances, duration known, no error.
     let state = wait_for(&player, Duration::from_secs(15), |s| {
@@ -139,7 +139,7 @@ fn hardware_decode_is_active_for_h264_and_h265() {
     let player = headless_player(true);
 
     for (file, codec) in [(h264_file(), "h264"), (h265_file(), "h265")] {
-        player.load_url(file.to_str().unwrap()).unwrap();
+        player.load_url(file.to_str().unwrap(), None).unwrap();
         let state = wait_for(&player, Duration::from_secs(15), |s| {
             s.playing && s.position > 0.3 && s.hwdec_current.is_some()
         });
@@ -156,7 +156,7 @@ fn hardware_decode_is_active_for_h264_and_h265() {
 fn failed_stream_reports_an_error_state() {
     let player = headless_player(false);
     // Connection-refused port: the stream fails quickly.
-    player.load_url("http://127.0.0.1:9/dead.ts").unwrap();
+    player.load_url("http://127.0.0.1:9/dead.ts", None).unwrap();
     let state = wait_for(&player, Duration::from_secs(20), |s| s.error.is_some());
     assert!(!state.playing);
     println!("error surfaced: {:?}", state.error);
@@ -176,7 +176,7 @@ fn state_change_callback_fires() {
         }),
     )
     .unwrap();
-    player.load_url(h264_file().to_str().unwrap()).unwrap();
+    player.load_url(h264_file().to_str().unwrap(), None).unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut saw_playing = false;

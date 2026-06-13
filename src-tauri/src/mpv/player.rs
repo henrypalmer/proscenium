@@ -145,6 +145,10 @@ pub struct MpvPlayer {
     handle: Arc<Handle>,
     state: Arc<Mutex<MpvState>>,
     shutdown: Arc<AtomicBool>,
+    /// Position (seconds) to seek to once the next file finishes loading, set
+    /// by `load_url` for resume playback (spec §5.9). Applied on FILE_LOADED so
+    /// playback starts at the resume point with no visible jump from 0.
+    pending_seek: Arc<Mutex<Option<f64>>>,
     event_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
@@ -226,6 +230,7 @@ impl MpvPlayer {
             handle: Arc::new(Handle(handle)),
             state: Arc::new(Mutex::new(MpvState::default())),
             shutdown: Arc::new(AtomicBool::new(false)),
+            pending_seek: Arc::new(Mutex::new(None)),
             event_thread: Mutex::new(None),
         });
 
@@ -234,9 +239,10 @@ impl MpvPlayer {
             let handle = player.handle.clone();
             let state = player.state.clone();
             let shutdown = player.shutdown.clone();
+            let pending_seek = player.pending_seek.clone();
             std::thread::Builder::new()
                 .name("mpv-events".into())
-                .spawn(move || event_loop(api, handle, state, shutdown, on_state))
+                .spawn(move || event_loop(api, handle, state, shutdown, pending_seek, on_state))
                 .map_err(|e| format!("failed to spawn mpv event thread: {e}"))?
         };
         *player.event_thread.lock().unwrap() = Some(thread);
@@ -276,12 +282,15 @@ impl MpvPlayer {
         }
     }
 
-    pub fn load_url(&self, url: &str) -> Result<(), String> {
+    /// Load `url`. When `start` is given (spec §5.9 resume), playback seeks to
+    /// that position once the file finishes loading.
+    pub fn load_url(&self, url: &str, start: Option<f64>) -> Result<(), String> {
         {
             let mut state = self.state.lock().unwrap();
             state.error = None;
             state.buffering = true;
         }
+        *self.pending_seek.lock().unwrap() = start.filter(|s| *s > 0.0);
         self.command(&["loadfile", url])?;
         self.set_property("pause", "no")
     }
@@ -340,11 +349,22 @@ impl Drop for MpvPlayer {
     }
 }
 
+/// Fire-and-forget mpv command from the event thread (no error reporting path).
+fn raw_command(api: &MpvApi, handle: &Handle, args: &[&str]) {
+    let cstrings: Vec<CString> = args.iter().map(|a| cstr(a)).collect();
+    let mut ptrs: Vec<*const c_char> = cstrings.iter().map(|c| c.as_ptr()).collect();
+    ptrs.push(std::ptr::null());
+    unsafe {
+        (api.mpv_command)(handle.0, ptrs.as_mut_ptr());
+    }
+}
+
 fn event_loop(
     api: Arc<MpvApi>,
     handle: Arc<Handle>,
     state: Arc<Mutex<MpvState>>,
     shutdown: Arc<AtomicBool>,
+    pending_seek: Arc<Mutex<Option<f64>>>,
     on_state: StateCallback,
 ) {
     let mut last_emit = std::time::Instant::now();
@@ -360,8 +380,14 @@ fn event_loop(
             0 => {} // MPV_EVENT_NONE: timeout
             MPV_EVENT_SHUTDOWN => break,
             MPV_EVENT_FILE_LOADED => {
-                let mut s = state.lock().unwrap();
-                s.error = None;
+                {
+                    let mut s = state.lock().unwrap();
+                    s.error = None;
+                }
+                // Resume seek (spec §5.9): apply now, before frames flow.
+                if let Some(pos) = pending_seek.lock().unwrap().take() {
+                    raw_command(&api, &handle, &["seek", &format!("{pos:.3}"), "absolute"]);
+                }
                 pending_emit = true;
                 significant = true;
             }

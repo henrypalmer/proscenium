@@ -19,6 +19,8 @@ import type {
   SearchResults,
   Series,
   SeriesDetail,
+  ProgressContentType,
+  WatchProgress,
 } from "../types";
 
 /** True when running inside the Tauri shell (vs. a plain browser). */
@@ -163,8 +165,49 @@ export function openInExternalPlayer(
   return invoke("open_in_external_player", { streamUrl, player });
 }
 
+/** Watch progress (spec §5.9). `contentType` is "movie" or "episode" only. */
+export function getWatchProgress(
+  providerId: string,
+  contentType: ProgressContentType,
+  contentId: string,
+): Promise<WatchProgress | null> {
+  return invoke("get_watch_progress", { providerId, contentType, contentId });
+}
+
+export function setWatchProgress(
+  providerId: string,
+  contentType: ProgressContentType,
+  contentId: string,
+  positionSeconds: number,
+  durationSeconds: number | null,
+): Promise<void> {
+  return invoke("set_watch_progress", {
+    providerId,
+    contentType,
+    contentId,
+    positionSeconds,
+    durationSeconds,
+  });
+}
+
+export function listWatchProgress(
+  providerId: string,
+  contentType: ProgressContentType,
+): Promise<Record<string, WatchProgress>> {
+  return invoke("list_watch_progress", { providerId, contentType });
+}
+
+export function clearWatchProgress(
+  providerId: string,
+  contentType: ProgressContentType,
+  contentId: string,
+): Promise<void> {
+  return invoke("clear_watch_progress", { providerId, contentType, contentId });
+}
+
 export const mpv = {
-  loadUrl: (url: string): Promise<void> => invoke("mpv_load_url", { url }),
+  loadUrl: (url: string, startSeconds?: number): Promise<void> =>
+    invoke("mpv_load_url", { url, startSeconds }),
   play: (): Promise<void> => invoke("mpv_play"),
   pause: (): Promise<void> => invoke("mpv_pause"),
   stop: (): Promise<void> => invoke("mpv_stop"),

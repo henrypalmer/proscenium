@@ -82,6 +82,10 @@ pub fn run() {
             commands::playback::mpv_set_audio_track,
             commands::playback::mpv_set_subtitle_track,
             commands::playback::mpv_get_state,
+            commands::watch::get_watch_progress,
+            commands::watch::set_watch_progress,
+            commands::watch::list_watch_progress,
+            commands::watch::clear_watch_progress,
         ])
         .on_window_event(|window, event| {
             // Keep the native video window glued behind the app window.

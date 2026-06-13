@@ -1485,12 +1485,12 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - Live TV is never tracked (no prompt, no bar, no marker).
 
 **Acceptance Criteria:**
-- [ ] Playing a movie/episode with meaningful prior progress shows the resume prompt; with none, playback starts immediately.
-- [ ] "Resume" seeks to the saved position after load; "Start from beginning" plays from 0:00.
-- [ ] Position is persisted during playback and on close, and survives an app restart.
-- [ ] Movie cards and episode rows show an accurate progress bar for in-progress items.
-- [ ] Reaching ~95% marks the item complete: the bar and resume prompt are replaced by a watched checkmark.
-- [ ] Live TV never triggers a resume prompt, progress bar, or watched marker.
-- [ ] Progress is provider-scoped and removed when the provider is deleted (cascade).
-- [ ] All progress reads/writes are local (SQLite only) — no provider requests.
+- [x] Playing a movie/episode with meaningful prior progress shows the resume prompt; with none, playback starts immediately. *(preview e2e: replaying a movie/episode with saved progress shows `ResumeDialog`; a fresh item, a sub-5s item, and a completed item all play directly with `pendingResume === null`.)*
+- [x] "Resume" seeks to the saved position after load; "Start from beginning" plays from 0:00. *(preview: Resume → playback position 6s; Start-over begins at 0. Backend applies the seek on mpv's FILE_LOADED via `pending_seek` so there is no visible jump from 0; `mpv_load_url` takes an optional `start_seconds`.)*
+- [x] Position is persisted during playback and on close, and survives an app restart. *(throttled ~5s saves + a close flush in `playerStore`; preview saw 6s/1320 persisted on close; test `position_is_saved_read_and_survives_reopen` reopens the DB file and finds the row.)*
+- [x] Movie cards and episode rows show an accurate progress bar for in-progress items. *(preview: movie card bar width 0.45% = 6/1320; episode row bar present after a partial watch.)*
+- [x] Reaching ~95% marks the item complete: the bar and resume prompt are replaced by a watched checkmark. *(preview: seeking to 1305/1320 then closing marked it complete — the card shows the watched check, the bar is gone, and replaying plays directly with no prompt; test `completion_threshold_marks_watched` covers the 94%/96%/unknown-duration boundaries.)*
+- [x] Live TV never triggers a resume prompt, progress bar, or watched marker. *(preview: a live channel plays directly with no prompt and creates no `|live|` progress entries; backend `set_watch_progress` rejects a `live` content type — test `live_tv_is_never_tracked`.)*
+- [x] Progress is provider-scoped and removed when the provider is deleted (cascade). *(FK `ON DELETE CASCADE`; test `clearing_and_provider_delete_remove_rows` clears one row and confirms provider deletion drops the rest; `list_returns_section_keyed_by_content_id` confirms section/provider scoping.)*
+- [x] All progress reads/writes are local (SQLite only) — no provider requests. *(the four `watch` commands only touch `db::watch`/SQLite; the entire backend test suite runs offline.)*
 

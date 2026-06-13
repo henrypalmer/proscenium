@@ -23,9 +23,12 @@ import type {
   SearchResults,
   Series,
   SeriesDetail,
+  WatchProgress,
 } from "../types";
 
 const LATENCY_MS = 350;
+/** Fraction of runtime past which an item counts as fully watched (§5.9). */
+const COMPLETION_THRESHOLD = 0.95;
 const CHANNEL_COUNT = 12_000;
 const MOVIE_COUNT = 12_000;
 const SERIES_COUNT = 4_000;
@@ -268,6 +271,12 @@ function mockSearch(a: Args): SearchResults {
   };
 }
 
+// --- Mock watch progress store (Milestone 8) ---
+
+const watchProgress = new Map<string, WatchProgress>();
+const wpKey = (providerId: string, contentType: string, contentId: string) =>
+  `${providerId}|${contentType}|${contentId}`;
+
 // --- Mock mpv state machine (drives the player UI in browser dev) ---
 
 function defaultMpvState(): MpvState {
@@ -293,8 +302,9 @@ const mockMpv = {
   ticker: null as number | null,
   lastContentType: "live" as string,
 
-  load(url: string) {
+  load(url: string, startSeconds?: number) {
     this.stopTicker();
+    const resumeAt = startSeconds && startSeconds > 0 ? startSeconds : 0;
     this.state = {
       ...defaultMpvState(),
       volume: this.state.volume,
@@ -320,6 +330,7 @@ const mockMpv = {
         playing: true,
         paused: false,
         buffering: false,
+        position: resumeAt,
         duration: this.lastContentType === "live" ? null : 1320,
         audioTracks: [
           { id: 1, title: "Stereo", lang: "eng", codec: "aac" },
@@ -457,7 +468,42 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       console.info("[devMock] external player:", a.streamUrl);
       return undefined as T;
     case "mpv_load_url":
-      mockMpv.load(a.url as string);
+      mockMpv.load(a.url as string, a.startSeconds as number | undefined);
+      return undefined as T;
+    case "get_watch_progress":
+      return (watchProgress.get(
+        wpKey(a.providerId as string, a.contentType as string, a.contentId as string),
+      ) ?? null) as T;
+    case "set_watch_progress": {
+      const position = Math.max(0, Math.round(a.positionSeconds as number));
+      const rawDuration = a.durationSeconds as number | null;
+      const duration =
+        rawDuration && rawDuration > 0 ? Math.round(rawDuration) : null;
+      const completed =
+        duration !== null && position / duration >= COMPLETION_THRESHOLD;
+      watchProgress.set(
+        wpKey(a.providerId as string, a.contentType as string, a.contentId as string),
+        {
+          positionSeconds: position,
+          durationSeconds: duration,
+          completed,
+          updatedAt: Math.floor(Date.now() / 1000),
+        },
+      );
+      return undefined as T;
+    }
+    case "list_watch_progress": {
+      const prefix = `${a.providerId as string}|${a.contentType as string}|`;
+      const out: Record<string, WatchProgress> = {};
+      for (const [key, value] of watchProgress) {
+        if (key.startsWith(prefix)) out[key.slice(prefix.length)] = value;
+      }
+      return out as T;
+    }
+    case "clear_watch_progress":
+      watchProgress.delete(
+        wpKey(a.providerId as string, a.contentType as string, a.contentId as string),
+      );
       return undefined as T;
     case "mpv_play":
       mockMpv.state = { ...mockMpv.state, paused: false };

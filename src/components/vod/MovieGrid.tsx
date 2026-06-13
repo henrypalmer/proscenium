@@ -35,6 +35,7 @@ export default function MovieGrid({
       renderCard={(movie) => (
         <MovieCard
           movie={movie}
+          providerId={providerId}
           onActivate={onActivate}
           onContextMenu={onContextMenu}
         />

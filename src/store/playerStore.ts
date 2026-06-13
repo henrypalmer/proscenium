@@ -3,16 +3,46 @@ import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { inTauri } from "../lib/tauri";
 import { useCatalogStore } from "./catalogStore";
-import type { MpvState, PlayableContentType } from "../types";
+import { useProgressStore } from "./progressStore";
+import type {
+  MpvState,
+  PlayableContentType,
+  ProgressContentType,
+  WatchProgress,
+} from "../types";
 
 // Spec §5.6: notice after 10s of buffering, §12: error state after 30s.
 export const BUFFER_NOTICE_MS = 10_000;
 export const BUFFER_ERROR_MS = 30_000;
 
+// Spec §5.9: how often to persist position, and the minimum progress worth
+// offering a resume prompt for (anything shorter just starts over silently).
+const SAVE_INTERVAL_MS = 5_000;
+const MIN_RESUME_SECONDS = 5;
+const COMPLETION_THRESHOLD = 0.95;
+
 export interface NowPlaying {
   title: string;
+  providerId: string;
   contentType: PlayableContentType;
+  contentId: string;
   streamUrl: string;
+}
+
+/** A pending resume choice (spec §5.9) shown before playback begins. */
+export interface PendingResume {
+  providerId: string;
+  contentType: ProgressContentType;
+  contentId: string;
+  title: string;
+  resumeSeconds: number;
+}
+
+interface OpenArgs {
+  providerId: string;
+  contentType: PlayableContentType;
+  contentId: string;
+  title: string;
 }
 
 interface PlayerStoreState {
@@ -29,12 +59,13 @@ interface PlayerStoreState {
    * empty) native video surface.
    */
   everPlayed: boolean;
-  openContent: (args: {
-    providerId: string;
-    contentType: PlayableContentType;
-    contentId: string;
-    title: string;
-  }) => Promise<void>;
+  /** Resume-vs-restart prompt awaiting the user (spec §5.9). */
+  pendingResume: PendingResume | null;
+  openContent: (args: OpenArgs) => Promise<void>;
+  /** Proceed from a pending resume prompt. */
+  resumePlayback: () => Promise<void>;
+  startOver: () => Promise<void>;
+  cancelResume: () => void;
   retry: () => Promise<void>;
   openExternal: () => Promise<void>;
   close: () => Promise<void>;
@@ -43,6 +74,8 @@ interface PlayerStoreState {
 
 let listenerAttached = false;
 let pollTimer: number | null = null;
+/** Wall-clock ms of the last persisted position for the current item. */
+let lastSaveAt = 0;
 
 function startMockPolling(get: () => PlayerStoreState) {
   // The browser dev mock has no Tauri events; poll instead.
@@ -53,6 +86,44 @@ function startMockPolling(get: () => PlayerStoreState) {
   }, 400);
 }
 
+function localProgress(position: number, duration: number | null): WatchProgress {
+  const positionSeconds = Math.max(0, Math.round(position));
+  const durationSeconds = duration && duration > 0 ? Math.round(duration) : null;
+  const completed =
+    durationSeconds !== null &&
+    positionSeconds / durationSeconds >= COMPLETION_THRESHOLD;
+  return {
+    positionSeconds,
+    durationSeconds,
+    completed,
+    updatedAt: Math.floor(Date.now() / 1000),
+  };
+}
+
+/** Persist the current position for a VOD item (no-op for live / position 0). */
+async function persistProgress(
+  np: NowPlaying,
+  position: number,
+  duration: number | null,
+): Promise<void> {
+  if (np.contentType === "live" || position <= 0) return;
+  const contentType = np.contentType as ProgressContentType;
+  try {
+    await api.setWatchProgress(
+      np.providerId,
+      contentType,
+      np.contentId,
+      position,
+      duration,
+    );
+    useProgressStore
+      .getState()
+      .setLocal(np.providerId, contentType, np.contentId, localProgress(position, duration));
+  } catch {
+    // Progress is best-effort; a failed write must not disrupt playback.
+  }
+}
+
 export const usePlayerStore = create<PlayerStoreState>((set, get) => ({
   open: false,
   nowPlaying: null,
@@ -60,40 +131,55 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => ({
   bufferingSince: null,
   fatalError: null,
   everPlayed: false,
+  pendingResume: null,
 
   openContent: async ({ providerId, contentType, contentId, title }) => {
-    if (!listenerAttached && inTauri) {
-      listenerAttached = true;
-      await listen<MpvState>("mpv:state_changed", (event) => {
-        get().applyMpvState(event.payload);
-      });
+    // Live TV is never tracked and never prompts (spec §5.9).
+    if (contentType !== "live") {
+      try {
+        const progress = await api.getWatchProgress(
+          providerId,
+          contentType,
+          contentId,
+        );
+        if (
+          progress &&
+          !progress.completed &&
+          progress.positionSeconds >= MIN_RESUME_SECONDS
+        ) {
+          set({
+            pendingResume: {
+              providerId,
+              contentType,
+              contentId,
+              title,
+              resumeSeconds: progress.positionSeconds,
+            },
+          });
+          return;
+        }
+      } catch {
+        // Couldn't read progress — fall through and start from the beginning.
+      }
     }
-    startMockPolling(get);
-    try {
-      const streamUrl = await api.resolveStreamUrl(
-        providerId,
-        contentType,
-        contentId,
-      );
-      set({
-        open: true,
-        nowPlaying: { title, contentType, streamUrl },
-        mpv: null,
-        fatalError: null,
-        bufferingSince: Date.now(),
-        everPlayed: false,
-      });
-      await api.mpv.loadUrl(streamUrl);
-    } catch (e) {
-      set({
-        open: true,
-        nowPlaying: { title, contentType, streamUrl: "" },
-        fatalError: String(e),
-        bufferingSince: null,
-        everPlayed: false,
-      });
-    }
+    await startPlayback(set, get, { providerId, contentType, contentId, title }, 0);
   },
+
+  resumePlayback: async () => {
+    const pending = get().pendingResume;
+    if (!pending) return;
+    set({ pendingResume: null });
+    await startPlayback(set, get, pending, pending.resumeSeconds);
+  },
+
+  startOver: async () => {
+    const pending = get().pendingResume;
+    if (!pending) return;
+    set({ pendingResume: null });
+    await startPlayback(set, get, pending, 0);
+  },
+
+  cancelResume: () => set({ pendingResume: null }),
 
   retry: async () => {
     const nowPlaying = get().nowPlaying;
@@ -118,6 +204,11 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => ({
   },
 
   close: async () => {
+    // Flush a final position before tearing down (spec §5.9).
+    const { nowPlaying, mpv } = get();
+    if (nowPlaying && mpv) {
+      await persistProgress(nowPlaying, mpv.position, mpv.duration);
+    }
     set({
       open: false,
       nowPlaying: null,
@@ -150,5 +241,68 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => ({
         previous.everPlayed ||
         (state.playing && !state.buffering && state.position > 0),
     });
+
+    // Throttled position persistence for VOD (spec §5.9).
+    const np = previous.nowPlaying;
+    if (np && np.contentType !== "live" && state.playing && state.position > 0) {
+      const now = Date.now();
+      if (now - lastSaveAt >= SAVE_INTERVAL_MS) {
+        lastSaveAt = now;
+        void persistProgress(np, state.position, state.duration);
+      }
+    }
   },
 }));
+
+/** Shared playback launch used by openContent and the resume prompt. */
+async function startPlayback(
+  set: (partial: Partial<PlayerStoreState>) => void,
+  get: () => PlayerStoreState,
+  args: OpenArgs,
+  startAt: number,
+): Promise<void> {
+  if (!listenerAttached && inTauri) {
+    listenerAttached = true;
+    await listen<MpvState>("mpv:state_changed", (event) => {
+      get().applyMpvState(event.payload);
+    });
+  }
+  startMockPolling(get);
+  lastSaveAt = Date.now();
+  try {
+    const streamUrl = await api.resolveStreamUrl(
+      args.providerId,
+      args.contentType,
+      args.contentId,
+    );
+    set({
+      open: true,
+      nowPlaying: {
+        title: args.title,
+        providerId: args.providerId,
+        contentType: args.contentType,
+        contentId: args.contentId,
+        streamUrl,
+      },
+      mpv: null,
+      fatalError: null,
+      bufferingSince: Date.now(),
+      everPlayed: false,
+    });
+    await api.mpv.loadUrl(streamUrl, startAt > 0 ? startAt : undefined);
+  } catch (e) {
+    set({
+      open: true,
+      nowPlaying: {
+        title: args.title,
+        providerId: args.providerId,
+        contentType: args.contentType,
+        contentId: args.contentId,
+        streamUrl: "",
+      },
+      fatalError: String(e),
+      bufferingSince: null,
+      everPlayed: false,
+    });
+  }
+}

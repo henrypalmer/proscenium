@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Proscenium is a cross-platform desktop IPTV client: Tauri v2 (Rust backend) + React + TypeScript + Tailwind CSS v4 + Zustand. The product spec is `SPEC.md` (repo root); work proceeds in milestones (M1 providers/auth, M2 catalog refresh/storage, M3 live TV browser, M4 built-in mpv player, M5 VOD browser, M6 search, M7 settings/error-handling/distribution are done; M8 resume playback/watch progress is specified but not yet implemented — see SPEC.md §5.9 + Milestone 8). `DEVELOPMENT.md` has full setup and troubleshooting; `README.md` summarizes milestone status.
+Proscenium is a cross-platform desktop IPTV client: Tauri v2 (Rust backend) + React + TypeScript + Tailwind CSS v4 + Zustand. The product spec is `SPEC.md` (repo root); work proceeds in milestones (M1 providers/auth, M2 catalog refresh/storage, M3 live TV browser, M4 built-in mpv player, M5 VOD browser, M6 search, M7 settings/error-handling/distribution, M8 resume playback/watch progress are done — see SPEC.md §5.9 + Milestone 8). `DEVELOPMENT.md` has full setup and troubleshooting; `README.md` summarizes milestone status.
 
 ## Commands
 
@@ -42,7 +42,7 @@ Release build: `npm run tauri build`, or manually `cargo build --release --featu
 
 Every frontend↔backend interaction goes through typed wrappers in `src/lib/tauri.ts`, which dispatch to real `invoke()` inside Tauri or to `src/lib/devMock.ts` in a plain browser (the mock mirrors real behavior: pagination, filtering, ordering — keep it in sync). Adding a command means touching:
 
-1. Handler in `src-tauri/src/commands/{providers,catalog,search,playback,settings}.rs`
+1. Handler in `src-tauri/src/commands/{providers,catalog,search,playback,settings,watch}.rs`
 2. Registration in `generate_handler![]` in `src-tauri/src/lib.rs`
 3. Rust types in `src-tauri/src/models.rs` ↔ TS types in `src/types/index.ts` (serde camelCase must match)
 4. Typed wrapper in `src/lib/tauri.ts`

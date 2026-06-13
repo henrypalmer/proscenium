@@ -172,6 +172,17 @@ export interface ProviderStatus {
 
 export type PlayableContentType = "live" | "movie" | "episode";
 
+/** VOD content types that carry watch progress (spec §5.9; live is excluded). */
+export type ProgressContentType = "movie" | "episode";
+
+/** Saved watch progress for one VOD item (spec §5.9). */
+export interface WatchProgress {
+  positionSeconds: number;
+  durationSeconds: number | null;
+  completed: boolean;
+  updatedAt: number; // Unix seconds
+}
+
 /** Content-type narrowing for the search command (spec §16). */
 export type SearchContentType = "all" | "live" | "movies" | "series";
 
