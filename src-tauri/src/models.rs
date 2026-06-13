@@ -275,6 +275,49 @@ pub struct ConnectionTestResult {
     pub account_info: Option<XtreamAccountInfo>,
 }
 
+/// App settings (spec §15 settings keys), returned as a single object so the
+/// UI can load every value with one call.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub active_provider_id: Option<String>,
+    pub cache_ttl_hours: i64,
+    pub default_external_player: String,
+    pub custom_player_command: Option<String>,
+    pub ui_density: String,
+    pub ui_theme: String,
+    pub hw_decode_enabled: bool,
+}
+
+impl Default for AppSettings {
+    /// Spec §15 default values.
+    fn default() -> Self {
+        Self {
+            active_provider_id: None,
+            cache_ttl_hours: 6,
+            default_external_player: "mpv".into(),
+            custom_player_command: None,
+            ui_density: "comfortable".into(),
+            ui_theme: "dark".into(),
+            hw_decode_enabled: true,
+        }
+    }
+}
+
+/// Health of the active provider, surfaced as a startup warning banner
+/// (spec §12). For M3U providers `expired` is always false.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderStatus {
+    /// The provider's server answered (HTTP reachable). False → "unreachable"
+    /// banner with a retry action.
+    pub reachable: bool,
+    /// Xtream account status is "expired".
+    pub expired: bool,
+    /// Banner copy; `None` when the provider is healthy.
+    pub message: Option<String>,
+}
+
 impl ConnectionTestResult {
     pub fn failure(message: impl Into<String>) -> Self {
         Self {

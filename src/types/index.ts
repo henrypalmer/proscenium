@@ -149,6 +149,27 @@ export interface MpvState {
   hwdecCurrent: string | null;
 }
 
+/** Persisted app settings (spec §15 settings keys). */
+export interface AppSettings {
+  activeProviderId: string | null;
+  cacheTtlHours: number;
+  defaultExternalPlayer: string;
+  customPlayerCommand: string | null;
+  uiDensity: string;
+  uiTheme: string;
+  hwDecodeEnabled: boolean;
+}
+
+export type ExternalPlayer = "mpv" | "vlc" | "custom";
+export type UiDensity = "comfortable" | "compact";
+
+/** Active-provider health for the startup warning banner (spec §12). */
+export interface ProviderStatus {
+  reachable: boolean;
+  expired: boolean;
+  message: string | null;
+}
+
 export type PlayableContentType = "live" | "movie" | "episode";
 
 /** Content-type narrowing for the search command (spec §16). */

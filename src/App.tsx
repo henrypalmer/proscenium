@@ -9,6 +9,7 @@ import Header from "./components/layout/Header";
 import Sidebar from "./components/layout/Sidebar";
 import ProviderForm from "./components/providers/ProviderForm";
 import Toast from "./components/common/Toast";
+import WarningBanner from "./components/common/WarningBanner";
 import PlayerOverlay from "./components/player/PlayerOverlay";
 import SearchOverlay from "./components/search/SearchOverlay";
 import LiveTV from "./pages/LiveTV";
@@ -18,6 +19,8 @@ import TVShows from "./pages/TVShows";
 import { useCatalogStore } from "./store/catalogStore";
 import { usePlayerStore } from "./store/playerStore";
 import { useProviderStore } from "./store/providerStore";
+import { useSettingsStore } from "./store/settingsStore";
+import { checkForUpdatesOnLaunch } from "./lib/updater";
 
 function FirstLaunch() {
   return (
@@ -45,6 +48,7 @@ function Shell() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header />
+        <WarningBanner />
         <main className="min-h-0 flex-1 overflow-y-auto">
           <Routes>
             <Route path="/" element={<Navigate to="/live" replace />} />
@@ -69,9 +73,12 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       await load();
+      await useSettingsStore.getState().load();
       await useCatalogStore
         .getState()
         .init(useProviderStore.getState().providers);
+      // Spec §13: check for app updates on launch (no-op in the browser).
+      void checkForUpdatesOnLaunch();
     })();
     // Dev/e2e hook: lets tooling inspect and drive the stores.
     (window as unknown as Record<string, unknown>).__proscenium = {

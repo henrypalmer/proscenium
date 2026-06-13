@@ -1,6 +1,7 @@
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { mockInvoke } from "./devMock";
 import type {
+  AppSettings,
   CatalogSummary,
   Category,
   ConnectionTestResult,
@@ -13,6 +14,7 @@ import type {
   PlayableContentType,
   Provider,
   ProviderInput,
+  ProviderStatus,
   SearchContentType,
   SearchResults,
   Series,
@@ -46,6 +48,18 @@ export function testProviderConnection(
   provider: ProviderInput,
 ): Promise<ConnectionTestResult> {
   return invoke("test_provider_connection", { provider });
+}
+
+export function checkProviderStatus(providerId: string): Promise<ProviderStatus> {
+  return invoke("check_provider_status", { providerId });
+}
+
+export function getSettings(): Promise<AppSettings> {
+  return invoke("get_settings");
+}
+
+export function setSetting(key: string, value: string): Promise<void> {
+  return invoke("set_setting", { key, value });
 }
 
 export function getActiveProvider(): Promise<Provider | null> {

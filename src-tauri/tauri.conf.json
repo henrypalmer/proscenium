@@ -25,6 +25,28 @@
     }
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "targets": ["nsis", "msi", "app", "dmg"],
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "createUpdaterArtifacts": true,
+    "resources": {
+      "lib/libmpv-2.dll": "libmpv-2.dll"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU2QkQ3QzBBNDVFNUQ3RDgKUldUWTErVkZDbnk5NWtkUUY5WlN3Q1dQbTA0Ty9FYUpNN0VhalNsQlFJaVJNMXhsUEh4K2s4d0sK",
+      "endpoints": [
+        "https://releases.proscenium.app/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
   }
 }

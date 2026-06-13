@@ -3,3 +3,7 @@ dist/
 src-tauri/target/
 src-tauri/lib/
 *.local
+
+# Updater signing keys — never commit the private key (Milestone 7)
+src-tauri/*.key
+src-tauri/*.key.pub

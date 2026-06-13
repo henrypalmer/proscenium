@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Proscenium is a cross-platform desktop IPTV client: Tauri v2 (Rust backend) + React + TypeScript + Tailwind CSS v4 + Zustand. The product spec is `SPEC.md` (repo root); work proceeds in milestones (M1 providers/auth, M2 catalog refresh/storage, M3 live TV browser, M4 built-in mpv player, M5 VOD browser, M6 search are done). `DEVELOPMENT.md` has full setup and troubleshooting; `README.md` summarizes milestone status.
+Proscenium is a cross-platform desktop IPTV client: Tauri v2 (Rust backend) + React + TypeScript + Tailwind CSS v4 + Zustand. The product spec is `SPEC.md` (repo root); work proceeds in milestones (M1 providers/auth, M2 catalog refresh/storage, M3 live TV browser, M4 built-in mpv player, M5 VOD browser, M6 search, M7 settings/error-handling/distribution are done). `DEVELOPMENT.md` has full setup and troubleshooting; `README.md` summarizes milestone status.
 
 ## Commands
 
@@ -21,6 +21,12 @@ cargo test --test milestone4 NAME   # one test by name
 
 Release build: `npm run tauri build`, or manually `cargo build --release --features custom-protocol` (without the feature the exe loads the dev URL, not the embedded assets) and copy `WebView2Loader.dll` + `src-tauri/lib/libmpv-2.dll` next to the exe.
 
+### Distribution & auto-update (M7)
+
+- `npm run tauri build` produces a WiX `.msi` and an NSIS `-setup.exe` under `src-tauri/target/release/bundle/`; `tauri.conf.json`'s `bundle.resources` maps `lib/libmpv-2.dll` next to the installed exe (where `mpv/player.rs::open_libmpv` looks first), and WebView2 ships via the download bootstrapper.
+- The updater is signed: set `TAURI_SIGNING_PRIVATE_KEY` (contents of `src-tauri/proscenium-updater.key`, gitignored) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""` before building, or the build fails because `bundle.createUpdaterArtifacts` is on. The matching `plugins.updater.pubkey` is committed in `tauri.conf.json`; regenerate the pair with `npx tauri signer generate --ci -p "" -w src-tauri/proscenium-updater.key -f`.
+- The launch-time update check is `src/lib/updater.ts::checkForUpdatesOnLaunch` (called from `App.tsx`); it no-ops outside Tauri and swallows every failure so a bad endpoint never blocks startup. `plugins.updater.endpoints` is a placeholder host.
+
 ### Windows toolchain quirks (this machine)
 
 - `rust-toolchain.toml` pins `stable-x86_64-pc-windows-gnu` (no MSVC Build Tools installed). MinGW gcc comes from scoop.
@@ -35,13 +41,13 @@ Release build: `npm run tauri build`, or manually `cargo build --release --featu
 
 Every frontend↔backend interaction goes through typed wrappers in `src/lib/tauri.ts`, which dispatch to real `invoke()` inside Tauri or to `src/lib/devMock.ts` in a plain browser (the mock mirrors real behavior: pagination, filtering, ordering — keep it in sync). Adding a command means touching:
 
-1. Handler in `src-tauri/src/commands/{providers,catalog,search,playback}.rs`
+1. Handler in `src-tauri/src/commands/{providers,catalog,search,playback,settings}.rs`
 2. Registration in `generate_handler![]` in `src-tauri/src/lib.rs`
 3. Rust types in `src-tauri/src/models.rs` ↔ TS types in `src/types/index.ts` (serde camelCase must match)
 4. Typed wrapper in `src/lib/tauri.ts`
 5. Mock implementation in `src/lib/devMock.ts`
 
-Backend→frontend push uses Tauri events consumed inside Zustand stores (`src/store/`): `catalog:refresh_progress` / `catalog:refresh_complete` in `catalogStore.ts`, `mpv:state_changed` in `playerStore.ts`.
+Backend→frontend push uses Tauri events consumed inside Zustand stores (`src/store/`): `catalog:refresh_progress` / `catalog:refresh_complete` and `provider:status` (startup unreachable/expired warning banner, §12) in `catalogStore.ts`, `mpv:state_changed` in `playerStore.ts`.
 
 ### Backend layers (`src-tauri/src/`)
 

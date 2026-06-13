@@ -7,6 +7,7 @@
  */
 
 import type {
+  AppSettings,
   CatalogSummary,
   Category,
   ConnectionTestResult,
@@ -18,6 +19,7 @@ import type {
   MpvState,
   PaginatedResult,
   Provider,
+  ProviderStatus,
   SearchResults,
   Series,
   SeriesDetail,
@@ -94,6 +96,17 @@ function allChannels(): LiveChannel[] {
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// Mutable settings store for browser dev (spec §15 defaults).
+const mockSettings: AppSettings = {
+  activeProviderId: provider.id,
+  cacheTtlHours: 6,
+  defaultExternalPlayer: "mpv",
+  customPlayerCommand: null,
+  uiDensity: "comfortable",
+  uiTheme: "dark",
+  hwDecodeEnabled: true,
+};
 
 // --- Mock VOD catalog (Milestone 5) ---
 
@@ -409,6 +422,29 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
         message: "Mock connection OK.",
         accountInfo: null,
       } satisfies ConnectionTestResult as T;
+    case "get_settings":
+      return { ...mockSettings } as T;
+    case "set_setting": {
+      const key = a.key as string;
+      const value = a.value as string;
+      const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+      if (camel === "hwDecodeEnabled") {
+        mockSettings.hwDecodeEnabled = value !== "false";
+      } else if (camel === "cacheTtlHours") {
+        mockSettings.cacheTtlHours = Number(value);
+      } else {
+        (mockSettings as unknown as Record<string, unknown>)[camel] = value;
+      }
+      return undefined as T;
+    }
+    case "check_provider_status":
+      // Browser dev provider is always healthy; the banner is exercised by
+      // driving the store directly.
+      return {
+        reachable: true,
+        expired: false,
+        message: null,
+      } satisfies ProviderStatus as T;
     case "upsert_provider":
       return provider as T;
     case "delete_provider":

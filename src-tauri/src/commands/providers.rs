@@ -4,10 +4,10 @@
 use crate::db::{self, Db};
 use crate::iptv::{m3u, xtream};
 use crate::keychain;
-use crate::models::{ConnectionTestResult, Provider, ProviderInput, ProviderType};
+use crate::models::{ConnectionTestResult, Provider, ProviderInput, ProviderStatus, ProviderType};
 use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 fn now_unix() -> i64 {
     SystemTime::now()
@@ -146,6 +146,90 @@ pub async fn test_provider_connection_impl(
             }
         }
     }
+}
+
+/// Map a connection-test outcome to the startup banner state (spec §12).
+/// A connection/auth failure is "unreachable"; a successful test whose Xtream
+/// account status is "expired" surfaces the expiry banner.
+pub fn classify_provider_status(result: &ConnectionTestResult) -> ProviderStatus {
+    if !result.success {
+        return ProviderStatus {
+            reachable: false,
+            expired: false,
+            message: Some(result.message.clone()),
+        };
+    }
+    let expired = result
+        .account_info
+        .as_ref()
+        .and_then(|i| i.status.as_deref())
+        .is_some_and(|s| s.eq_ignore_ascii_case("expired"));
+    ProviderStatus {
+        reachable: true,
+        expired,
+        message: expired.then(|| {
+            "Your subscription has expired. Renew it with your provider to keep streaming.".into()
+        }),
+    }
+}
+
+/// Test the active provider's reachability and (for Xtream) subscription
+/// status, without saving anything. Drives the startup warning banner and its
+/// Retry button (spec §12).
+pub async fn check_provider_status_impl(
+    pool: &SqlitePool,
+    provider_id: &str,
+) -> Result<ProviderStatus, String> {
+    let provider = db::providers::get(pool, provider_id)
+        .await
+        .map_err(|e| format!("Failed to load provider: {e}"))?
+        .ok_or_else(|| format!("Provider {provider_id} does not exist."))?;
+
+    let result = match provider.provider_type {
+        ProviderType::Xtream => {
+            let server = provider.server_url.as_deref().unwrap_or_default();
+            let username = provider.username.as_deref().unwrap_or_default();
+            let password = keychain::get_secret(&provider.id).unwrap_or_default();
+            xtream::test_connection(server, username, &password).await
+        }
+        ProviderType::M3u => {
+            if let Some(url) = provider.playlist_url.as_deref() {
+                m3u::test_playlist_url(url).await
+            } else if let Some(path) = provider.local_file_path.as_deref() {
+                m3u::test_local_file(path)
+            } else {
+                ConnectionTestResult::failure("Provider has no playlist URL or file path.")
+            }
+        }
+    };
+    Ok(classify_provider_status(&result))
+}
+
+/// Startup connection check (spec §12): once the active provider is known,
+/// probe it in the background and push the result to the banner via the
+/// `provider:status` event. A healthy provider emits nothing.
+pub async fn startup_provider_status_check(app: AppHandle) {
+    let pool = app.state::<Db>().0.clone();
+    // Let the WebView mount its event listeners first (mirrors the stale check).
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    let Ok(Some(provider)) =
+        crate::commands::catalog::get_active_provider_impl(&pool).await
+    else {
+        return;
+    };
+    if let Ok(status) = check_provider_status_impl(&pool, &provider.id).await {
+        if !status.reachable || status.expired {
+            let _ = app.emit("provider:status", status);
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn check_provider_status(
+    state: State<'_, Db>,
+    provider_id: String,
+) -> Result<ProviderStatus, String> {
+    check_provider_status_impl(&state.0, &provider_id).await
 }
 
 #[tauri::command]

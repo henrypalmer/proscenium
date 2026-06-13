@@ -22,6 +22,8 @@ pub fn run() {
     let started = Instant::now();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app_data_dir(&app.handle().clone())
                 .ok_or("could not resolve the platform app data directory")?;
@@ -36,6 +38,14 @@ pub fn run() {
             tauri::async_runtime::spawn(commands::catalog::startup_stale_check(
                 app.handle().clone(),
             ));
+            // Provider reachability / subscription banner (spec §12).
+            tauri::async_runtime::spawn(commands::providers::startup_provider_status_check(
+                app.handle().clone(),
+            ));
+            // Image cache eviction: drop entries past their 30-day TTL (spec §5.7).
+            tauri::async_runtime::spawn(commands::settings::startup_image_cache_eviction(
+                app.handle().clone(),
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -43,6 +53,9 @@ pub fn run() {
             commands::providers::list_providers,
             commands::providers::delete_provider,
             commands::providers::test_provider_connection,
+            commands::providers::check_provider_status,
+            commands::settings::get_settings,
+            commands::settings::set_setting,
             commands::catalog::get_active_provider,
             commands::catalog::set_active_provider,
             commands::catalog::refresh_catalog,

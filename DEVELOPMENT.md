@@ -87,6 +87,23 @@ Copy-Item lib\libmpv-2.dll target\release\         # built-in player engine
 
 (`npm run tauri build` handles all of this automatically except the libmpv copy.)
 
+## Packaged installers & auto-update (M7)
+
+`npm run tauri build` produces installers under `src-tauri/target/release/bundle/`:
+
+- `msi/Proscenium_<ver>_x64_en-US.msi` (WiX) and `nsis/Proscenium_<ver>_x64-setup.exe` (NSIS). Both bundle `src-tauri/lib/libmpv-2.dll` next to the installed exe (via `bundle.resources` in `tauri.conf.json`) and install WebView2 through the download bootstrapper — no manual DLL copy needed for the installed app.
+- `.sig` files next to each installer: minisign signatures for the auto-updater (`bundle.createUpdaterArtifacts`).
+
+Because updater artifacts are enabled, the build needs the signing key in the environment or it fails:
+
+```powershell
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content src-tauri\proscenium-updater.key -Raw
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+npm run tauri build
+```
+
+The private key (`src-tauri/proscenium-updater.key`) is gitignored; the matching public key is committed as `plugins.updater.pubkey` in `tauri.conf.json`. Regenerate the pair with `npx tauri signer generate --ci -p "" -w src-tauri/proscenium-updater.key -f`. `plugins.updater.endpoints` currently points at a placeholder host; swap it for the real release feed before shipping. macOS `.dmg`/`.app` targets are configured but only build on macOS.
+
 ## App data
 
 Everything the app writes lives in `%APPDATA%\proscenium\`:

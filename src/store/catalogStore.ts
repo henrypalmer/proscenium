@@ -5,6 +5,7 @@ import { inTauri } from "../lib/tauri";
 import type {
   CatalogSummary,
   Provider,
+  ProviderStatus,
   RefreshComplete,
   RefreshProgress,
 } from "../types";
@@ -21,6 +22,8 @@ interface CatalogState {
   progress: number;
   summary: CatalogSummary | null;
   toast: ToastMessage | null;
+  /** Active-provider health for the warning banner (spec §12); null = healthy. */
+  providerStatus: ProviderStatus | null;
   /** Bumped after every successful refresh so views reload their data. */
   refreshTick: number;
   /** Resolve the active provider, load cached counts, attach event listeners. */
@@ -29,6 +32,9 @@ interface CatalogState {
   refresh: () => Promise<void>;
   loadSummary: () => Promise<void>;
   handleProviderDeleted: (providerId: string) => Promise<void>;
+  /** Re-probe the active provider (banner Retry button). */
+  recheckProviderStatus: () => Promise<void>;
+  dismissProviderStatus: () => void;
   notify: (message: string, kind?: ToastMessage["kind"]) => void;
   dismissToast: () => void;
 }
@@ -42,6 +48,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   progress: 0,
   summary: null,
   toast: null,
+  providerStatus: null,
   refreshTick: 0,
 
   init: async (providers) => {
@@ -70,6 +77,11 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
           });
         }
       });
+      // Spec §12: the startup probe only pushes an event when the provider is
+      // unreachable or expired.
+      await listen<ProviderStatus>("provider:status", (event) => {
+        set({ providerStatus: event.payload });
+      });
     }
 
     let active = await api.getActiveProvider();
@@ -85,7 +97,8 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
 
   setActive: async (providerId) => {
     await api.setActiveProvider(providerId);
-    set({ activeProvider: await api.getActiveProvider() });
+    // A different provider invalidates any banner from the previous one.
+    set({ activeProvider: await api.getActiveProvider(), providerStatus: null });
     await get().loadSummary();
   },
 
@@ -122,6 +135,25 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     set({ activeProvider: active });
     if (active) await get().loadSummary();
   },
+
+  recheckProviderStatus: async () => {
+    const provider = get().activeProvider;
+    if (!provider) return;
+    try {
+      const status = await api.checkProviderStatus(provider.id);
+      // Clear the banner when the provider recovers; otherwise refresh it.
+      set({
+        providerStatus: status.reachable && !status.expired ? null : status,
+      });
+      // A recovered, never-refreshed (or stale) provider should refill its
+      // catalog now that it's reachable again.
+      if (status.reachable) await get().refresh();
+    } catch {
+      // Leave the existing banner in place on a transient failure.
+    }
+  },
+
+  dismissProviderStatus: () => set({ providerStatus: null }),
 
   notify: (message, kind = "info") => set({ toast: { message, kind } }),
 
