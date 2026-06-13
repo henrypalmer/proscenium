@@ -1,5 +1,11 @@
-# This machine has no MSVC Build Tools; the GNU toolchain links with the
-# locally installed MinGW-w64 gcc instead. Remove this pin (or switch the
-# channel to plain "stable") on machines with Visual Studio C++ Build Tools.
+# Cross-platform: resolve the stable toolchain for the host's *default* target,
+# so this one committed file works on macOS (aarch64-apple-darwin), Linux, and
+# Windows. What matters is each host's default target triple:
+#   - macOS / Linux: rustup picks the native triple automatically — nothing to do.
+#   - Windows WITHOUT MSVC Build Tools (this project's original setup): you MUST
+#     set the default host to the GNU triple ONCE per machine, or `stable`
+#     resolves to *-pc-windows-msvc and the build fails to link:
+#         rustup set default-host x86_64-pc-windows-gnu
+#     See DEVELOPMENT.md -> "Toolchain notes".
 [toolchain]
-channel = "stable-x86_64-pc-windows-gnu"
+channel = "stable"

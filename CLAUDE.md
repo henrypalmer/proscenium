@@ -30,7 +30,7 @@ Release build: `npm run tauri build`, or manually `cargo build --release --featu
 
 ### Windows toolchain quirks (this machine)
 
-- `rust-toolchain.toml` pins `stable-x86_64-pc-windows-gnu` (no MSVC Build Tools installed). MinGW gcc comes from scoop.
+- `rust-toolchain.toml` pins `channel = "stable"` (host-default target, so the same file works on macOS/Linux/Windows). On this Windows machine (no MSVC Build Tools) the rustup **default host must be GNU** — set once with `rustup set default-host x86_64-pc-windows-gnu`, else `stable` resolves to the MSVC triple and the link fails. MinGW gcc comes from scoop.
 - Node is managed by fnm and may not be on PATH: `$env:PATH = "$env:APPDATA\fnm\node-versions\v22.16.0\installation;$env:PATH"`.
 - If the dev app window never appears (`STATUS_DLL_NOT_FOUND`), copy `WebView2Loader.dll` into `src-tauri/target/debug/` (see DEVELOPMENT.md).
 - **All Rust tests must live in `src-tauri/tests/`**, never as unit tests: the lib target has `test = false` because only `tests/` binaries get the Common-Controls v6 manifest from `build.rs` that Tauri-linked executables need to load on Windows.

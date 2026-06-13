@@ -31,7 +31,7 @@ Milestone 1 (Project Scaffold & Provider Authentication) is implemented:
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup, run, test, and troubleshooting instructions.
 
-Prerequisites: Rust 1.85+ and Node.js 22+. On Windows, either the Visual Studio C++ Build Tools (MSVC) or MinGW-w64 gcc are required; this repo pins the GNU toolchain in `rust-toolchain.toml` because it was scaffolded on a machine without MSVC — remove that pin if you have Build Tools installed.
+Prerequisites: Rust 1.85+ and Node.js 22+. `rust-toolchain.toml` pins `channel = "stable"` for the host's default target, so the same file builds on macOS, Linux, and Windows. On Windows you need either the Visual Studio C++ Build Tools (MSVC) or MinGW-w64 gcc; if you use MinGW (no MSVC), set the rustup default host once with `rustup set default-host x86_64-pc-windows-gnu`. See [DEVELOPMENT.md](DEVELOPMENT.md) → Toolchain notes.
 
 ```sh
 npm install

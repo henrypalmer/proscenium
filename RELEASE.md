@@ -95,14 +95,20 @@ an Authenticode certificate. Set `bundle.windows.certificateThumbprint` (and
 
 ## macOS (`.app` + `.dmg`)
 
-> ⚠️ The macOS path below is **documented but not yet built/verified on this project** —
-> the dev machine is Windows-only. Treat the libmpv bundling and signing steps as a
-> starting point to validate on a Mac.
+> ✅ **Verified on an Apple Silicon Mac (M1 Pro).** `npm run tauri build` produces a
+> self-contained `Proscenium.app` + `Proscenium_0.1.0_aarch64.dmg` with the full libmpv
+> dependency tree (47 dylibs) embedded. Still outstanding for *distribution*: Developer-ID
+> code signing/notarization (§3 below) and the real updater key. Note also that the native
+> video window is currently Windows-only (`ensure_video_host` returns `Ok(None)` on macOS),
+> so playback won't render video yet — that's a feature gap, not a build-pipeline one.
 
 Prerequisites:
 - Xcode Command Line Tools: `xcode-select --install`
-- Node 22 + Rust (`rustup`), same as any platform
+- Node 22 + Rust (`rustup`), same as any platform. The committed `rust-toolchain.toml`
+  pins `channel = "stable"`, which resolves to `aarch64-apple-darwin` automatically — no
+  per-machine setup on macOS.
 - libmpv and its runtime dependencies: `brew install mpv`
+- `dylibbundler` to gather libmpv's transitive deps: `brew install dylibbundler`
 
 ### 1. Stage libmpv for bundling
 
@@ -119,17 +125,40 @@ cp "$(brew --prefix)/lib/libmpv.2.dylib" src-tauri/lib/libmpv.2.dylib
 (in `mpv/player.rs`) looks in `../Frameworks` relative to the executable in addition to
 next-to-the-binary, so it resolves there.
 
-**Transitive deps:** `bundle.macOS.frameworks` embeds only the one dylib, not the
-libraries *it* links against. Run a gatherer such as
-[`dylibbundler`](https://github.com/auriamg/macdylibbundler) to copy and rpath-fix the
-full tree before bundling, e.g.:
+**Transitive deps (required — the single dylib is not enough):** Homebrew's
+`libmpv.2.dylib` links against ~20 other Homebrew dylibs (ffmpeg, libass, libplacebo,
+…). `bundle.macOS.frameworks` embeds only the files you list, so without gathering the
+tree the `.app` runs *only* on a machine that already has `brew install mpv` — on a
+clean Mac libmpv fails to load. Gather and rpath-fix the full tree with
+[`dylibbundler`](https://github.com/auriamg/macdylibbundler):
 
 ```sh
+chmod u+w src-tauri/lib/libmpv.2.dylib   # the staged copy is read-only
 dylibbundler -of -b -x src-tauri/lib/libmpv.2.dylib -d src-tauri/lib/ -p @rpath
+# dylibbundler does NOT rewrite the -x file's own install-name ID, so fix it too:
+install_name_tool -id @rpath/libmpv.2.dylib src-tauri/lib/libmpv.2.dylib
+codesign --force -s - src-tauri/lib/libmpv.2.dylib
 ```
 
-Then list every gathered dylib under `bundle.macOS.frameworks` (or bundle them with a
-post-build script). This is the LGPL dynamic-linking compliance path for libmpv.
+On Apple Silicon this currently gathers **47 dylibs** into `src-tauri/lib/`. Every one
+must be listed under `bundle.macOS.frameworks` in `tauri.macos.conf.json`; the binary's
+baked-in `@executable_path/../Frameworks` rpath then resolves them. Regenerate the list
+straight from the directory so it can't drift:
+
+```sh
+python3 -c 'import json,os; d=sorted(f for f in os.listdir("src-tauri/lib") if f.endswith(".dylib")); \
+print(json.dumps({"$schema":"https://schema.tauri.app/config/2","bundle":{"macOS":{"frameworks":["lib/"+f for f in d]}}}, indent=2))' \
+> src-tauri/tauri.macos.conf.json
+```
+
+Verify the resulting `.app` is self-contained (should print `0`):
+
+```sh
+cd src-tauri/target/release/bundle/macos/Proscenium.app/Contents/Frameworks
+for f in *.dylib; do otool -L "$f" | tail -n +2 | grep -c /opt/homebrew; done | paste -sd+ | bc
+```
+
+This is also the LGPL dynamic-linking compliance path for libmpv.
 
 ### 2. Build
 

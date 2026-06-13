@@ -6,7 +6,7 @@ How to build, run, and test Proscenium locally. Commands are PowerShell unless n
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Rust (rustup) | 1.85+ | This repo pins `stable-x86_64-pc-windows-gnu` in [rust-toolchain.toml](rust-toolchain.toml) — rustup installs it automatically on first `cargo` invocation. See [Toolchain notes](#toolchain-notes). |
+| Rust (rustup) | 1.85+ | [rust-toolchain.toml](rust-toolchain.toml) pins `channel = "stable"` (host default target). On **Windows without MSVC** you must run `rustup set default-host x86_64-pc-windows-gnu` once, or `stable` resolves to the MSVC triple and the link fails. macOS/Linux need nothing. See [Toolchain notes](#toolchain-notes). |
 | Node.js | 22+ | On this machine Node is managed by **fnm** and is *not* on PATH by default — see below. |
 | MinGW-w64 gcc | 13+ | Needed by the GNU toolchain for linking and `windres` (already present via scoop: `~\scoop\apps\gcc\current\bin`). |
 | WebView2 Runtime | any | Preinstalled on Windows 11. |
@@ -133,6 +133,12 @@ Delete the folder to simulate a clean install. Xtream passwords are *not* in the
 
 ## Toolchain notes
 
-- **Why the GNU toolchain?** This machine has no Visual Studio C++ Build Tools (and no admin rights to install them). The MSVC target fails to link — Git's coreutils `link.exe` shadows the missing MSVC linker. On a machine *with* Build Tools, you can delete `rust-toolchain.toml` and build with the default MSVC toolchain.
+- **Cross-platform toolchain pin.** [rust-toolchain.toml](rust-toolchain.toml) pins only `channel = "stable"` (no target triple) so the one committed file works on macOS, Linux, and Windows — each host resolves stable for its *default* target. This replaced an earlier `stable-x86_64-pc-windows-gnu` pin, which broke `cargo` on macOS (`error: target tuple in channel name`).
+- **Windows without MSVC (this project's original machine):** the GNU toolchain is required because there are no Visual Studio C++ Build Tools — the MSVC target fails to link (Git's coreutils `link.exe` shadows the missing MSVC linker). Because the pin no longer names the GNU triple, you must make GNU the rustup **default host once per machine**:
+  ```powershell
+  rustup set default-host x86_64-pc-windows-gnu
+  rustup show   # confirm: "Default host: x86_64-pc-windows-gnu"
+  ```
+  If you skip this, `stable` resolves to `stable-x86_64-pc-windows-msvc` and the build fails to link. On a machine *with* Build Tools, no action is needed (MSVC is fine).
 - **Test binaries and `STATUS_ENTRYPOINT_NOT_FOUND` (0xc0000139):** executables that link Tauri import `TaskDialogIndirect` from comctl32, which only exists in the v6 side-by-side assembly. [src-tauri/build.rs](src-tauri/build.rs) compiles and links a Common-Controls v6 manifest into test binaries (`windres` required). The lib target has `test = false` because cargo's `rustc-link-arg-tests` doesn't reach the lib's unit-test harness — keep tests under `src-tauri/tests/`.
 - **Port 1420 busy:** `tauri dev` fails if another process holds the port (`strictPort` is on). Find it with `Get-NetTCPConnection -LocalPort 1420 | Select-Object OwningProcess`.
