@@ -43,9 +43,19 @@ key and its password (empty here) out of version control and in CI secrets only.
 ## Windows (`.msi` + `.exe`)
 
 Prerequisites: the repo's normal dev setup (Rust GNU toolchain, Node via fnm — see
-[DEVELOPMENT.md](DEVELOPMENT.md)) plus `src-tauri/lib/libmpv-2.dll` in place. WiX and
-NSIS are downloaded by Tauri on first build; WebView2 is installed at runtime by the
-download bootstrapper.
+[DEVELOPMENT.md](DEVELOPMENT.md)) plus **both bundled DLLs staged in `src-tauri/lib/`**:
+
+```powershell
+# Player engine (from your mpv-winbuild) + the WebView2 loader shim
+# WebView2Loader.dll: the GNU/MinGW build links it dynamically (MSVC would static-link
+# it), so it MUST ship next to the exe or the app dies on launch with
+# "WebView2Loader.dll was not found". Tauri's NSIS template does not add it for you.
+Copy-Item "$env:USERPROFILE\.cargo\registry\src\index.crates.io-*\webview2-com-sys-*\x64\WebView2Loader.dll" src-tauri\lib\
+# (libmpv-2.dll should already be in src-tauri\lib\ from dev setup)
+```
+
+WiX and NSIS are downloaded by Tauri on first build; the WebView2 *runtime* (separate
+from the loader) is installed at runtime by the download bootstrapper.
 
 ```powershell
 # Make sure Node is on PATH (fnm-managed)
@@ -66,9 +76,15 @@ src-tauri/target/release/bundle/
 └── nsis/ Proscenium_0.1.0_x64-setup.exe   + -setup.exe.sig
 ```
 
-`libmpv-2.dll` is bundled next to the installed `.exe` via the `bundle.resources`
-mapping in `tauri.windows.conf.json`, so the installed app needs no manual DLL copy.
-The `.sig` files are the minisign signatures the auto-updater verifies.
+`libmpv-2.dll` **and `WebView2Loader.dll`** are bundled next to the installed `.exe` via
+the `bundle.resources` mapping in `tauri.windows.conf.json`, so the installed app needs
+no manual DLL copy. The `.sig` files are the minisign signatures the auto-updater
+verifies.
+
+> **Sanity check after building:** confirm both DLLs are actually in the installer —
+> `grep -i webview2loader src-tauri/target/release/nsis/x64/installer.nsi` should show a
+> `File ... WebView2Loader.dll` line. The cleanest real test is to install on a **fresh
+> Windows machine or a new user account** that has never had the dev DLLs lying around.
 
 **Code signing (production):** to avoid SmartScreen warnings, sign the installers with
 an Authenticode certificate. Set `bundle.windows.certificateThumbprint` (and

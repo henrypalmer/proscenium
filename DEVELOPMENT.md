@@ -39,13 +39,13 @@ npm run tauri dev
 
 This starts the Vite dev server on **port 1420** (fixed — see `tauri.conf.json` `devUrl`), then compiles and launches the Rust app pointing at it. Frontend changes hot-reload; Rust changes trigger a rebuild/relaunch.
 
-> **First run / after `cargo clean`:** the unbundled exe needs `WebView2Loader.dll` next to it. If the app window never appears (or the process exits with `STATUS_DLL_NOT_FOUND` / `STATUS_ENTRYPOINT_NOT_FOUND`), copy it once:
+> **Why `WebView2Loader.dll` matters here:** this repo builds with the **GNU/MinGW** toolchain (no MSVC). Unlike MSVC — which statically links the WebView2 loader — the GNU build leaves the exe with a runtime dependency on `WebView2Loader.dll`. It must sit next to the exe both for dev runs *and* in packaged installers, or startup dies with "The code execution cannot proceed because WebView2Loader.dll was not found" (`STATUS_DLL_NOT_FOUND` / `STATUS_ENTRYPOINT_NOT_FOUND`).
 >
-> ```powershell
-> Copy-Item "$env:USERPROFILE\.cargo\registry\src\index.crates.io-*\webview2-com-sys-*\x64\WebView2Loader.dll" src-tauri\target\debug\
-> ```
->
-> (The Tauri bundler handles this automatically for packaged installers in Milestone 7.)
+> - **Dev runs:** copy it next to the debug exe once (after first build / `cargo clean`):
+>   ```powershell
+>   Copy-Item "$env:USERPROFILE\.cargo\registry\src\index.crates.io-*\webview2-com-sys-*\x64\WebView2Loader.dll" src-tauri\target\debug\
+>   ```
+> - **Installers:** it is bundled explicitly via `bundle.resources` in `tauri.windows.conf.json` (Tauri's NSIS template does *not* ship it for GNU builds), so staging it in `src-tauri/lib/` is required — see [RELEASE.md](RELEASE.md).
 
 ### Frontend only
 
@@ -101,9 +101,18 @@ $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
 npm run tauri build
 ```
 
-Platform-specific bundling lives in `tauri.windows.conf.json` (bundles `lib/libmpv-2.dll`
-next to the exe) and `tauri.macos.conf.json` (embeds `lib/libmpv.2.dylib` as a
-framework), merged over the shared `tauri.conf.json`.
+**Stage the bundled DLLs first.** `src-tauri/lib/` (gitignored) must contain **both**
+`libmpv-2.dll` (the player engine) and `WebView2Loader.dll` (the WebView2 loader the
+GNU-built exe links against) before bundling, or the installer will be missing them:
+
+```powershell
+Copy-Item "$env:USERPROFILE\.cargo\registry\src\index.crates.io-*\webview2-com-sys-*\x64\WebView2Loader.dll" src-tauri\lib\
+# libmpv-2.dll: from your mpv-winbuild (see the dev-setup section)
+```
+
+Platform-specific bundling lives in `tauri.windows.conf.json` (puts `lib/libmpv-2.dll`
+and `lib/WebView2Loader.dll` next to the exe) and `tauri.macos.conf.json` (embeds
+`lib/libmpv.2.dylib` as a framework), merged over the shared `tauri.conf.json`.
 
 **Full cross-platform release steps — Windows, macOS, code signing, notarization, the
 update feed, and CI — are in [RELEASE.md](RELEASE.md).**
