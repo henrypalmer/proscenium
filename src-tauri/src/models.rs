@@ -169,6 +169,25 @@ pub struct CatalogSummary {
     pub series: i64,
 }
 
+/// Content-type narrowing for the `search` command (spec §16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchContentType {
+    All,
+    Live,
+    Movies,
+    Series,
+}
+
+/// Results of a local FTS5 search, grouped by content type (spec §16).
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResults {
+    pub live_channels: Vec<LiveChannel>,
+    pub movies: Vec<MovieItem>,
+    pub series: Vec<SeriesItem>,
+}
+
 /// Payload for the `catalog:refresh_progress` event (spec §16).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

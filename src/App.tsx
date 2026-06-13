@@ -10,6 +10,7 @@ import Sidebar from "./components/layout/Sidebar";
 import ProviderForm from "./components/providers/ProviderForm";
 import Toast from "./components/common/Toast";
 import PlayerOverlay from "./components/player/PlayerOverlay";
+import SearchOverlay from "./components/search/SearchOverlay";
 import LiveTV from "./pages/LiveTV";
 import Movies from "./pages/Movies";
 import Settings from "./pages/Settings";
@@ -55,6 +56,7 @@ function Shell() {
           </Routes>
         </main>
       </div>
+      <SearchOverlay />
     </div>
   );
 }

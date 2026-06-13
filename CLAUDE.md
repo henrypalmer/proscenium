@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Proscenium is a cross-platform desktop IPTV client: Tauri v2 (Rust backend) + React + TypeScript + Tailwind CSS v4 + Zustand. The product spec is `spec-v1.md` (repo root); work proceeds in milestones (M1 providers/auth, M2 catalog refresh/storage, M3 live TV browser, M4 built-in mpv player, M5 VOD browser are done). `DEVELOPMENT.md` has full setup and troubleshooting; `README.md` summarizes milestone status.
+Proscenium is a cross-platform desktop IPTV client: Tauri v2 (Rust backend) + React + TypeScript + Tailwind CSS v4 + Zustand. The product spec is `SPEC.md` (repo root); work proceeds in milestones (M1 providers/auth, M2 catalog refresh/storage, M3 live TV browser, M4 built-in mpv player, M5 VOD browser, M6 search are done). `DEVELOPMENT.md` has full setup and troubleshooting; `README.md` summarizes milestone status.
 
 ## Commands
 
@@ -15,7 +15,7 @@ npm run build            # TypeScript type-check + production frontend build
 
 cd src-tauri
 cargo test                          # all backend tests
-cargo test --test milestone3        # one test file (tests/milestone{1..5}.rs)
+cargo test --test milestone3        # one test file (tests/milestone{1..6}.rs)
 cargo test --test milestone4 NAME   # one test by name
 ```
 
@@ -35,7 +35,7 @@ Release build: `npm run tauri build`, or manually `cargo build --release --featu
 
 Every frontend↔backend interaction goes through typed wrappers in `src/lib/tauri.ts`, which dispatch to real `invoke()` inside Tauri or to `src/lib/devMock.ts` in a plain browser (the mock mirrors real behavior: pagination, filtering, ordering — keep it in sync). Adding a command means touching:
 
-1. Handler in `src-tauri/src/commands/{providers,catalog,playback}.rs`
+1. Handler in `src-tauri/src/commands/{providers,catalog,search,playback}.rs`
 2. Registration in `generate_handler![]` in `src-tauri/src/lib.rs`
 3. Rust types in `src-tauri/src/models.rs` ↔ TS types in `src/types/index.ts` (serde camelCase must match)
 4. Typed wrapper in `src/lib/tauri.ts`

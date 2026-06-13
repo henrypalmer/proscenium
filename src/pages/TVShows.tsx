@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import CategoryPanel from "../components/layout/CategoryPanel";
 import SeriesDetail from "../components/vod/SeriesDetail";
 import SeriesGrid from "../components/vod/SeriesGrid";
@@ -13,6 +14,8 @@ export default function TVShows() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Series | null>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const providerId = activeProvider?.id ?? null;
 
@@ -40,6 +43,18 @@ export default function TVShows() {
       cancelled = true;
     };
   }, [providerId, refreshTick]);
+
+  // A search result navigated here asking for a detail view (Milestone 6).
+  // Declared after the categories effect: that one resets the detail on
+  // mount and must not clobber the requested view.
+  useEffect(() => {
+    const state = location.state as { openSeries?: Series } | null;
+    if (state?.openSeries) {
+      setDetail(state.openSeries);
+      // Clear the state so back/refresh doesn't reopen the detail.
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   if (!activeProvider) {
     return (

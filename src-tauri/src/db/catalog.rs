@@ -2,7 +2,7 @@
 
 use crate::models::{
     CatalogData, CatalogSummary, Category, EpisodeItem, LiveChannel, MovieItem, PaginatedResult,
-    SeriesItem,
+    SearchContentType, SearchResults, SeriesItem,
 };
 use sqlx::sqlite::SqliteRow;
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool, Transaction};
@@ -465,6 +465,110 @@ pub async fn replace_series_episodes(
         qb.build().execute(&mut *tx).await?;
     }
     tx.commit().await
+}
+
+/// Build an FTS5 MATCH expression that prefix-matches every whitespace
+/// token against the name and category_name columns (so neither the id nor
+/// provider_id columns can produce accidental hits). Returns None when the
+/// query has no usable tokens — the caller short-circuits to empty results
+/// instead of handing FTS an invalid expression.
+fn fts_match_expr(query: &str) -> Option<String> {
+    let tokens: Vec<String> = query
+        .split_whitespace()
+        .map(|t| t.replace('"', ""))
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{t}\"*"))
+        .collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    Some(format!("{{name category_name}} : ({})", tokens.join(" ")))
+}
+
+/// FTS5 search over one content table: best match first, ties alphabetical.
+async fn search_table<T>(
+    pool: &SqlitePool,
+    fts_table: &str,
+    content_table: &str,
+    provider_id: &str,
+    category_id: Option<&str>,
+    match_expr: &str,
+    limit: i64,
+    map: fn(&SqliteRow) -> T,
+) -> Result<Vec<T>, sqlx::Error> {
+    let category_filter = if category_id.is_some() { " AND c.category_id = ?" } else { "" };
+    let sql = format!(
+        "SELECT c.* FROM {fts_table}
+         JOIN {content_table} c ON c.rowid = {fts_table}.rowid
+         WHERE {fts_table} MATCH ? AND c.provider_id = ?{category_filter}
+         ORDER BY rank, c.name COLLATE NOCASE, c.id LIMIT ?"
+    );
+    let mut query = sqlx::query(&sql).bind(match_expr).bind(provider_id);
+    if let Some(category) = category_id {
+        query = query.bind(category);
+    }
+    let rows = query.bind(limit).fetch_all(pool).await?;
+    Ok(rows.iter().map(map).collect())
+}
+
+/// Local full-text search across the cached catalog (spec §5.5 / §16).
+/// Queries only SQLite — no network — and groups results by content type,
+/// optionally narrowed to one type and/or one category.
+pub async fn search_catalog(
+    pool: &SqlitePool,
+    provider_id: &str,
+    query: &str,
+    content_type: SearchContentType,
+    category_id: Option<&str>,
+    limit: i64,
+) -> Result<SearchResults, sqlx::Error> {
+    let mut results = SearchResults::default();
+    let Some(expr) = fts_match_expr(query) else {
+        return Ok(results);
+    };
+    let limit = limit.clamp(1, MAX_PAGE_SIZE);
+
+    use SearchContentType::*;
+    if matches!(content_type, All | Live) {
+        results.live_channels = search_table(
+            pool,
+            "fts_live_channels",
+            "live_channels",
+            provider_id,
+            category_id,
+            &expr,
+            limit,
+            row_to_live_channel,
+        )
+        .await?;
+    }
+    if matches!(content_type, All | Movies) {
+        results.movies = search_table(
+            pool,
+            "fts_movies",
+            "movies",
+            provider_id,
+            category_id,
+            &expr,
+            limit,
+            row_to_movie,
+        )
+        .await?;
+    }
+    if matches!(content_type, All | Series) {
+        results.series = search_table(
+            pool,
+            "fts_series",
+            "series",
+            provider_id,
+            category_id,
+            &expr,
+            limit,
+            row_to_series,
+        )
+        .await?;
+    }
+    Ok(results)
 }
 
 pub async fn summary(pool: &SqlitePool, provider_id: &str) -> Result<CatalogSummary, sqlx::Error> {

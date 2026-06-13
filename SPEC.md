@@ -1327,15 +1327,15 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - Clicking a result navigates to detail view (VOD) or starts playback (Live TV).
 
 **Acceptance Criteria:**
-- [ ] Cmd/Ctrl+F opens the search overlay from any section of the app.
-- [ ] Results appear within 300ms of the user stopping typing.
-- [ ] Results are correctly grouped by content type.
-- [ ] Content type filter correctly limits results to the selected type.
-- [ ] "Show all" expander reveals all results for a group.
-- [ ] Clicking a Live TV result starts playback immediately.
-- [ ] Clicking a VOD result navigates to the detail view.
-- [ ] No-results state displays a friendly message.
-- [ ] Search is performed entirely locally — no network requests.
+- [x] Cmd/Ctrl+F opens the search overlay from any section of the app. *(global shortcut listener in `SearchOverlay`, suppressing the WebView find bar; real-app e2e (`scripts/search_e2e.mjs`) verified on /live, /movies, and /settings; a Header search button opens it too)*
+- [x] Results appear within 300ms of the user stopping typing. *(real-app e2e on the live ~15k-item catalog: 237ms from last keystroke to rendered groups, including the 200ms debounce; the FTS5 query itself is ~2ms and asserted < 300ms in `tests/milestone6.rs`)*
+- [x] Results are correctly grouped by content type. *(Live TV / Movies / TV Shows sections each render only their own card type — e2e-checked; backend grouping + provider scoping covered by `results_group_by_content_type_and_stay_provider_scoped`)*
+- [x] Content type filter correctly limits results to the selected type. *(filter tabs verified e2e; backend narrowing tested per type; §5.5 genre/category narrowing also implemented and tested)*
+- [x] "Show all" expander reveals all results for a group. *(5 inline per group, expander reveals the full fetched set — e2e: 5 → 100; collapses again when the query changes)*
+- [x] Clicking a Live TV result starts playback immediately. *(real-app e2e: clicked a 24/7 channel in the results → player overlay opened and libmpv played the real stream, position advancing)*
+- [x] Clicking a VOD result navigates to the detail view. *(e2e: movie result → /movies with `MovieDetail` open; series result → /shows with `SeriesDetail` open, via router navigation state)*
+- [x] No-results state displays a friendly message. *("No results for '[query]'." plus a broader-term suggestion — e2e-verified; blank/whitespace/FTS-operator queries are safe, tested)*
+- [x] Search is performed entirely locally — no network requests. *(the command only reads SQLite FTS5 — `search_is_served_entirely_from_the_local_cache` proves it works against an unreachable provider in ~ms; e2e CDP network capture during searching saw zero external requests — only Tauri IPC and lazy poster image loads from card rendering)*
 
 ---
 

@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { useCatalogStore } from "../../store/catalogStore";
 import { useProviderStore } from "../../store/providerStore";
+import { useSearchStore } from "../../store/searchStore";
 
 const TITLES: Record<string, string> = {
   "/live": "Live TV",
@@ -17,6 +18,7 @@ export default function Header() {
   const stage = useCatalogStore((s) => s.stage);
   const progress = useCatalogStore((s) => s.progress);
   const refresh = useCatalogStore((s) => s.refresh);
+  const openSearch = useSearchStore((s) => s.setOpen);
 
   const provider = activeProvider ?? providers[0] ?? null;
 
@@ -34,6 +36,24 @@ export default function Header() {
             {provider.name}
           </span>
         )}
+        <button
+          onClick={() => openSearch(true)}
+          title="Search (Ctrl+F)"
+          aria-label="Search"
+          data-testid="search-trigger"
+          className="rounded-md p-2 text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            className="h-5 w-5"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+        </button>
         <button
           onClick={() => void refresh()}
           disabled={!provider || refreshing}

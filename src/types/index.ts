@@ -150,3 +150,13 @@ export interface MpvState {
 }
 
 export type PlayableContentType = "live" | "movie" | "episode";
+
+/** Content-type narrowing for the search command (spec §16). */
+export type SearchContentType = "all" | "live" | "movies" | "series";
+
+/** Local FTS search results, grouped by content type (spec §16). */
+export interface SearchResults {
+  liveChannels: LiveChannel[];
+  movies: Movie[];
+  series: Series[];
+}

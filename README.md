@@ -1,8 +1,10 @@
 # Proscenium
 
-Cross-platform desktop IPTV client built with Tauri v2 (Rust) + React + TypeScript + Tailwind CSS. See [spec-v1.md](spec-v1.md) for the full product specification.
+Cross-platform desktop IPTV client built with Tauri v2 (Rust) + React + TypeScript + Tailwind CSS. See [SPEC.md](SPEC.md) for the full product specification.
 
 ## Status
+
+Milestone 6 (Search) is implemented: a global search overlay (Ctrl/Cmd+F from any section, plus a Header button) backed by the SQLite FTS5 tables — prefix-matching, case-insensitive, entirely local with no provider requests. Results arrive within ~240ms of the last keystroke (200ms debounce included), grouped into Live TV / Movies / TV Shows with 5 inline results per group and a "Show all" expander, content-type filter tabs with per-type genre narrowing, and a friendly no-results state. Live results start playback directly; VOD results open their detail view.
 
 Milestone 5 (VOD Browser — Movies & TV Shows) is implemented: Movies and TV Shows sections with genre sidebars, a shared virtualized poster grid (responsive column count, lazy poster art with placeholder fallback, ~48 cells in the DOM for 12k items), movie and series detail views with on-demand Xtream metadata (`get_vod_info` / `get_series_info`, session-cached; episodes fetched per series and persisted), a season selector with per-season episode lists, and play / external-player launch from detail views and episode rows.
 
@@ -38,4 +40,4 @@ cargo test           # run backend tests (from src-tauri/)
 
 - `src/` — React frontend (components, pages, store, typed Tauri bindings).
 - `src-tauri/` — Rust backend: Tauri commands (`commands/`), SQLite layer (`db/`), IPTV protocol clients (`iptv/`), OS keychain integration (`keychain.rs`).
-- `specs/` — product specification.
+- `SPEC.md` — product specification.

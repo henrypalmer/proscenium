@@ -18,6 +18,7 @@ import type {
   MpvState,
   PaginatedResult,
   Provider,
+  SearchResults,
   Series,
   SeriesDetail,
 } from "../types";
@@ -219,6 +220,41 @@ function paginateByName<T extends { name: string; categoryId: string }>(
   };
 }
 
+/** Mirrors the backend's FTS5 prefix search (Milestone 6): every
+ * whitespace token must prefix-match a word in the name or category name. */
+function mockSearch(a: Args): SearchResults {
+  const tokens = ((a.query as string) ?? "")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const contentType = (a.contentType as string | undefined) ?? "all";
+  const categoryId = a.categoryId as string | undefined;
+  const limit = Math.min(500, Math.max(1, (a.limit as number) ?? 20));
+
+  function take<T extends { name: string; categoryId: string; categoryName: string }>(
+    list: T[],
+    wanted: string,
+  ): T[] {
+    if (tokens.length === 0 || (contentType !== "all" && contentType !== wanted)) {
+      return [];
+    }
+    return list
+      .filter((item) => {
+        if (categoryId && item.categoryId !== categoryId) return false;
+        const words = `${item.name} ${item.categoryName}`.toLowerCase().split(/\s+/);
+        return tokens.every((t) => words.some((w) => w.startsWith(t)));
+      })
+      .sort((x, y) => x.name.toLowerCase().localeCompare(y.name.toLowerCase()))
+      .slice(0, limit);
+  }
+
+  return {
+    liveChannels: take(allChannels(), "live"),
+    movies: take(allMovies(), "movies"),
+    series: take(allSeries(), "series"),
+  };
+}
+
 // --- Mock mpv state machine (drives the player UI in browser dev) ---
 
 function defaultMpvState(): MpvState {
@@ -300,7 +336,9 @@ const mockMpv = {
 type Args = Record<string, unknown>;
 
 export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
-  await sleep(LATENCY_MS);
+  // Search is a local FTS query in the real backend (~1ms); the simulated
+  // network latency would misrepresent it (spec §10: results < 300ms).
+  await sleep(cmd === "search" ? 30 : LATENCY_MS);
   const a = (args ?? {}) as Args;
   switch (cmd) {
     case "list_providers":
@@ -363,6 +401,8 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
         genre: `${found.categoryName}, Mystery`,
       } satisfies SeriesDetail as T;
     }
+    case "search":
+      return mockSearch(a) satisfies SearchResults as T;
     case "test_provider_connection":
       return {
         success: true,

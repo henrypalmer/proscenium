@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
 import CategoryPanel from "../components/layout/CategoryPanel";
 import MovieDetail from "../components/vod/MovieDetail";
@@ -23,6 +24,8 @@ export default function Movies() {
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Movie | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const providerId = activeProvider?.id ?? null;
 
@@ -50,6 +53,18 @@ export default function Movies() {
       cancelled = true;
     };
   }, [providerId, refreshTick]);
+
+  // A search result navigated here asking for a detail view (Milestone 6).
+  // Declared after the categories effect: that one resets the detail on
+  // mount and must not clobber the requested view.
+  useEffect(() => {
+    const state = location.state as { openMovie?: Movie } | null;
+    if (state?.openMovie) {
+      setDetail(state.openMovie);
+      // Clear the state so back/refresh doesn't reopen the detail.
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   if (!activeProvider) {
     return (

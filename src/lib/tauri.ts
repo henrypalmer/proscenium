@@ -13,6 +13,8 @@ import type {
   PlayableContentType,
   Provider,
   ProviderInput,
+  SearchContentType,
+  SearchResults,
   Series,
   SeriesDetail,
 } from "../types";
@@ -120,6 +122,16 @@ export function getSeriesDetail(
   seriesId: string,
 ): Promise<SeriesDetail> {
   return invoke("get_series_detail", { providerId, seriesId });
+}
+
+export function search(
+  providerId: string,
+  query: string,
+  contentType?: SearchContentType,
+  categoryId?: string,
+  limit?: number,
+): Promise<SearchResults> {
+  return invoke("search", { providerId, query, contentType, categoryId, limit });
 }
 
 export function resolveStreamUrl(
