@@ -90,17 +90,26 @@ fn open_libmpv() -> Result<Library, String> {
     } else {
         &["libmpv.so.2", "libmpv.so"]
     };
-    // Prefer a copy sitting next to the executable, then the loader's
-    // default search path (PATH on Windows).
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    // Candidate directories, most specific first: next to the executable
+    // (Windows installer layout), and — for a macOS `.app` — the sibling
+    // `Contents/Frameworks` where the bundler embeds dylibs declared in
+    // `bundle.macOS.frameworks`.
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            dirs.push(dir.to_path_buf());
+            #[cfg(target_os = "macos")]
+            dirs.push(dir.join("../Frameworks"));
+        }
+    }
     for name in names {
-        if let Some(dir) = &exe_dir {
+        for dir in &dirs {
             if let Ok(lib) = unsafe { Library::new(dir.join(name)) } {
                 return Ok(lib);
             }
         }
+        // Fall back to the loader's default search path (PATH on Windows,
+        // rpath/DYLD on macOS, ld.so on Linux).
         if let Ok(lib) = unsafe { Library::new(name) } {
             return Ok(lib);
         }

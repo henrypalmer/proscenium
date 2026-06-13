@@ -23,7 +23,7 @@ Release build: `npm run tauri build`, or manually `cargo build --release --featu
 
 ### Distribution & auto-update (M7)
 
-- `npm run tauri build` produces a WiX `.msi` and an NSIS `-setup.exe` under `src-tauri/target/release/bundle/`; `tauri.conf.json`'s `bundle.resources` maps `lib/libmpv-2.dll` next to the installed exe (where `mpv/player.rs::open_libmpv` looks first), and WebView2 ships via the download bootstrapper.
+- `npm run tauri build` produces a WiX `.msi` and an NSIS `-setup.exe` under `src-tauri/target/release/bundle/`; platform bundling is split into `tauri.windows.conf.json` (maps `lib/libmpv-2.dll` next to the installed exe) and `tauri.macos.conf.json` (embeds `lib/libmpv.2.dylib` as a framework), merged over `tauri.conf.json`. `mpv/player.rs::open_libmpv` searches next-to-exe and (macOS) `../Frameworks`. WebView2 ships via the download bootstrapper. Full cross-platform steps live in `RELEASE.md`.
 - The updater is signed: set `TAURI_SIGNING_PRIVATE_KEY` (contents of `src-tauri/proscenium-updater.key`, gitignored) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""` before building, or the build fails because `bundle.createUpdaterArtifacts` is on. The matching `plugins.updater.pubkey` is committed in `tauri.conf.json`; regenerate the pair with `npx tauri signer generate --ci -p "" -w src-tauri/proscenium-updater.key -f`.
 - The launch-time update check is `src/lib/updater.ts::checkForUpdatesOnLaunch` (called from `App.tsx`); it no-ops outside Tauri and swallows every failure so a bad endpoint never blocks startup. `plugins.updater.endpoints` is a placeholder host.
 

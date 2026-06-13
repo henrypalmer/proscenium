@@ -29,9 +29,6 @@
     "targets": ["nsis", "msi", "app", "dmg"],
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "createUpdaterArtifacts": true,
-    "resources": {
-      "lib/libmpv-2.dll": "libmpv-2.dll"
-    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
