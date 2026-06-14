@@ -168,6 +168,12 @@ async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
         }),
     )?;
 
+    // macOS: mpv created its own video window; glue it behind the app window
+    // before we hand back the player so the first frames land in the right
+    // place. (No-op once the host window is already attached.)
+    #[cfg(target_os = "macos")]
+    glue_video_window(app).await;
+
     let slot = app.state::<PlayerHandle>();
     let mut guard = slot.0.lock().unwrap();
     // A concurrent call may have won the race; prefer the stored instance.
@@ -207,8 +213,57 @@ async fn ensure_video_host(app: &AppHandle) -> Result<Option<isize>, String> {
 
 #[cfg(not(target_os = "windows"))]
 async fn ensure_video_host(_app: &AppHandle) -> Result<Option<isize>, String> {
-    // macOS embedding (NSView wid) lands with the cross-platform pass.
+    // macOS doesn't embed via `wid` (see `glue_video_window`); Linux embedding
+    // is not implemented yet. Either way, mpv gets no host window handle here.
     Ok(None)
+}
+
+/// Run `f` on the AppKit main thread and wait for its result. AppKit calls
+/// (window/level changes) must not happen off the main thread.
+#[cfg(target_os = "macos")]
+async fn run_on_main<T: Send + 'static>(
+    app: &AppHandle,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f());
+    })
+    .map_err(|e| format!("could not reach the main thread: {e}"))?;
+    rx.recv()
+        .map_err(|_| "the main thread did not respond".to_string())
+}
+
+/// macOS: mpv renders into its own window (`--force-window`); wait for it to
+/// appear, then glue it behind the app window and remember it so the window
+/// event handler can keep it fitted. Best-effort — if it never shows we let
+/// playback proceed rather than block it.
+#[cfg(target_os = "macos")]
+async fn glue_video_window(app: &AppHandle) {
+    let host_state = app.state::<VideoHost>();
+    if host_state.0.load(Ordering::SeqCst) != 0 {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let main = match window.ns_window() {
+        Ok(ptr) => ptr as isize,
+        Err(_) => return,
+    };
+    // force-window=immediate makes mpv's window appear within ~1s; poll for it.
+    for _ in 0..60 {
+        if let Ok(found) =
+            run_on_main(app, move || crate::mpv::video_host::find_video_window(main)).await
+        {
+            if found != 0 {
+                let _ = run_on_main(app, move || crate::mpv::video_host::glue(main, found)).await;
+                host_state.0.store(found, Ordering::SeqCst);
+                return;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }
 
 fn with_player<T>(

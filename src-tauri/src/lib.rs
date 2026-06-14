@@ -110,7 +110,29 @@ pub fn run() {
                     }
                 }
             }
-            #[cfg(not(target_os = "windows"))]
+            // macOS: keep mpv's glued child window fitted to the app window's
+            // content area. Plain moves are handled by child-window tracking;
+            // these events change the content size.
+            #[cfg(target_os = "macos")]
+            if matches!(
+                event,
+                tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                use std::sync::atomic::Ordering;
+                use tauri::Manager;
+                let mpv = window
+                    .app_handle()
+                    .state::<commands::playback::VideoHost>()
+                    .0
+                    .load(Ordering::SeqCst);
+                if mpv != 0 {
+                    if let Ok(main) = window.ns_window() {
+                        mpv::video_host::fit_to_parent(mpv, main as isize);
+                    }
+                }
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
             let _ = (window, event);
         })
         .build(tauri::generate_context!())

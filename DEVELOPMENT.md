@@ -47,6 +47,22 @@ This starts the Vite dev server on **port 1420** (fixed — see `tauri.conf.json
 >   ```
 > - **Installers:** it is bundled explicitly via `bundle.resources` in `tauri.windows.conf.json` (Tauri's NSIS template does *not* ship it for GNU builds), so staging it in `src-tauri/lib/` is required — see [RELEASE.md](RELEASE.md).
 
+> **macOS dev runs need `libmpv.2.dylib` next to the debug exe.** Like the
+> Windows DLL above, the built-in player loads libmpv at runtime via
+> `open_libmpv` (next-to-exe, then `../Frameworks`). A packaged `.app` embeds it,
+> but `npm run tauri dev` runs the bare `target/debug/proscenium`, so the player
+> shows "Could not load libmpv" on Play until you stage it once
+> (`DYLD_*` env vars get stripped through the `npm → cargo` launch chain, so a
+> next-to-exe copy is the reliable fix):
+>
+> ```sh
+> brew install mpv   # if not already installed
+> cp "$(readlink -f "$(brew --prefix)/lib/libmpv.2.dylib")" src-tauri/target/debug/libmpv.2.dylib
+> ```
+>
+> The Homebrew dylib references its deps by absolute `/opt/homebrew` paths, so the
+> single file is enough for dev (no `dylibbundler` needed — that's release-only).
+
 ### Frontend only
 
 ```powershell

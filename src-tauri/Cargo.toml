@@ -24,7 +24,10 @@ custom-protocol = ["tauri/custom-protocol"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# macos-private-api turns on the transparent-background API, which the macOS
+# video host relies on: mpv renders into a native NSView placed *behind* the
+# WebView, and the page only shows it through where it paints transparent.
+tauri = { version = "2", features = ["macos-private-api"] }
 # Auto-updater (Milestone 7). rustls to match the reqwest TLS stack and avoid
 # pulling in native-tls/OpenSSL on the GNU toolchain.
 tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }
@@ -41,3 +44,8 @@ libloading = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Objective-C runtime for the native video host (NSView behind the WebView).
+# Version pinned to the one Tauri already resolves so nothing is duplicated.
+objc2 = "0.6"

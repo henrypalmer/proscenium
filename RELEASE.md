@@ -140,6 +140,27 @@ install_name_tool -id @rpath/libmpv.2.dylib src-tauri/lib/libmpv.2.dylib
 codesign --force -s - src-tauri/lib/libmpv.2.dylib
 ```
 
+> **CRITICAL — strip the bogus `@rpath/` LC_RPATH (else the app dies with
+> "Could not load libmpv").** `dylibbundler -p @rpath` adds a malformed
+> `LC_RPATH @rpath/` to the dylibs it rewrites, and on `libmpv.2.dylib` it adds
+> it **twice**. dyld refuses to load *any* image with a duplicate `LC_RPATH`, so
+> `open_libmpv` fails on every Mac even though the dylib and all 47 deps are
+> present. The dylibs do not need their own rpath — the app binary's
+> `@executable_path/../Frameworks` resolves their `@rpath/...` deps — so delete
+> every `@rpath/` rpath and re-sign before regenerating the framework list:
+>
+> ```sh
+> chmod u+w src-tauri/lib/*.dylib
+> for f in src-tauri/lib/*.dylib; do
+>   while otool -l "$f" | grep -A2 'cmd LC_RPATH' | grep -q 'path @rpath/'; do
+>     install_name_tool -delete_rpath '@rpath/' "$f"
+>   done
+>   codesign --force -s - "$f"
+> done
+> # sanity: this must print 0
+> for f in src-tauri/lib/*.dylib; do otool -l "$f" | grep -A2 LC_RPATH | grep -c 'path @rpath/'; done | paste -sd+ | bc
+> ```
+
 On Apple Silicon this currently gathers **47 dylibs** into `src-tauri/lib/`. Every one
 must be listed under `bundle.macOS.frameworks` in `tauri.macos.conf.json`; the binary's
 baked-in `@executable_path/../Frameworks` rpath then resolves them. Regenerate the list

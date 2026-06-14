@@ -52,7 +52,7 @@ Backend→frontend push uses Tauri events consumed inside Zustand stores (`src/s
 
 ### Backend layers (`src-tauri/src/`)
 
-- `commands/` — Tauri command handlers plus managed state registered in `lib.rs` setup: `Db` (sqlx pool), `RefreshGuard` (prevents concurrent refreshes), `PlayerHandle`, `VideoHost` (HWND of the native video window).
+- `commands/` — Tauri command handlers plus managed state registered in `lib.rs` setup: `Db` (sqlx pool), `RefreshGuard` (prevents concurrent refreshes), `PlayerHandle`, `VideoHost` (native video-window handle — HWND on Windows, mpv's `NSWindow` on macOS).
 - `db/` — SQLite via sqlx at `%APPDATA%\proscenium\proscenium.db` (WAL mode, FTS5 indexing); `schema.rs` applies the spec §15 schema on startup. Catalog refresh persists atomically. Delete the `%APPDATA%\proscenium` folder to simulate a clean install.
 - `iptv/` — protocol clients: `xtream.rs` (6-endpoint catalog fetch) and `m3u.rs` (parsing, gzip, content-type inference).
 - `keychain.rs` — Xtream passwords live in the OS keychain only; SQLite stores a reference key, never the secret.
@@ -61,6 +61,8 @@ Backend→frontend push uses Tauri events consumed inside Zustand stores (`src/s
 ### Player rendering (the non-obvious part)
 
 mpv does not render into the WebView. `mpv/mod.rs::video_host` creates a separate *top-level* native window (a child window would be clipped out of DWM composition) glued directly behind the transparent main window in z-order. The HTML page only goes transparent over the player area once the stream delivers frames. `lib.rs`'s `on_window_event` re-fits the video window on move/resize/focus, and the player's state callback self-heals the z-order. Anything touching window layering, transparency, or the player overlay needs to respect this sandwich.
+
+**macOS** uses the same "separate native window glued behind the transparent main window" model, but the window is mpv's *own*: this Homebrew libmpv has no Cocoa-GL context, so `--wid` embedding into one of our `NSView`s is unsupported and mpv always renders into a window it creates. So `player.rs` sets `force-window=immediate` + `border=no` + `auto-window-resize=no` + `focus-on=never`, and `video_host::{find_video_window,glue,fit_to_parent}` (objc2 `msg_send!`) demotes that window to a borderless child ordered *below* the main window, sized to its content rect. `glue_video_window` (in `commands/playback.rs`) runs after the player is created (off the main thread — `force-window` `dispatch_sync`s to the main queue, so building the player on the main thread deadlocks). Transparency needs `app.macOSPrivateApi: true` (tauri.conf.json) + the `macos-private-api` cargo feature. The 47 bundled dylibs must have **no `@rpath/` LC_RPATH** (see RELEASE.md) or dyld refuses to load libmpv.
 
 ### Catalog refresh flow
 

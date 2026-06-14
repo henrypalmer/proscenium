@@ -122,3 +122,111 @@ pub mod video_host {
     }
 
 }
+
+/// Native window hosting mpv's video output on macOS.
+///
+/// This libmpv build (Homebrew, Vulkan/Metal GPU contexts only) has no
+/// Cocoa-GL context, so `--wid` embedding into one of our own `NSView`s is not
+/// supported — mpv always renders into a window it creates itself. So, exactly
+/// like the Windows path conceptually, we keep that as a *separate* native
+/// window and glue it directly behind the (transparent) app window in the
+/// z-order: mpv's window is made borderless, demoted to a child window ordered
+/// *below* the main window, and sized to the main window's content area. The
+/// HTML page only paints transparent over the player area once frames flow
+/// (the `macOSPrivateApi` transparent-background API, enabled in
+/// tauri.conf.json), so the video shows through exactly there.
+#[cfg(target_os = "macos")]
+pub mod video_host {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+
+    // Minimal CoreGraphics geometry mirrors. `Encode` lets objc2's `msg_send!`
+    // pass/return them by value with the right ABI (CGFloat is f64 on 64-bit).
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    unsafe impl Encode for CGPoint {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+    unsafe impl Encode for CGSize {
+        const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGSize,
+    }
+    unsafe impl Encode for CGRect {
+        const ENCODING: Encoding =
+            Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
+    }
+
+    // NSWindowStyleMaskBorderless = 0; NSWindowOrderingMode::Below = -1.
+    const NS_WINDOW_STYLE_BORDERLESS: u64 = 0;
+    const NS_WINDOW_BELOW: i64 = -1;
+
+    /// Locate mpv's own video window: the one visible app window that isn't the
+    /// main (`main`) window. Returns its `NSWindow` pointer, or 0 if it hasn't
+    /// been created yet. Must run on the main (AppKit) thread.
+    pub fn find_video_window(main: isize) -> isize {
+        unsafe {
+            let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+            let windows: *mut AnyObject = msg_send![app, windows];
+            let count: u64 = msg_send![windows, count];
+            for i in 0..count {
+                let w: *mut AnyObject = msg_send![windows, objectAtIndex: i];
+                if w.is_null() || w as isize == main {
+                    continue;
+                }
+                let visible: bool = msg_send![w, isVisible];
+                if visible {
+                    return w as isize;
+                }
+            }
+            0
+        }
+    }
+
+    /// Glue mpv's window (`mpv`) behind the app window (`main`): strip its
+    /// border, match the app window's level, ignore mouse events (the main
+    /// window handles all input), and attach it as a child ordered below the
+    /// main window so it tracks moves automatically. Must run on the main
+    /// thread.
+    pub fn glue(main: isize, mpv: isize) {
+        unsafe {
+            let main_w = main as *mut AnyObject;
+            let mpv_w = mpv as *mut AnyObject;
+            let _: () = msg_send![mpv_w, setStyleMask: NS_WINDOW_STYLE_BORDERLESS];
+            let level: i64 = msg_send![main_w, level];
+            let _: () = msg_send![mpv_w, setLevel: level];
+            let _: () = msg_send![mpv_w, setIgnoresMouseEvents: true];
+            let _: () = msg_send![mpv_w, setMovable: false];
+            let _: () = msg_send![main_w, addChildWindow: mpv_w, ordered: NS_WINDOW_BELOW];
+        }
+        fit_to_parent(mpv, main);
+    }
+
+    /// Size mpv's window to the app window's *content* area (below the
+    /// titlebar), in screen coordinates. Called on resize / scale-factor /
+    /// fullscreen changes; child-window attachment handles plain moves.
+    pub fn fit_to_parent(mpv: isize, main: isize) {
+        unsafe {
+            let main_w = main as *mut AnyObject;
+            let mpv_w = mpv as *mut AnyObject;
+            let frame: CGRect = msg_send![main_w, frame];
+            let content: CGRect = msg_send![main_w, contentRectForFrameRect: frame];
+            let _: () = msg_send![mpv_w, setFrame: content, display: true];
+        }
+    }
+}

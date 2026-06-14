@@ -190,6 +190,18 @@ impl MpvPlayer {
         if let Some(wid) = config.wid {
             set("wid", &wid.to_string())?;
         }
+        // macOS: this libmpv can't embed into our NSView (`wid`), so mpv keeps
+        // its own window and we glue it behind the app window (see
+        // `mpv::video_host`). Create that window up front and borderless, and
+        // stop mpv from resizing/refocusing it so the glue stays put.
+        #[cfg(target_os = "macos")]
+        if !config.headless {
+            set("force-window", "immediate")?;
+            set("border", "no")?;
+            set("auto-window-resize", "no")?;
+            set("focus-on", "never")?;
+            set("ontop", "no")?;
+        }
         if config.headless {
             set("vo", "null")?;
             set("ao", "null")?;
@@ -334,6 +346,15 @@ impl MpvPlayer {
 
     pub fn get_state(&self) -> MpvState {
         self.state.lock().unwrap().clone()
+    }
+
+    /// Capture the current video frame to `path` as a PNG. `subtitles` keeps
+    /// the rendered subtitle overlay; `false` grabs the clean video. Used by
+    /// the macOS playback verification harness to prove the embedded video
+    /// output actually rendered frames.
+    pub fn screenshot_to_file(&self, path: &str, subtitles: bool) -> Result<(), String> {
+        let mode = if subtitles { "subtitles" } else { "video" };
+        self.command(&["screenshot-to-file", path, mode])
     }
 }
 
