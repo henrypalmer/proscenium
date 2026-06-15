@@ -14,6 +14,10 @@ const TABS: { type: SearchContentType; label: string }[] = [
 interface SearchBarProps {
   /** Called with the trimmed query after the debounce delay. */
   onQueryChange: (query: string) => void;
+  /** Pressing Enter commits the search (spec §5.5) with the trimmed query. */
+  onSubmit?: (query: string) => void;
+  /** Pre-populates the input (e.g. the committed query on the results screen). */
+  initialText?: string;
   contentType: SearchContentType;
   onContentTypeChange: (type: SearchContentType) => void;
   /** Genres for the selected content type ([] when type is "all"). */
@@ -26,13 +30,15 @@ interface SearchBarProps {
  * specific type is selected, a genre/category narrowing select. */
 export default function SearchBar({
   onQueryChange,
+  onSubmit,
+  initialText = "",
   contentType,
   onContentTypeChange,
   categories,
   categoryId,
   onCategoryChange,
 }: SearchBarProps) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -61,6 +67,9 @@ export default function SearchBar({
           ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onSubmit?.(text.trim());
+          }}
           placeholder="Search channels, movies, and shows…"
           data-testid="search-input"
           className="h-11 w-full bg-transparent text-sm text-zinc-100 placeholder-zinc-500 outline-none"

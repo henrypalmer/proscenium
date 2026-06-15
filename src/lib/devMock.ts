@@ -222,10 +222,13 @@ function paginateByName<T extends { name: string; categoryId: string }>(
   a: Args,
 ): PaginatedResult<T> {
   const categoryId = a.categoryId as string | undefined;
+  // Optional in-section name filter (spec §5.3 — used by get_live_channels).
+  const query = ((a.query as string | undefined) ?? "").trim().toLowerCase();
   const page = Math.max(1, (a.page as number) ?? 1);
   const pageSize = Math.min(500, Math.max(1, (a.pageSize as number) ?? 200));
   const filtered = list
     .filter((item) => !categoryId || item.categoryId === categoryId)
+    .filter((item) => !query || item.name.toLowerCase().includes(query))
     .sort((x, y) => x.name.toLowerCase().localeCompare(y.name.toLowerCase()));
   const start = (page - 1) * pageSize;
   return {

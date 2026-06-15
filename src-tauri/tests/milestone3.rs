@@ -115,12 +115,12 @@ async fn channel_pagination_filtering_and_sorting() {
     let provider = seed(&pool, &data).await;
 
     // "All Channels": no category filter, total across categories.
-    let page1 = db::catalog::live_channels_page(&pool, &provider.id, None, 1, 10)
+    let page1 = db::catalog::live_channels_page(&pool, &provider.id, None, None, 1, 10)
         .await
         .unwrap();
     assert_eq!(page1.total, 25);
     assert_eq!(page1.items.len(), 10);
-    let page3 = db::catalog::live_channels_page(&pool, &provider.id, None, 3, 10)
+    let page3 = db::catalog::live_channels_page(&pool, &provider.id, None, None, 3, 10)
         .await
         .unwrap();
     assert_eq!(page3.items.len(), 5);
@@ -133,21 +133,21 @@ async fn channel_pagination_filtering_and_sorting() {
     assert_eq!(names[2], "news channel 02");
 
     // Category filter.
-    let sports = db::catalog::live_channels_page(&pool, &provider.id, Some("Sports"), 1, 50)
+    let sports = db::catalog::live_channels_page(&pool, &provider.id, Some("Sports"), None, 1, 50)
         .await
         .unwrap();
     assert_eq!(sports.total, 10);
     assert!(sports.items.iter().all(|c| c.category_id == "Sports"));
 
     // Out-of-range page: empty items, correct total.
-    let beyond = db::catalog::live_channels_page(&pool, &provider.id, None, 99, 10)
+    let beyond = db::catalog::live_channels_page(&pool, &provider.id, None, None, 99, 10)
         .await
         .unwrap();
     assert_eq!(beyond.total, 25);
     assert!(beyond.items.is_empty());
 
     // Degenerate inputs are clamped instead of erroring.
-    let clamped = db::catalog::live_channels_page(&pool, &provider.id, None, 0, 0)
+    let clamped = db::catalog::live_channels_page(&pool, &provider.id, None, None, 0, 0)
         .await
         .unwrap();
     assert_eq!(clamped.page, 1);
@@ -155,7 +155,7 @@ async fn channel_pagination_filtering_and_sorting() {
     assert_eq!(clamped.items.len(), 1);
 
     // Unknown category: empty but not an error.
-    let none = db::catalog::live_channels_page(&pool, &provider.id, Some("Nope"), 1, 10)
+    let none = db::catalog::live_channels_page(&pool, &provider.id, Some("Nope"), None, 1, 10)
         .await
         .unwrap();
     assert_eq!(none.total, 0);
@@ -185,7 +185,7 @@ async fn deep_pagination_stays_fast_on_a_large_catalog() {
     let provider = seed(&pool, &data).await;
 
     let started = std::time::Instant::now();
-    let mid = db::catalog::live_channels_page(&pool, &provider.id, None, 30, 200)
+    let mid = db::catalog::live_channels_page(&pool, &provider.id, None, None, 30, 200)
         .await
         .unwrap();
     let elapsed = started.elapsed();

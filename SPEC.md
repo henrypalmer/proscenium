@@ -233,6 +233,17 @@ A section of the UI dedicated to browsing and launching live TV channels.
 - A sidebar or tab-strip lists all available **channel categories** (e.g., "Sports", "News", "Entertainment", "Kids").
 - A special **"All Channels"** entry at the top of the category list shows every channel regardless of category.
 - The main content area shows channels for the selected category as a list or grid.
+- A **channel filter bar** sits directly above the channel list (see below).
+
+#### Channel Filter (within section)
+
+A text input pinned above the channel list lets the user quickly narrow the visible channels by name without leaving the Live TV browser. This is distinct from global Search (§5.5): it is an in-place filter scoped to the channels of the **currently selected category** (or all channels when "All Channels" is selected), not a cross-content search.
+
+- **Live filtering:** the list filters as the user types — no submit required — matching the typed text against the channel name (case-insensitive substring/prefix match).
+- **Category-scoped:** the filter applies on top of the active category selection. Switching categories re-applies the current filter text against the new category's channels; clearing the input restores the full category list.
+- **Scope correctness:** because the channel list is paginated server-side and virtualized (~12k channels, §10), the filter must not be limited to the rows currently held in the virtualization window. The filter text is passed to the backend (`get_live_channels` `query` parameter, §16) so it matches across the entire active category, and the filtered result remains virtualized.
+- **Empty result:** when no channel in the active category matches, show a brief inline "No channels match '[text]'." message in place of the list.
+- The filter input is empty by default and resets when the user changes provider.
 
 #### Channel Card / List Item
 
@@ -311,6 +322,17 @@ A global search that queries across all content types: live channels, movies, an
 - Results appear as the user types (debounced, ~200ms delay).
 - Results are grouped by type: **Live TV**, **Movies**, **TV Shows**.
 - Each result group shows a maximum of 5 results inline, with a "Show all [N] results" expander.
+
+#### Submit → Full Results Screen
+
+In addition to the inline preview in the overlay, pressing **Enter** while the search input is focused commits the search:
+
+- The search overlay **closes**, and the app navigates to a dedicated **search results screen** showing the full result set for the committed query (not capped at the 5-per-group inline preview).
+- The results screen is **sectioned by content type** — separate **Live TV**, **Movies**, and **TV Shows** sections, each rendered with that type's standard card format and the section's normal grid/list layout. Empty sections are omitted.
+- The active **content-type** and **genre/category** filters (see below) carry over from the overlay to the results screen; the screen reflects and lets the user keep adjusting them.
+- Result interactions match the overlay: a Live TV result starts playback, a VOD result opens its detail view.
+- If the query is blank/whitespace when Enter is pressed, no navigation occurs (the overlay stays open).
+- The committed query text remains visible on the results screen so the user can refine or clear it; the no-results state (below) applies here too when nothing matches.
 
 #### Filters
 
@@ -626,7 +648,7 @@ App
 ├── Live TV
 │   ├── All Channels
 │   └── [Category]
-│       └── Channel List
+│       └── Channel Filter → Channel List
 ├── Movies
 │   ├── All Movies
 │   └── [Genre]
@@ -636,6 +658,7 @@ App
 │   └── [Genre]
 │       └── Show Grid → Show Detail → Season → Episode List
 ├── Search (global overlay)
+│   └── Enter → Search Results Screen (sectioned: Live TV / Movies / TV Shows)
 └── Settings
     ├── Providers
     ├── Playback
@@ -980,10 +1003,14 @@ invoke('refresh_catalog', { providerId: string }): Promise<void>
 // Emits Tauri event: 'catalog:refresh_progress' → { stage: string, progress: number }
 // Emits Tauri event: 'catalog:refresh_complete' → { success: boolean, error?: string }
 
-// Fetch paginated live channels, optionally filtered by category.
+// Fetch paginated live channels, optionally filtered by category and/or a
+// name filter. `query` is the in-section channel filter (§5.3): a
+// case-insensitive name match applied within the selected category so the
+// filter covers the whole category, not just the loaded virtualization window.
 invoke('get_live_channels', {
   providerId: string,
   categoryId?: string,
+  query?: string,
   page: number,
   pageSize: number
 }): Promise<PaginatedResult<LiveChannel>>
@@ -1257,6 +1284,7 @@ A flat reference of every named component, its location, and its responsibility.
 | `ProviderForm` | `providers/ProviderForm.tsx` | Add/edit provider — Xtream and M3U form variants, test connection CTA |
 | `ProviderCard` | `providers/ProviderCard.tsx` | Displays provider name, type, last refreshed, subscription status |
 | `ProviderList` | `providers/ProviderList.tsx` | Lists all saved providers in Settings > Providers |
+| `ChannelFilterBar` | `live/ChannelFilterBar.tsx` | Text input above `ChannelList` that live-filters channels by name within the active category (§5.3) |
 | `ChannelList` | `live/ChannelList.tsx` | Virtualized list of `ChannelCard` items for the active category |
 | `ChannelCard` | `live/ChannelCard.tsx` | Channel logo, name, category label; click to play, right-click for context menu |
 | `MovieGrid` | `vod/MovieGrid.tsx` | Virtualized grid of `MovieCard` items |
@@ -1272,6 +1300,7 @@ A flat reference of every named component, its location, and its responsibility.
 | `SearchBar` | `search/SearchBar.tsx` | Debounced input + content type filter tabs |
 | `SearchResults` | `search/SearchResults.tsx` | Renders three `SearchResultGroup` sections |
 | `SearchResultGroup` | `search/SearchResultGroup.tsx` | Single content-type result group with inline limit and "Show all" expander |
+| `SearchResultsPage` | `search/SearchResultsPage.tsx` | Full-screen results view shown after pressing Enter; sectioned Live TV / Movies / TV Shows with full (non-capped) result sets (§5.5) |
 | `PlayerOverlay` | `player/PlayerOverlay.tsx` | Full-screen container for libmpv embed + controls; handles keyboard shortcuts |
 | `PlayerControls` | `player/PlayerControls.tsx` | Play/pause, seek bar, volume, track selectors, fullscreen, close |
 | `VolumeControl` | `player/VolumeControl.tsx` | Volume slider + mute toggle |
@@ -1493,4 +1522,25 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [x] Live TV never triggers a resume prompt, progress bar, or watched marker. *(preview: a live channel plays directly with no prompt and creates no `|live|` progress entries; backend `set_watch_progress` rejects a `live` content type — test `live_tv_is_never_tracked`.)*
 - [x] Progress is provider-scoped and removed when the provider is deleted (cascade). *(FK `ON DELETE CASCADE`; test `clearing_and_provider_delete_remove_rows` clears one row and confirms provider deletion drops the rest; `list_returns_section_keyed_by_content_id` confirms section/provider scoping.)*
 - [x] All progress reads/writes are local (SQLite only) — no provider requests. *(the four `watch` commands only touch `db::watch`/SQLite; the entire backend test suite runs offline.)*
+
+---
+
+### Milestone 9 — Search Results Screen & Live TV Channel Filter
+
+**Goal:** Let users commit a search to a full sectioned results screen, and filter the live channel list in place by name. (Extends §5.5 Search and §5.3 Live TV Browser.)
+
+**Scope:**
+- **Search results screen (§5.5):** pressing Enter in `SearchBar` closes `SearchOverlay` and navigates to a new `SearchResultsPage`, sectioned Live TV / Movies / TV Shows with the full (non-capped) result set per type. Carry the active content-type and genre/category filters across the navigation; omit empty sections; blank/whitespace queries don't navigate. Reuse the existing `search` command with a higher `limit` for the full sets; result clicks behave as in the overlay (Live → play, VOD → detail).
+- **Live TV channel filter (§5.3):** add `ChannelFilterBar` above `ChannelList` that live-filters by channel name as the user types, scoped to the active category ("All Channels" included). Add an optional `query` parameter to `get_live_channels` (full IPC path: handler in `commands/catalog.rs` → `generate_handler![]` → `models.rs`/`types/index.ts` → `lib/tauri.ts` → `devMock.ts`) so the filter matches the whole category, not just the loaded virtualization window, and the filtered list stays virtualized. Reset the filter on provider change; show an inline "no channels match" state.
+
+**Acceptance Criteria:**
+- [x] Pressing Enter in the search bar closes the overlay and opens the full results screen for the query. *(preview e2e: Cmd+F overlay, typed "Sports", Enter → overlay unmounted and the router navigated to `/search?q=Sports`. `SearchBar` fires `onSubmit` on Enter; `SearchOverlay.submitSearch` closes and `navigate`s with the query and filters in the URL.)*
+- [x] The results screen is sectioned by Live TV / Movies / TV Shows, each with its standard card layout; empty sections are omitted. *(preview: "Midnight" rendered a MOVIES section (poster grid) and a TV SHOWS section with no Live TV section; "Sports" rendered only a Live TV list. `SearchResultsPage` renders a `ResultSection` per type that returns `null` when empty — list layout for channels, grid for posters.)*
+- [x] The results screen shows the full result set (beyond the overlay's 5-per-group inline cap), and active content-type/genre filters carry over. *(preview: the Live and Movies sections each rendered the full 500 fetched (vs. 5 inline in the overlay) and TV Shows 200; clicking the Movies tab narrowed to just that section and set `type=movies` in the URL, surfacing the genre select. Filters live in the URL (`q`/`type`/`cat`) so they survive the overlay→page hop and in-place refine.)*
+- [x] Clicking a Live TV result plays it; clicking a VOD result opens its detail view; a blank/whitespace query does not navigate. *(preview: a channel result opened the player (`playerStore.open === true`, live content); a movie result navigated to `/movies` with `MovieDetail` open; pressing Enter on a whitespace-only query from `/live` left the path at `/live` with the overlay still open.)*
+- [x] The Live TV channel filter narrows the visible channels by name as the user types, scoped to the selected category. *(preview: typing "Sports 00" in "All Channels" narrowed to 12 rows all containing that substring; within the Sports category, "Nova" narrowed to 18 rows all containing "Nova". Backed by the `name LIKE` filter in `live_channels_page`; test `channel_filter_matches_by_name_and_composes_with_category`.)*
+- [x] The filter matches across the entire active category (not only the loaded virtualization window) and the filtered list remains virtualized/smooth at 12k channels. *(the filter text is passed to `get_live_channels` and applied in SQL, so matches come from the whole category and stay virtualized — the "Sports 00" hits spanned many categories beyond the loaded window. `usePagedLiveChannels` folds `query` into the fetcher identity so a new filter resets paging to page 1; `tests/milestone3.rs` proves the underlying paged query stays well under the 500ms budget at 12k rows.)*
+- [x] Clearing the filter restores the full category list; switching categories re-applies the current filter; the filter resets on provider change. *(preview: clearing the input restored the Sports list (33 virtualized rows); the filter state persists across category changes (re-applied by `ChannelList` re-fetching with both category and query) and is reset by an effect on `providerId` plus remounting `ChannelFilterBar` via `key={providerId}`.)*
+- [x] When nothing matches, an inline "No channels match '[text]'." message is shown in place of the list. *(preview: filtering "zzznomatch" replaced the list with the `channel-filter-empty` state reading No channels match "zzznomatch"; `live_channels_page` returns an empty page (not an error) for a no-match filter — test `blank_filter_is_ignored_and_like_metacharacters_match_literally` also covers blank-as-no-filter and literal `%`.)*
+- [x] Both features remain entirely local — no provider/network requests beyond the existing cached-catalog reads. *(the channel filter only adds a SQL `WHERE name LIKE ?` to the existing `get_live_channels` read; the results screen only calls the local FTS5 `search` command (Milestone 6 proved it serves from cache against an unreachable provider). No new network paths.)*
 

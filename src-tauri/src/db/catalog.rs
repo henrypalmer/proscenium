@@ -203,34 +203,63 @@ fn row_to_live_channel(row: &SqliteRow) -> LiveChannel {
 /// One page of channels, alphabetical (case-insensitive), optionally
 /// filtered to a category. `page` is 1-based; out-of-range pages return an
 /// empty `items` with the correct `total`.
+/// Escape the SQL `LIKE` metacharacters (`%`, `_`, and the `\` escape char
+/// itself) so a user's filter text matches literally. Paired with
+/// `ESCAPE '\'` in the query.
+fn escape_like(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 pub async fn live_channels_page(
     pool: &SqlitePool,
     provider_id: &str,
     category_id: Option<&str>,
+    query: Option<&str>,
     page: i64,
     page_size: i64,
 ) -> Result<PaginatedResult<LiveChannel>, sqlx::Error> {
     let page = page.max(1);
     let page_size = page_size.clamp(1, MAX_PAGE_SIZE);
 
-    let (count_sql, items_sql) = match category_id {
-        Some(_) => (
-            "SELECT COUNT(*) FROM live_channels WHERE provider_id = ? AND category_id = ?",
-            "SELECT * FROM live_channels WHERE provider_id = ? AND category_id = ?
-             ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?",
-        ),
-        None => (
-            "SELECT COUNT(*) FROM live_channels WHERE provider_id = ?",
-            "SELECT * FROM live_channels WHERE provider_id = ?
-             ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?",
-        ),
-    };
+    // In-section channel filter (spec §5.3): a case-insensitive name
+    // substring match, applied across the whole category so the result is not
+    // limited to the loaded virtualization window. Blank/whitespace = no
+    // filter. SQLite's `LIKE` is case-insensitive for ASCII by default.
+    let name_filter = query
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+        .map(|q| format!("%{}%", escape_like(q)));
 
-    let mut count_query = sqlx::query(count_sql).bind(provider_id);
-    let mut items_query = sqlx::query(items_sql).bind(provider_id);
+    let mut where_sql = String::from("provider_id = ?");
+    if category_id.is_some() {
+        where_sql.push_str(" AND category_id = ?");
+    }
+    if name_filter.is_some() {
+        where_sql.push_str(r" AND name LIKE ? ESCAPE '\'");
+    }
+
+    let count_sql = format!("SELECT COUNT(*) FROM live_channels WHERE {where_sql}");
+    let items_sql = format!(
+        "SELECT * FROM live_channels WHERE {where_sql}
+         ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?"
+    );
+
+    let mut count_query = sqlx::query(&count_sql).bind(provider_id);
+    let mut items_query = sqlx::query(&items_sql).bind(provider_id);
     if let Some(cat) = category_id {
         count_query = count_query.bind(cat);
         items_query = items_query.bind(cat);
+    }
+    if let Some(filter) = &name_filter {
+        count_query = count_query.bind(filter.clone());
+        items_query = items_query.bind(filter.clone());
     }
 
     let total: i64 = count_query.fetch_one(pool).await?.get(0);

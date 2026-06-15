@@ -393,12 +393,20 @@ pub async fn get_live_channels(
     state: State<'_, Db>,
     provider_id: String,
     category_id: Option<String>,
+    query: Option<String>,
     page: i64,
     page_size: i64,
 ) -> Result<PaginatedResult<LiveChannel>, String> {
-    db::catalog::live_channels_page(&state.0, &provider_id, category_id.as_deref(), page, page_size)
-        .await
-        .map_err(|e| format!("Failed to read live channels: {e}"))
+    db::catalog::live_channels_page(
+        &state.0,
+        &provider_id,
+        category_id.as_deref(),
+        query.as_deref(),
+        page,
+        page_size,
+    )
+    .await
+    .map_err(|e| format!("Failed to read live channels: {e}"))
 }
 
 #[tauri::command]

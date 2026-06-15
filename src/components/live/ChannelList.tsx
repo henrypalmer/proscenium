@@ -14,6 +14,8 @@ interface ChannelListProps {
   categoryId: string | null;
   showCategory: boolean;
   version: number;
+  /** In-section name filter (spec §5.3); empty string = no filter. */
+  query: string;
   onActivate: (channel: LiveChannel) => void;
   onContextMenu: (channel: LiveChannel, x: number, y: number) => void;
 }
@@ -27,6 +29,7 @@ export default function ChannelList({
   categoryId,
   showCategory,
   version,
+  query,
   onActivate,
   onContextMenu,
 }: ChannelListProps) {
@@ -35,6 +38,7 @@ export default function ChannelList({
     providerId,
     categoryId,
     version,
+    query,
   );
   const refreshing = useCatalogStore((s) => s.refreshing);
   const refresh = useCatalogStore((s) => s.refresh);
@@ -59,10 +63,23 @@ export default function ChannelList({
     );
   }, [total, virtualItems, ensureRange]);
 
-  // Back to the top when the category (or catalog version) changes.
+  // Back to the top when the category, filter, or catalog version changes.
   useEffect(() => {
     parentRef.current?.scrollTo({ top: 0 });
-  }, [categoryId, version]);
+  }, [categoryId, version, query]);
+
+  if (total === 0 && query !== "") {
+    // Spec §5.3: nothing in the active category matches the filter text.
+    return (
+      <div
+        data-testid="channel-filter-empty"
+        className="flex h-full flex-col items-center justify-center gap-1 text-center"
+      >
+        <p className="text-sm font-medium text-zinc-400">No channels match</p>
+        <p className="max-w-sm text-xs text-zinc-600">“{query}”</p>
+      </div>
+    );
+  }
 
   if (total === 0) {
     // Spec §12: empty catalog → instructional empty state with Refresh.

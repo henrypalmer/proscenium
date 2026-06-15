@@ -87,13 +87,17 @@ export function usePagedLiveChannels(
   providerId: string | null,
   categoryId: string | null,
   version: number,
+  query?: string,
 ) {
-  return usePagedItems<LiveChannel>(
-    providerId,
-    categoryId,
-    version,
-    api.getLiveChannels,
+  // Fold the in-section filter (spec §5.3) into the fetcher identity: a new
+  // `query` produces a new fetcher, which resets the paged list and refetches
+  // from page 1 against the whole (filtered) category.
+  const fetchPage = useCallback<PageFetcher<LiveChannel>>(
+    (providerId, categoryId, page, pageSize) =>
+      api.getLiveChannels(providerId, categoryId, query || undefined, page, pageSize),
+    [query],
   );
+  return usePagedItems<LiveChannel>(providerId, categoryId, version, fetchPage);
 }
 
 export function usePagedMovies(

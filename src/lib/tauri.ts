@@ -87,10 +87,17 @@ export function getLiveCategories(providerId: string): Promise<Category[]> {
 export function getLiveChannels(
   providerId: string,
   categoryId: string | undefined,
+  query: string | undefined,
   page: number,
   pageSize: number,
 ): Promise<PaginatedResult<LiveChannel>> {
-  return invoke("get_live_channels", { providerId, categoryId, page, pageSize });
+  return invoke("get_live_channels", {
+    providerId,
+    categoryId,
+    query,
+    page,
+    pageSize,
+  });
 }
 
 export function getVodCategories(providerId: string): Promise<Category[]> {

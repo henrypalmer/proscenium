@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ContextMenu from "../components/common/ContextMenu";
 import CategoryPanel from "../components/layout/CategoryPanel";
+import ChannelFilterBar from "../components/live/ChannelFilterBar";
 import ChannelList from "../components/live/ChannelList";
 import * as api from "../lib/tauri";
 import { useCatalogStore } from "../store/catalogStore";
@@ -20,9 +21,15 @@ export default function LiveTV() {
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   const providerId = activeProvider?.id ?? null;
+
+  // Spec §5.3: the channel filter resets when the provider changes.
+  useEffect(() => {
+    setFilter("");
+  }, [providerId]);
 
   useEffect(() => {
     if (!providerId) {
@@ -89,15 +96,19 @@ export default function LiveTV() {
         selectedId={selected}
         onSelect={setSelected}
       />
-      <div className="min-w-0 flex-1">
-        <ChannelList
-          providerId={activeProvider.id}
-          categoryId={selected}
-          showCategory={selected === null}
-          version={refreshTick}
-          onActivate={play}
-          onContextMenu={(channel, x, y) => setMenu({ channel, x, y })}
-        />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <ChannelFilterBar key={providerId} onQueryChange={setFilter} />
+        <div className="min-h-0 flex-1">
+          <ChannelList
+            providerId={activeProvider.id}
+            categoryId={selected}
+            showCategory={selected === null}
+            version={refreshTick}
+            query={filter}
+            onActivate={play}
+            onContextMenu={(channel, x, y) => setMenu({ channel, x, y })}
+          />
+        </div>
       </div>
       {menu && (
         <ContextMenu

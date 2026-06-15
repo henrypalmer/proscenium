@@ -13,6 +13,7 @@ import WarningBanner from "./components/common/WarningBanner";
 import PlayerOverlay from "./components/player/PlayerOverlay";
 import ResumeDialog from "./components/player/ResumeDialog";
 import SearchOverlay from "./components/search/SearchOverlay";
+import SearchResultsPage from "./components/search/SearchResultsPage";
 import LiveTV from "./pages/LiveTV";
 import Movies from "./pages/Movies";
 import Settings from "./pages/Settings";
@@ -57,6 +58,7 @@ function Shell() {
             <Route path="/live" element={<LiveTV />} />
             <Route path="/movies" element={<Movies />} />
             <Route path="/shows" element={<TVShows />} />
+            <Route path="/search" element={<SearchResultsPage />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/live" replace />} />
           </Routes>

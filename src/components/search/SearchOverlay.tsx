@@ -132,6 +132,18 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
     navigate("/shows", { state: { openSeries: series } });
   };
 
+  // Spec §5.5: Enter commits the search — close the overlay and navigate to
+  // the full, sectioned results screen, carrying the active filters in the URL.
+  // A blank/whitespace query does nothing.
+  const submitSearch = (committed: string) => {
+    if (committed === "") return;
+    const params = new URLSearchParams({ q: committed });
+    if (contentType !== "all") params.set("type", contentType);
+    if (categoryId) params.set("cat", categoryId);
+    onClose();
+    navigate(`/search?${params.toString()}`);
+  };
+
   return (
     <div
       data-testid="search-overlay"
@@ -143,6 +155,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
       <div className="mt-14 flex h-fit max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
         <SearchBar
           onQueryChange={setQuery}
+          onSubmit={submitSearch}
           contentType={contentType}
           onContentTypeChange={setContentType}
           categories={categories}
