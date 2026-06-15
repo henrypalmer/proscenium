@@ -1,4 +1,7 @@
 import { NavLink } from "react-router-dom";
+import { useCatalogStore } from "../../store/catalogStore";
+import { useProviderStore } from "../../store/providerStore";
+import { useSearchStore } from "../../store/searchStore";
 
 /** Primary navigation (spec §9): a floating, horizontally-centered pill pinned
  * to the top of the content area — Home · Live TV · Movies · TV Shows ·
@@ -57,7 +60,20 @@ const NAV_ITEMS = [
   },
 ];
 
+/** Shared bubble styling: the same background as the nav pill, but each action
+ * is its own disjointed rounded container (spec §9 / user request). */
+const BUBBLE_CLASS =
+  "flex items-center justify-center rounded-full border border-zinc-800 bg-zinc-900/90 p-2.5 text-zinc-300 shadow-xl backdrop-blur transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-zinc-300";
+
 export default function TopNav() {
+  const providers = useProviderStore((s) => s.providers);
+  const activeProvider = useCatalogStore((s) => s.activeProvider);
+  const refreshing = useCatalogStore((s) => s.refreshing);
+  const refresh = useCatalogStore((s) => s.refresh);
+  const openSearch = useSearchStore((s) => s.setOpen);
+
+  const provider = activeProvider ?? providers[0] ?? null;
+
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
       isActive
@@ -66,11 +82,11 @@ export default function TopNav() {
     }`;
 
   return (
-    <nav
-      data-testid="top-nav"
-      className="pointer-events-auto absolute left-1/2 top-3 z-30 -translate-x-1/2"
-    >
-      <div className="flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/90 p-1 shadow-xl backdrop-blur">
+    <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex items-center justify-center gap-2 px-4">
+      <nav
+        data-testid="top-nav"
+        className="pointer-events-auto flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/90 p-1 shadow-xl backdrop-blur"
+      >
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
@@ -83,7 +99,47 @@ export default function TopNav() {
             <span>{item.label}</span>
           </NavLink>
         ))}
+      </nav>
+
+      {/* Search + Refresh: directly beside the pill, each its own bubble (icons only). */}
+      <div className="pointer-events-auto flex items-center gap-2">
+        <button
+          onClick={() => openSearch(true)}
+          title="Search (Ctrl+F)"
+          aria-label="Search"
+          data-testid="search-trigger"
+          className={BUBBLE_CLASS}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            className="h-5 w-5"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+        </button>
+        <button
+          onClick={() => void refresh()}
+          disabled={!provider || refreshing}
+          title={refreshing ? "Refresh in progress" : "Refresh catalog"}
+          aria-label="Refresh catalog"
+          data-testid="refresh-trigger"
+          className={BUBBLE_CLASS}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            className={`h-5 w-5 ${refreshing ? "animate-spin" : ""}`}
+          >
+            <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
+          </svg>
+        </button>
       </div>
-    </nav>
+    </div>
   );
 }

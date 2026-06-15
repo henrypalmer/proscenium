@@ -684,7 +684,7 @@ Primary navigation is a **floating navigation bar pinned to the top-center** of 
 
 **Home · Live TV · Movies · TV Shows · Settings**
 
-Selecting a section routes to it (the active section is highlighted). The previous left-hand sidebar is removed and the main content spans the full width; the Header toolbar (provider name, refresh, global search trigger) is retained, and the secondary category/genre panel (§5.3/§5.4) still appears within Live TV, Movies, and TV Shows.
+Selecting a section routes to it (the active section is highlighted). The **Search** and **Refresh** controls sit in the same row as the nav, each as its own disjointed icon-only "bubble" using the nav's background styling. The previous left-hand sidebar is removed and the main content spans the full width; the Header toolbar (provider name + refresh progress) is retained, and the secondary category/genre panel (§5.3/§5.4) still appears within Live TV, Movies, and TV Shows.
 
 ### Navigation Structure
 
@@ -1349,9 +1349,9 @@ A flat reference of every named component, its location, and its responsibility.
 | Component | File | Responsibility |
 |-----------|------|---------------|
 | `App` | `App.tsx` | Root; initializes router, loads active provider on mount |
-| `TopNav` | `layout/TopNav.tsx` | Floating top-center primary nav (§9): Home, Live TV, Movies, TV Shows, Settings — clickable sections with the active one highlighted. Replaces the former left `Sidebar`. |
+| `TopNav` | `layout/TopNav.tsx` | Floating top-center primary nav (§9): Home, Live TV, Movies, TV Shows, Settings — clickable sections with the active one highlighted, plus disjointed icon-only Search and Refresh bubbles in the same row. Replaces the former left `Sidebar`. |
 | `MediaRow` | `home/MediaRow.tsx` | A labeled, horizontally-scrollable strip of cards used by the Home rows (§5.10); renders the section's standard card component side by side |
-| `Header` | `layout/Header.tsx` | App toolbar: provider name, refresh button, search trigger, refresh progress indicator |
+| `Header` | `layout/Header.tsx` | App toolbar: section title, provider name, refresh progress indicator (Search/Refresh controls live in `TopNav`) |
 | `CategoryPanel` | `layout/CategoryPanel.tsx` | Secondary sidebar listing categories/genres for the active section |
 | `ProviderForm` | `providers/ProviderForm.tsx` | Add/edit provider — Xtream and M3U form variants, test connection CTA |
 | `ProviderCard` | `providers/ProviderCard.tsx` | Displays provider name, type, last refreshed, subscription status |
