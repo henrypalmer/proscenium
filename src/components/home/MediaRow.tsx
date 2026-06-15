@@ -23,9 +23,9 @@ export default function MediaRow<T>({
   if (items.length === 0) return null;
   return (
     <section data-testid={testId}>
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-300">
+      <h2 className="mb-3 text-base font-semibold text-zinc-200">
         {title}
-        <span className="ml-2 font-normal normal-case text-zinc-600">
+        <span className="ml-2 text-sm font-normal text-zinc-600">
           {items.length}
         </span>
       </h2>

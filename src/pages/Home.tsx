@@ -193,7 +193,7 @@ export default function Home() {
           <div className="flex h-72 flex-col items-center justify-center gap-2 text-center">
             <p className="text-sm font-medium text-zinc-400">Nothing here yet</p>
             <p className="max-w-sm text-xs text-zinc-600">
-              Start watching something, or browse Movies and TV Shows — your
+              Start watching something, or browse Movies and Series — your
               Popular picks and Keep Watching will show up here.
             </p>
           </div>

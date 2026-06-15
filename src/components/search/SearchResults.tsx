@@ -35,7 +35,7 @@ export default function SearchResults({
   if (query === "") {
     return (
       <p className="px-4 py-10 text-center text-sm text-zinc-600">
-        Search across live TV, movies, and TV shows.
+        Search across live TV, movies, and series.
       </p>
     );
   }
@@ -98,7 +98,7 @@ export default function SearchResults({
         )}
       />
       <SearchResultGroup
-        title="TV Shows"
+        title="Series"
         items={results.series}
         layout="grid"
         testId="search-group-series"

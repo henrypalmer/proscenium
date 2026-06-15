@@ -28,7 +28,7 @@ export default function SeriesGrid({
       getItem={getItem}
       ensureRange={ensureRange}
       resetKey={`${categoryId ?? "all"}:${version}`}
-      emptyNoun="shows"
+      emptyNoun="series"
       filtered={categoryId !== null}
       renderCard={(series) => (
         <SeriesCard series={series} onActivate={onActivate} />

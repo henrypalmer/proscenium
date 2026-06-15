@@ -159,7 +159,7 @@ export default function SearchResultsPage() {
           </p>
         ) : query === "" ? (
           <p className="py-16 text-center text-sm text-zinc-600">
-            Type a query to search live TV, movies, and TV shows.
+            Type a query to search live TV, movies, and series.
           </p>
         ) : results === null ? (
           <p className="py-16 text-center text-sm text-zinc-600">Searching…</p>
@@ -207,7 +207,7 @@ export default function SearchResultsPage() {
               )}
             />
             <ResultSection
-              title="TV Shows"
+              title="Series"
               count={results.series.length}
               layout="grid"
               testId="results-page-series"

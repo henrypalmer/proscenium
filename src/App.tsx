@@ -5,7 +5,6 @@ import {
   Route,
   Routes,
 } from "react-router-dom";
-import Header from "./components/layout/Header";
 import TopNav from "./components/layout/TopNav";
 import ProviderForm from "./components/providers/ProviderForm";
 import Toast from "./components/common/Toast";
@@ -49,7 +48,6 @@ function Shell() {
   const playerOpen = usePlayerStore((s) => s.open);
   return (
     <div className={`flex h-full min-w-0 flex-col ${playerOpen ? "invisible" : ""}`}>
-      <Header />
       <WarningBanner />
       {/* Positioning context for the floating top-center nav (spec §9). */}
       <div className="relative min-h-0 flex-1">

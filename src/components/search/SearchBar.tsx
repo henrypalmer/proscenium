@@ -8,7 +8,7 @@ const TABS: { type: SearchContentType; label: string }[] = [
   { type: "all", label: "All" },
   { type: "live", label: "Live TV" },
   { type: "movies", label: "Movies" },
-  { type: "series", label: "TV Shows" },
+  { type: "series", label: "Series" },
 ];
 
 interface SearchBarProps {
@@ -70,7 +70,7 @@ export default function SearchBar({
           onKeyDown={(e) => {
             if (e.key === "Enter") onSubmit?.(text.trim());
           }}
-          placeholder="Search channels, movies, and shows…"
+          placeholder="Search channels, movies, and series…"
           data-testid="search-input"
           className="h-11 w-full bg-transparent text-sm text-zinc-100 placeholder-zinc-500 outline-none"
         />

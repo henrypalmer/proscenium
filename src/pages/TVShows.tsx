@@ -66,7 +66,7 @@ export default function TVShows() {
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <p className="text-sm font-medium text-zinc-400">No provider selected</p>
         <p className="max-w-xs text-xs text-zinc-600">
-          Add or select a provider in Settings to browse TV shows.
+          Add or select a provider in Settings to browse series.
         </p>
       </div>
     );
@@ -87,7 +87,7 @@ export default function TVShows() {
     <div className="relative flex h-full">
       <CategoryPanel
         title="Genres"
-        allLabel="All Shows"
+        allLabel="All Series"
         categories={categories}
         selectedId={selected}
         onSelect={setSelected}

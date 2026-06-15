@@ -1,10 +1,10 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useCatalogStore } from "../../store/catalogStore";
 import { useProviderStore } from "../../store/providerStore";
 import { useSearchStore } from "../../store/searchStore";
 
 /** Primary navigation (spec §9): a floating, horizontally-centered pill pinned
- * to the top of the content area — Home · Live TV · Movies · TV Shows ·
+ * to the top of the content area — Home · Live TV · Movies · Series ·
  * Settings, in that fixed order. Replaces the former left sidebar. */
 const NAV_ITEMS = [
   {
@@ -40,7 +40,7 @@ const NAV_ITEMS = [
   },
   {
     to: "/shows",
-    label: "TV Shows",
+    label: "Series",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
         <rect x="3" y="5" width="18" height="13" rx="2" />
@@ -60,32 +60,64 @@ const NAV_ITEMS = [
   },
 ];
 
-/** Shared bubble styling: the same background as the nav pill, but each action
+/** Shared bubble styling: the same background as the nav pill, but each control
  * is its own disjointed rounded container (spec §9 / user request). */
-const BUBBLE_CLASS =
-  "flex items-center justify-center rounded-full border border-zinc-800 bg-zinc-900/90 p-2.5 text-zinc-300 shadow-xl backdrop-blur transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-zinc-300";
+const BUBBLE_BASE =
+  "rounded-full border border-zinc-800 bg-zinc-900/90 text-zinc-300 shadow-xl backdrop-blur transition-colors";
+/** Icon-only action bubbles (search / refresh). */
+const BUBBLE_CLASS = `flex items-center justify-center p-2.5 ${BUBBLE_BASE} hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-zinc-300`;
+/** Provider label bubble — same look, sized for text, name truncates. */
+const PROVIDER_BUBBLE_CLASS = `pointer-events-auto flex min-w-0 max-w-[14rem] items-center gap-2 px-4 py-2.5 text-sm font-medium ${BUBBLE_BASE} hover:text-white`;
+
+/** Refresh progress ring geometry (drawn over the 40px refresh bubble). */
+const RING_R = 18;
+const RING_CIRC = 2 * Math.PI * RING_R;
 
 export default function TopNav() {
+  const navigate = useNavigate();
   const providers = useProviderStore((s) => s.providers);
   const activeProvider = useCatalogStore((s) => s.activeProvider);
   const refreshing = useCatalogStore((s) => s.refreshing);
+  const stage = useCatalogStore((s) => s.stage);
+  const progress = useCatalogStore((s) => s.progress);
   const refresh = useCatalogStore((s) => s.refresh);
   const openSearch = useSearchStore((s) => s.setOpen);
 
   const provider = activeProvider ?? providers[0] ?? null;
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+    `flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
       isActive
         ? "bg-zinc-100 text-zinc-900"
         : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
     }`;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex items-center justify-center gap-2 px-4">
+    <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex items-center justify-center gap-2 px-4">
+      {provider && (
+        <button
+          onClick={() => navigate("/settings")}
+          title={`Provider: ${provider.name} — manage in Settings`}
+          aria-label={`Provider: ${provider.name}. Manage in Settings`}
+          data-testid="provider-pill"
+          className={PROVIDER_BUBBLE_CLASS}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            className="h-4 w-4 shrink-0 text-zinc-400"
+          >
+            <path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4" />
+            <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+          </svg>
+          <span className="truncate">{provider.name}</span>
+        </button>
+      )}
       <nav
         data-testid="top-nav"
-        className="pointer-events-auto flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/90 p-1 shadow-xl backdrop-blur"
+        className="pointer-events-auto flex shrink-0 items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/90 p-1 shadow-xl backdrop-blur"
       >
         {NAV_ITEMS.map((item) => (
           <NavLink
@@ -102,7 +134,7 @@ export default function TopNav() {
       </nav>
 
       {/* Search + Refresh: directly beside the pill, each its own bubble (icons only). */}
-      <div className="pointer-events-auto flex items-center gap-2">
+      <div className="pointer-events-auto flex shrink-0 items-center gap-2">
         <button
           onClick={() => openSearch(true)}
           title="Search (Ctrl+F)"
@@ -121,24 +153,55 @@ export default function TopNav() {
             <path d="m21 21-4.3-4.3" />
           </svg>
         </button>
-        <button
-          onClick={() => void refresh()}
-          disabled={!provider || refreshing}
-          title={refreshing ? "Refresh in progress" : "Refresh catalog"}
-          aria-label="Refresh catalog"
-          data-testid="refresh-trigger"
-          className={BUBBLE_CLASS}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            className={`h-5 w-5 ${refreshing ? "animate-spin" : ""}`}
+        <div className="relative">
+          {refreshing && (
+            <svg
+              viewBox="0 0 40 40"
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 h-full w-full -rotate-90"
+            >
+              <circle
+                cx="20"
+                cy="20"
+                r={RING_R}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="text-zinc-700"
+              />
+              <circle
+                cx="20"
+                cy="20"
+                r={RING_R}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                className="text-emerald-400 transition-[stroke-dashoffset] duration-300"
+                strokeDasharray={RING_CIRC}
+                strokeDashoffset={RING_CIRC * (1 - Math.max(0.04, progress))}
+              />
+            </svg>
+          )}
+          <button
+            onClick={() => void refresh()}
+            disabled={!provider || refreshing}
+            title={refreshing ? (stage ?? "Refreshing…") : "Refresh catalog"}
+            aria-label="Refresh catalog"
+            data-testid="refresh-trigger"
+            className={BUBBLE_CLASS}
           >
-            <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
-          </svg>
-        </button>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className={`h-5 w-5 ${refreshing ? "animate-spin" : ""}`}
+            >
+              <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );
