@@ -22,6 +22,7 @@
    - 5.7 [Cover Art & Metadata (Planned)](#57-cover-art--metadata-planned)
    - 5.8 [IMDB Integration (Planned)](#58-imdb-integration-planned)
    - 5.9 [Resume Playback & Watch Progress](#59-resume-playback--watch-progress)
+   - 5.10 [Home Screen](#510-home-screen)
 6. [Protocol Support](#6-protocol-support)
 7. [Media Format Support](#7-media-format-support)
 8. [Data Models](#8-data-models)
@@ -469,6 +470,42 @@ Live TV is **never** tracked — it has no resumable position (its `duration` is
 
 ---
 
+### 5.10 Home Screen
+
+#### Description
+
+The **Home** screen is the landing view shown first when the application opens. It is a curated overview composed of horizontally-scrolling rows of content drawn from the active provider's catalog and the user's local watch history. It is reached via the **Home** entry in the primary navigation (§9) and lives at the app root route.
+
+#### Layout
+
+- A vertical stack of **rows**, each a labeled section with a horizontally-scrollable strip of cards laid out side by side. Cards reuse the exact components from their dedicated sections (`MovieCard`, `SeriesCard`) — same poster art, sizing, hover, click, and context-menu behavior — so a movie on Home behaves identically to a movie in the Movies grid.
+- Rows render in this order: **Popular Movies**, **Popular Series**, **Keep Watching**. *(Omitted rows collapse; the remaining rows close up so there is no empty gap.)*
+- Each row scrolls horizontally and independently; the page itself scrolls vertically if the rows overflow the viewport.
+
+#### Rows
+
+**Popular Movies**
+- The movies belonging to the provider's **"Popular"** category. The category is resolved by a case-insensitive match against the VOD category names (the catalog's existing `get_vod_categories`); its items are fetched with the existing `get_movies` (first page, capped at a reasonable strip length, e.g. ~30).
+- Cards are `MovieCard`s, identical to the Movies tab, including the watch-progress overlay (§5.9).
+
+**Popular Series**
+- The same as Popular Movies but for TV series: the provider's **"Popular"** series category resolved from `get_series_categories`, items from `get_series`, rendered as `SeriesCard`s.
+
+**Keep Watching**
+- The user's **in-progress** movies and episodes — exactly the items that qualify for a progress bar in §5.9 (meaningful position, **not** completed). Live TV is never included (it is never tracked).
+- Ordered most-recently-watched first (by the watch-progress `updated_at`).
+- Each card shows the same **progress bar overlay** used on Movie cards and episode rows (`WatchProgressOverlay`). Clicking a card resumes that item via the standard resume flow (§5.9): movies/episodes with meaningful progress present the resume prompt.
+- Because watch progress stores only `(provider_id, content_type, content_id, position, duration, completed)` and not the catalog item itself, the renderable card data (poster, title, and — for episodes — the parent series for poster fallback) is resolved on the backend via a dedicated `get_continue_watching` command (§16) that joins progress against the `movies` and `episodes` tables.
+
+#### Empty / Unavailable States
+
+- If the provider exposes **no "Popular" category** (movies or series), that row is omitted rather than shown empty.
+- If there is **no watch history**, the Keep Watching row is omitted.
+- If **no provider** is active, Home shows the same "select a provider in Settings" guidance the other sections use.
+- All Home data comes from the local cache and local watch history; no Home row triggers an on-demand provider request.
+
+---
+
 ## 6. Protocol Support
 
 ### Xtream Codes API
@@ -641,10 +678,22 @@ interface Episode {
 - **Keyboard navigable.** All primary actions reachable without a mouse.
 - **Responsive layouts.** The UI adapts gracefully from a compact 1024×768 window to 4K full screen.
 
+### Primary Navigation
+
+Primary navigation is a **floating navigation bar pinned to the top-center** of the content area (not a left sidebar). It is a compact, horizontally-centered bar overlaying the top of the content, with clickable sections in this fixed left-to-right order:
+
+**Home · Live TV · Movies · TV Shows · Settings**
+
+Selecting a section routes to it (the active section is highlighted). The previous left-hand sidebar is removed and the main content spans the full width; the Header toolbar (provider name, refresh, global search trigger) is retained, and the secondary category/genre panel (§5.3/§5.4) still appears within Live TV, Movies, and TV Shows.
+
 ### Navigation Structure
 
 ```
 App
+├── Home (root route — first screen)
+│   ├── Popular Movies  (provider "Popular" category → MovieCards)
+│   ├── Popular Series  (provider "Popular" category → SeriesCards)
+│   └── Keep Watching   (in-progress movies/episodes, with progress bars)
 ├── Live TV
 │   ├── All Channels
 │   └── [Category]
@@ -1169,6 +1218,28 @@ interface WatchProgress {
 }
 ```
 
+### Home Commands (§5.10)
+
+```typescript
+// In-progress movies and episodes for the Home "Keep Watching" row, joined
+// against the catalog so each item carries the data needed to render a card
+// plus its progress. Excludes completed items; most-recently-watched first;
+// provider-scoped and entirely local. Episodes include their parent series
+// (when present) for poster fallback.
+invoke('get_continue_watching', {
+  providerId: string,
+  limit?: number            // default ~20
+}): Promise<ContinueWatchingItem[]>
+
+type ContinueWatchingItem =
+  | { kind: 'movie'; movie: Movie; progress: WatchProgress }
+  | { kind: 'episode'; episode: Episode; series: Series | null; progress: WatchProgress };
+
+// Popular Movies / Popular Series rows reuse existing commands: resolve the
+// provider's "Popular" category from get_vod_categories / get_series_categories
+// (case-insensitive name match), then fetch its items via get_movies / get_series.
+```
+
 ---
 
 ## 17. Project Structure
@@ -1278,7 +1349,8 @@ A flat reference of every named component, its location, and its responsibility.
 | Component | File | Responsibility |
 |-----------|------|---------------|
 | `App` | `App.tsx` | Root; initializes router, loads active provider on mount |
-| `Sidebar` | `layout/Sidebar.tsx` | Primary nav: Live TV, Movies, TV Shows, Settings icons/labels |
+| `TopNav` | `layout/TopNav.tsx` | Floating top-center primary nav (§9): Home, Live TV, Movies, TV Shows, Settings — clickable sections with the active one highlighted. Replaces the former left `Sidebar`. |
+| `MediaRow` | `home/MediaRow.tsx` | A labeled, horizontally-scrollable strip of cards used by the Home rows (§5.10); renders the section's standard card component side by side |
 | `Header` | `layout/Header.tsx` | App toolbar: provider name, refresh button, search trigger, refresh progress indicator |
 | `CategoryPanel` | `layout/CategoryPanel.tsx` | Secondary sidebar listing categories/genres for the active section |
 | `ProviderForm` | `providers/ProviderForm.tsx` | Add/edit provider — Xtream and M3U form variants, test connection CTA |
@@ -1543,4 +1615,27 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [x] Clearing the filter restores the full category list; switching categories re-applies the current filter; the filter resets on provider change. *(preview: clearing the input restored the Sports list (33 virtualized rows); the filter state persists across category changes (re-applied by `ChannelList` re-fetching with both category and query) and is reset by an effect on `providerId` plus remounting `ChannelFilterBar` via `key={providerId}`.)*
 - [x] When nothing matches, an inline "No channels match '[text]'." message is shown in place of the list. *(preview: filtering "zzznomatch" replaced the list with the `channel-filter-empty` state reading No channels match "zzznomatch"; `live_channels_page` returns an empty page (not an error) for a no-match filter — test `blank_filter_is_ignored_and_like_metacharacters_match_literally` also covers blank-as-no-filter and literal `%`.)*
 - [x] Both features remain entirely local — no provider/network requests beyond the existing cached-catalog reads. *(the channel filter only adds a SQL `WHERE name LIKE ?` to the existing `get_live_channels` read; the results screen only calls the local FTS5 `search` command (Milestone 6 proved it serves from cache against an unreachable provider). No new network paths.)*
+
+---
+
+### Milestone 10 — Floating Top Navigation & Home Screen
+
+**Goal:** Replace the left sidebar with a floating top-center navigation bar and add a curated **Home** landing screen. (Delivers §9 Primary Navigation and §5.10.)
+
+**Scope:**
+- **Top navigation (§9):** add `TopNav` (`layout/TopNav.tsx`) — a floating, horizontally-centered nav bar with sections **Home · Live TV · Movies · TV Shows · Settings** (this fixed left-to-right order), active section highlighted, routing via the existing router. Remove `Sidebar` from `App.tsx`'s `Shell` and let the content span full width; keep the `Header` toolbar and the per-section `CategoryPanel`.
+- **Routing:** Home becomes the root route — `/` renders the new `Home` page (replacing the `/ → /live` redirect); the catch-all falls back to `/` rather than `/live`. Add a `/home` alias is not required (root is Home).
+- **Home page (§5.10):** new `pages/Home.tsx` rendering stacked `MediaRow`s in order **Popular Movies, Popular Series, Keep Watching**, each a horizontally-scrollable strip reusing `MovieCard` / `SeriesCard` (with the §5.9 `WatchProgressOverlay`).
+  - **Popular Movies / Series:** resolve the provider's "Popular" category from `get_vod_categories` / `get_series_categories` (case-insensitive name match) and fetch its items via `get_movies` / `get_series`; omit the row when no such category exists.
+  - **Keep Watching:** add a `get_continue_watching` command (§16) — full IPC path: Rust handler in `commands/watch.rs` → `generate_handler![]` in `lib.rs` → `models.rs` (`ContinueWatchingItem`) ↔ `types/index.ts` → `lib/tauri.ts` wrapper → `devMock.ts`. It joins non-completed `watch_progress` rows against the `movies` and `episodes` tables (episodes carry their parent `series` for poster fallback), most-recently-watched first, provider-scoped. Cards show the progress bar and resume via the standard §5.9 flow.
+- **Empty states:** omit a Popular row with no "Popular" category; omit Keep Watching with no history; show the standard "select a provider" guidance when no provider is active.
+
+**Acceptance Criteria:**
+- [x] The primary navigation is a floating top-center bar (no left sidebar) with sections Home, Live TV, Movies, TV Shows, Settings in that order; the active section is highlighted and each routes correctly. *(preview: `TopNav` renders the five items in order as a centered floating pill; the former `Sidebar` is deleted. Clicking each routes — verified Home→/, Live TV→/live, Movies→/movies, Settings→/settings — and the active item highlights (`bg-zinc-100`). The nav persists across sections and content clears it (main `pt-16`).)*
+- [x] Launching the app lands on Home (root route); Live TV, Movies, TV Shows, and Settings remain reachable and unchanged. *(preview: navigating to `/` renders `Home`; the `/ → /live` redirect was replaced and the catch-all now falls back to `/`. Live TV still shows its category panel + M9 channel filter, Movies still opens detail, Settings still shows Providers/Playback — all unchanged.)*
+- [x] Home shows Keep Watching, Popular Movies, and Popular Series as horizontally-scrollable rows of side-by-side cards using the same card components as the dedicated sections. *(preview: three `MediaRow`s — Popular Movies (30 `MovieCard`s), Popular Series (30 `SeriesCard`s), Keep Watching — each a horizontally-scrolling flex strip of fixed-width cards reusing the dedicated `MovieCard`/`SeriesCard` plus the shared `WatchProgressOverlay`.)*
+- [x] Popular Movies/Series are populated from the provider's "Popular" category; a missing "Popular" category omits that row rather than showing it empty. *(preview: both Popular rows filled from the "Popular" category resolved via `get_vod_categories`/`get_series_categories` (case-insensitive `\bpopular\b`) + `get_movies`/`get_series`. By construction, no match → `[]` → `MediaRow` returns `null` (the row, like an empty Keep Watching, is omitted, not shown empty).)*
+- [x] Keep Watching lists in-progress (non-completed) movies and episodes, most-recently-watched first, each card showing the §5.9 progress bar; clicking resumes via the standard resume flow. *(preview: an in-progress episode and movie rendered newest-first (episode @-40s before movie @-120s), each with a `progress-bar` overlay; clicking the episode card set `pendingResume` (episode, 600s) and showed `ResumeDialog`. Backend `get_continue_watching` joins non-completed `watch_progress` against `movies`/`episodes` (+ parent `series`), most-recent first — test `continue_watching_orders_by_recency_excludes_completed_and_joins_series`.)*
+- [x] Keep Watching excludes completed items and Live TV, and is omitted entirely when there is no watch history. *(preview: a completed movie in the seed did NOT appear (2 cards, 0 watched-checkmarks); live is never tracked (§5.9, enforced backend). Tests: completed + catalog-orphaned rows excluded by the join; `continue_watching_is_empty_without_history_and_respects_limit` returns `[]` with no history → the row is omitted via `MediaRow`.)*
+- [x] Home renders entirely from the local cache and local watch history — no on-demand provider requests. *(`get_continue_watching` only reads SQLite (`db::watch`/catalog joins); the Popular rows reuse the cached `get_*_categories`/`get_movies`/`get_series` reads. No new network path; the backend test suite runs offline.)*
 

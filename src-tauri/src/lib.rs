@@ -85,6 +85,7 @@ pub fn run() {
             commands::watch::get_watch_progress,
             commands::watch::set_watch_progress,
             commands::watch::list_watch_progress,
+            commands::watch::get_continue_watching,
             commands::watch::clear_watch_progress,
         ])
         .on_window_event(|window, event| {

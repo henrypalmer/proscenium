@@ -5,6 +5,7 @@ import type {
   CatalogSummary,
   Category,
   ConnectionTestResult,
+  ContinueWatchingItem,
   EpisodesBySeason,
   LiveChannel,
   Movie,
@@ -210,6 +211,14 @@ export function clearWatchProgress(
   contentId: string,
 ): Promise<void> {
   return invoke("clear_watch_progress", { providerId, contentType, contentId });
+}
+
+/** In-progress movies/episodes for the Home "Keep Watching" row (spec §5.10). */
+export function getContinueWatching(
+  providerId: string,
+  limit?: number,
+): Promise<ContinueWatchingItem[]> {
+  return invoke("get_continue_watching", { providerId, limit });
 }
 
 export const mpv = {

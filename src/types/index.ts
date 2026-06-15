@@ -192,3 +192,14 @@ export interface SearchResults {
   movies: Movie[];
   series: Series[];
 }
+
+/** One Home "Keep Watching" item (spec §5.10): a movie or episode joined with
+ * its catalog row plus the saved progress. Discriminated by `kind`. */
+export type ContinueWatchingItem =
+  | { kind: "movie"; movie: Movie; progress: WatchProgress }
+  | {
+      kind: "episode";
+      episode: Episode;
+      series: Series | null;
+      progress: WatchProgress;
+    };

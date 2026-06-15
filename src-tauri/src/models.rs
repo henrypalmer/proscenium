@@ -183,6 +183,24 @@ pub struct WatchProgress {
     pub updated_at: i64,
 }
 
+/// One in-progress item for the Home "Keep Watching" row (spec §5.10 / §16):
+/// a movie or episode joined with its catalog row plus the saved progress.
+/// Serialized as a `kind`-tagged union (`movie` / `episode`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ContinueWatchingItem {
+    Movie {
+        movie: MovieItem,
+        progress: WatchProgress,
+    },
+    Episode {
+        episode: EpisodeItem,
+        /// Parent series (for poster/title fallback); `None` if it's gone.
+        series: Option<SeriesItem>,
+        progress: WatchProgress,
+    },
+}
+
 /// Content-type narrowing for the `search` command (spec §16).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]

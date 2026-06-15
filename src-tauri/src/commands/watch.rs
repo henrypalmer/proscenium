@@ -2,13 +2,16 @@
 //! bars, and watched markers for VOD. Live TV is never tracked.
 
 use crate::db::{self, Db};
-use crate::models::WatchProgress;
+use crate::models::{ContinueWatchingItem, WatchProgress};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use tauri::State;
 
 /// Fraction of the runtime past which an item is considered fully watched.
 pub const COMPLETION_THRESHOLD: f64 = 0.95;
+
+/// Default number of items returned by `get_continue_watching` (spec §16).
+pub const DEFAULT_CONTINUE_WATCHING_LIMIT: i64 = 20;
 
 fn validate_content_type(content_type: &str) -> Result<(), String> {
     match content_type {
@@ -97,6 +100,21 @@ pub async fn list_watch_progress(
     db::watch::list(&state.0, &provider_id, &content_type)
         .await
         .map_err(|e| format!("Failed to list watch progress: {e}"))
+}
+
+#[tauri::command]
+pub async fn get_continue_watching(
+    state: State<'_, Db>,
+    provider_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<ContinueWatchingItem>, String> {
+    db::watch::continue_watching(
+        &state.0,
+        &provider_id,
+        limit.unwrap_or(DEFAULT_CONTINUE_WATCHING_LIMIT),
+    )
+    .await
+    .map_err(|e| format!("Failed to load continue watching: {e}"))
 }
 
 #[tauri::command]

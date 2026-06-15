@@ -277,7 +277,7 @@ pub async fn live_channels_page(
     })
 }
 
-fn row_to_movie(row: &SqliteRow) -> MovieItem {
+pub(crate) fn row_to_movie(row: &SqliteRow) -> MovieItem {
     MovieItem {
         id: row.get("id"),
         name: row.get("name"),
@@ -303,7 +303,7 @@ fn row_to_series(row: &SqliteRow) -> SeriesItem {
     }
 }
 
-fn row_to_episode(row: &SqliteRow) -> EpisodeItem {
+pub(crate) fn row_to_episode(row: &SqliteRow) -> EpisodeItem {
     EpisodeItem {
         id: row.get("id"),
         series_id: row.get("series_id"),

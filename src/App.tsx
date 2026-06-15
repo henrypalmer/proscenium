@@ -6,7 +6,7 @@ import {
   Routes,
 } from "react-router-dom";
 import Header from "./components/layout/Header";
-import Sidebar from "./components/layout/Sidebar";
+import TopNav from "./components/layout/TopNav";
 import ProviderForm from "./components/providers/ProviderForm";
 import Toast from "./components/common/Toast";
 import WarningBanner from "./components/common/WarningBanner";
@@ -14,6 +14,7 @@ import PlayerOverlay from "./components/player/PlayerOverlay";
 import ResumeDialog from "./components/player/ResumeDialog";
 import SearchOverlay from "./components/search/SearchOverlay";
 import SearchResultsPage from "./components/search/SearchResultsPage";
+import Home from "./pages/Home";
 import LiveTV from "./pages/LiveTV";
 import Movies from "./pages/Movies";
 import Settings from "./pages/Settings";
@@ -47,20 +48,21 @@ function Shell() {
   // through the transparent page background.
   const playerOpen = usePlayerStore((s) => s.open);
   return (
-    <div className={`flex h-full ${playerOpen ? "invisible" : ""}`}>
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header />
-        <WarningBanner />
-        <main className="min-h-0 flex-1 overflow-y-auto">
+    <div className={`flex h-full min-w-0 flex-col ${playerOpen ? "invisible" : ""}`}>
+      <Header />
+      <WarningBanner />
+      {/* Positioning context for the floating top-center nav (spec §9). */}
+      <div className="relative min-h-0 flex-1">
+        <TopNav />
+        <main className="h-full overflow-y-auto pt-16">
           <Routes>
-            <Route path="/" element={<Navigate to="/live" replace />} />
+            <Route path="/" element={<Home />} />
             <Route path="/live" element={<LiveTV />} />
             <Route path="/movies" element={<Movies />} />
             <Route path="/shows" element={<TVShows />} />
             <Route path="/search" element={<SearchResultsPage />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/live" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
       </div>

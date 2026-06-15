@@ -11,6 +11,7 @@ import type {
   CatalogSummary,
   Category,
   ConnectionTestResult,
+  ContinueWatchingItem,
   Episode,
   EpisodesBySeason,
   LiveChannel,
@@ -114,13 +115,13 @@ const mockSettings: AppSettings = {
 // --- Mock VOD catalog (Milestone 5) ---
 
 const MOVIE_GENRES = [
-  "Action", "Comedy", "Drama", "Documentary", "Horror", "Sci-Fi", "Thriller",
-  "Romance", "Animation", "Family", "Crime", "Adventure", "Fantasy",
-  "Mystery", "War", "Western",
+  "Popular", "Action", "Comedy", "Drama", "Documentary", "Horror", "Sci-Fi",
+  "Thriller", "Romance", "Animation", "Family", "Crime", "Adventure",
+  "Fantasy", "Mystery", "War", "Western",
 ];
 const SERIES_GENRES = [
-  "Crime", "Drama", "Comedy", "Sci-Fi", "Fantasy", "Reality", "Kids",
-  "Documentary", "Anime", "Classic",
+  "Popular", "Crime", "Drama", "Comedy", "Sci-Fi", "Fantasy", "Reality",
+  "Kids", "Documentary", "Anime", "Classic",
 ];
 const TITLE_A = [
   "Midnight", "Crimson", "Silent", "Golden", "Broken", "Electric", "Hollow",
@@ -279,6 +280,44 @@ function mockSearch(a: Args): SearchResults {
 const watchProgress = new Map<string, WatchProgress>();
 const wpKey = (providerId: string, contentType: string, contentId: string) =>
   `${providerId}|${contentType}|${contentId}`;
+
+// Pre-seed a little history so the Home "Keep Watching" row (Milestone 10) is
+// populated in browser dev. One in-progress movie, one in-progress episode,
+// and one completed movie (which must NOT appear in Keep Watching).
+(() => {
+  const nowS = Math.floor(Date.now() / 1000);
+  watchProgress.set(wpKey(provider.id, "movie", "movie-3"), {
+    positionSeconds: 1800,
+    durationSeconds: 5400,
+    completed: false,
+    updatedAt: nowS - 120,
+  });
+  watchProgress.set(wpKey(provider.id, "episode", "ep-2-1-2"), {
+    positionSeconds: 600,
+    durationSeconds: 2160,
+    completed: false,
+    updatedAt: nowS - 40,
+  });
+  watchProgress.set(wpKey(provider.id, "movie", "movie-7"), {
+    positionSeconds: 5300,
+    durationSeconds: 5400,
+    completed: true,
+    updatedAt: nowS - 10,
+  });
+})();
+
+/** Resolve a mock episode id (`ep-{series}-{season}-{ep}`) back to its episode
+ * row and parent series — backs the Keep Watching join (Milestone 10). */
+function findEpisodeById(
+  id: string,
+): { episode: Episode; series: Series | null } | null {
+  const m = /^ep-(\d+)-(\d+)-(\d+)$/.exec(id);
+  if (!m) return null;
+  const seriesId = `series-${m[1]}`;
+  const episode = episodesFor(seriesId)[Number(m[2])]?.find((e) => e.id === id);
+  if (!episode) return null;
+  return { episode, series: allSeries().find((s) => s.id === seriesId) ?? null };
+}
 
 // --- Mock mpv state machine (drives the player UI in browser dev) ---
 
@@ -508,6 +547,30 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
         wpKey(a.providerId as string, a.contentType as string, a.contentId as string),
       );
       return undefined as T;
+    case "get_continue_watching": {
+      const providerId = a.providerId as string;
+      const limit = Math.min(200, Math.max(1, (a.limit as number) ?? 20));
+      const items: ContinueWatchingItem[] = [];
+      for (const [k, progress] of watchProgress) {
+        const [pid, contentType, contentId] = k.split("|");
+        if (pid !== providerId || progress.completed) continue;
+        if (contentType === "movie") {
+          const movie = allMovies().find((mv) => mv.id === contentId);
+          if (movie) items.push({ kind: "movie", movie, progress });
+        } else if (contentType === "episode") {
+          const found = findEpisodeById(contentId);
+          if (found)
+            items.push({
+              kind: "episode",
+              episode: found.episode,
+              series: found.series,
+              progress,
+            });
+        }
+      }
+      items.sort((x, y) => y.progress.updatedAt - x.progress.updatedAt);
+      return items.slice(0, limit) as T;
+    }
     case "mpv_play":
       mockMpv.state = { ...mockMpv.state, paused: false };
       return undefined as T;
