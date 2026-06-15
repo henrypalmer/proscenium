@@ -24,6 +24,9 @@ export default function Movies() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Movie | null>(null);
+  /** True when the open detail was reached by navigation (Home/Search) rather
+   * than a click within this section's grid — closing it then goes back. */
+  const [detailFromNav, setDetailFromNav] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -32,6 +35,7 @@ export default function Movies() {
 
   useEffect(() => {
     setDetail(null);
+    setDetailFromNav(false);
     if (!providerId) {
       setCategories([]);
       return;
@@ -64,6 +68,7 @@ export default function Movies() {
     const state = location.state as { openMovie?: Movie } | null;
     if (state?.openMovie) {
       setDetail(state.openMovie);
+      setDetailFromNav(true);
       // Clear the state so back/refresh doesn't reopen the detail.
       navigate(location.pathname, { replace: true, state: null });
     }
@@ -79,6 +84,18 @@ export default function Movies() {
       </div>
     );
   }
+
+  // Open a detail from a grid click (closing returns to the grid).
+  const openDetail = (movie: Movie) => {
+    setDetail(movie);
+    setDetailFromNav(false);
+  };
+  // Closing returns to the previous page when we arrived via navigation
+  // (e.g. Home or Search), otherwise it just reveals the grid again.
+  const closeDetail = () => {
+    if (detailFromNav) navigate(-1);
+    else setDetail(null);
+  };
 
   const providerIdForPlayback = activeProvider.id;
   const play = (movie: Movie) =>
@@ -115,7 +132,7 @@ export default function Movies() {
           providerId={activeProvider.id}
           categoryId={selected}
           version={refreshTick}
-          onActivate={setDetail}
+          onActivate={openDetail}
           onContextMenu={(movie, x, y) => setMenu({ movie, x, y })}
         />
       </div>
@@ -123,7 +140,7 @@ export default function Movies() {
         <MovieDetail
           providerId={activeProvider.id}
           movie={detail}
-          onClose={() => setDetail(null)}
+          onClose={closeDetail}
         />
       )}
       {menu && (
