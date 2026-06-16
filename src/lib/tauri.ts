@@ -198,6 +198,21 @@ export function setWatchProgress(
   });
 }
 
+/** Force an item to "watched" (Keep Watching → Mark as watched, spec §5.10). */
+export function markWatched(
+  providerId: string,
+  contentType: ProgressContentType,
+  contentId: string,
+  durationSeconds: number | null,
+): Promise<void> {
+  return invoke("mark_watched", {
+    providerId,
+    contentType,
+    contentId,
+    durationSeconds,
+  });
+}
+
 export function listWatchProgress(
   providerId: string,
   contentType: ProgressContentType,

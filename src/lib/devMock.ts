@@ -534,6 +534,21 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       );
       return undefined as T;
     }
+    case "mark_watched": {
+      const rawDuration = a.durationSeconds as number | null;
+      const duration =
+        rawDuration && rawDuration > 0 ? Math.round(rawDuration) : null;
+      watchProgress.set(
+        wpKey(a.providerId as string, a.contentType as string, a.contentId as string),
+        {
+          positionSeconds: duration ?? 0,
+          durationSeconds: duration,
+          completed: true,
+          updatedAt: Math.floor(Date.now() / 1000),
+        },
+      );
+      return undefined as T;
+    }
     case "list_watch_progress": {
       const prefix = `${a.providerId as string}|${a.contentType as string}|`;
       const out: Record<string, WatchProgress> = {};

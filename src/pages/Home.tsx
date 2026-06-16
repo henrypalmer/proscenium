@@ -21,6 +21,18 @@ function findPopular(categories: Category[]): Category | undefined {
   return categories.find((c) => /\bpopular\b/i.test(c.name));
 }
 
+/** Stable key for a Keep Watching item (movie vs. episode). */
+function cwKey(item: ContinueWatchingItem): string {
+  return item.kind === "movie" ? `movie-${item.movie.id}` : `ep-${item.episode.id}`;
+}
+
+/** The watch-progress (type, id) addressing a Keep Watching item. */
+function progressRef(item: ContinueWatchingItem) {
+  return item.kind === "movie"
+    ? { contentType: "movie" as const, contentId: item.movie.id }
+    : { contentType: "episode" as const, contentId: item.episode.id };
+}
+
 interface MenuState {
   movie: Movie;
   x: number;
@@ -46,6 +58,11 @@ export default function Home() {
   const [keepWatching, setKeepWatching] = useState<ContinueWatchingItem[]>([]);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [seriesChoice, setSeriesChoice] = useState<SeriesChoice | null>(null);
+  const [kwMenu, setKwMenu] = useState<{
+    item: ContinueWatchingItem;
+    x: number;
+    y: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!providerId) {
@@ -167,6 +184,35 @@ export default function Home() {
     }
   };
 
+  // Drop a card from the row in place (the row closes up; an empty row is
+  // omitted by MediaRow).
+  const removeCard = (item: ContinueWatchingItem) =>
+    setKeepWatching((prev) => prev.filter((it) => cwKey(it) !== cwKey(item)));
+
+  // Keep Watching → "Mark as watched" (§5.10): set the completion flag so the
+  // item leaves the row and shows the §5.9 watched checkmark in the catalog.
+  const markWatched = (item: ContinueWatchingItem) => {
+    const { contentType, contentId } = progressRef(item);
+    const duration = item.progress.durationSeconds;
+    void api.markWatched(pid, contentType, contentId, duration);
+    useProgressStore.getState().setLocal(pid, contentType, contentId, {
+      positionSeconds: duration ?? item.progress.positionSeconds,
+      durationSeconds: duration,
+      completed: true,
+      updatedAt: Math.floor(Date.now() / 1000),
+    });
+    removeCard(item);
+  };
+
+  // Keep Watching → "Remove from list" (§5.10): clear progress entirely so the
+  // item shows neither a bar nor a checkmark.
+  const removeFromList = (item: ContinueWatchingItem) => {
+    const { contentType, contentId } = progressRef(item);
+    void api.clearWatchProgress(pid, contentType, contentId);
+    useProgressStore.getState().setLocal(pid, contentType, contentId, null);
+    removeCard(item);
+  };
+
   const empty =
     popularMovies.length === 0 &&
     popularSeries.length === 0 &&
@@ -181,11 +227,13 @@ export default function Home() {
           title="Keep Watching"
           testId="home-keep-watching"
           items={keepWatching}
-          getKey={(item) =>
-            item.kind === "movie" ? `movie-${item.movie.id}` : `ep-${item.episode.id}`
-          }
+          getKey={cwKey}
           renderItem={(item) => (
-            <KeepWatchingCard item={item} onActivate={onKeepWatchingActivate} />
+            <KeepWatchingCard
+              item={item}
+              onActivate={onKeepWatchingActivate}
+              onMenu={(it, x, y) => setKwMenu({ item: it, x, y })}
+            />
           )}
         />
         <MediaRow
@@ -234,6 +282,18 @@ export default function Home() {
               label: "Open in External Player",
               onSelect: () => void playMovieExternal(menu.movie),
             },
+          ]}
+        />
+      )}
+
+      {kwMenu && (
+        <ContextMenu
+          x={kwMenu.x}
+          y={kwMenu.y}
+          onClose={() => setKwMenu(null)}
+          items={[
+            { label: "Mark as watched", onSelect: () => markWatched(kwMenu.item) },
+            { label: "Remove from list", onSelect: () => removeFromList(kwMenu.item) },
           ]}
         />
       )}

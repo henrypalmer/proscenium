@@ -84,6 +84,7 @@ pub fn run() {
             commands::playback::mpv_get_state,
             commands::watch::get_watch_progress,
             commands::watch::set_watch_progress,
+            commands::watch::mark_watched,
             commands::watch::list_watch_progress,
             commands::watch::get_continue_watching,
             commands::watch::clear_watch_progress,

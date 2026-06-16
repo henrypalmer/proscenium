@@ -90,6 +90,52 @@ pub async fn set_watch_progress(
     .await
 }
 
+/// Force an item to "watched" (Keep Watching → Mark as watched, spec §5.10).
+/// Sets the completion flag regardless of whether the runtime is known (unlike
+/// `set_watch_progress`, which can only infer completion from position/duration),
+/// parking the position at the end when the duration is known.
+pub async fn mark_watched_impl(
+    pool: &SqlitePool,
+    provider_id: &str,
+    content_type: &str,
+    content_id: &str,
+    duration_seconds: Option<f64>,
+) -> Result<(), String> {
+    validate_content_type(content_type)?;
+    let duration = duration_seconds.filter(|d| *d > 0.0).map(|d| d.round() as i64);
+    let position = duration.unwrap_or(0);
+    db::watch::upsert(
+        pool,
+        provider_id,
+        content_type,
+        content_id,
+        position,
+        duration,
+        true,
+        now_unix(),
+    )
+    .await
+    .map_err(|e| format!("Failed to mark watched: {e}"))
+}
+
+#[tauri::command]
+pub async fn mark_watched(
+    state: State<'_, Db>,
+    provider_id: String,
+    content_type: String,
+    content_id: String,
+    duration_seconds: Option<f64>,
+) -> Result<(), String> {
+    mark_watched_impl(
+        &state.0,
+        &provider_id,
+        &content_type,
+        &content_id,
+        duration_seconds,
+    )
+    .await
+}
+
 #[tauri::command]
 pub async fn list_watch_progress(
     state: State<'_, Db>,

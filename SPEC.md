@@ -1,8 +1,8 @@
 # Proscenium — Product Specification
 
-**Version:** 0.6.0 (Draft)
+**Version:** 0.7.0 (Draft)
 **Status:** In Progress
-**Last Updated:** 2026-06-13
+**Last Updated:** 2026-06-16
 
 ---
 
@@ -23,6 +23,7 @@
    - 5.8 [IMDB Integration (Planned)](#58-imdb-integration-planned)
    - 5.9 [Resume Playback & Watch Progress](#59-resume-playback--watch-progress)
    - 5.10 [Home Screen](#510-home-screen)
+   - 5.11 [Custom Lists (Playlists)](#511-custom-lists-playlists)
 6. [Protocol Support](#6-protocol-support)
 7. [Media Format Support](#7-media-format-support)
 8. [Data Models](#8-data-models)
@@ -479,7 +480,8 @@ The **Home** screen is the landing view shown first when the application opens. 
 #### Layout
 
 - A vertical stack of **rows**, each a labeled section with a horizontally-scrollable strip of cards laid out side by side. Cards reuse the exact components from their dedicated sections (`MovieCard`, `SeriesCard`) — same poster art, sizing, hover, click, and context-menu behavior — so a movie on Home behaves identically to a movie in the Movies grid.
-- Rows render in this order: **Keep Watching**, **Popular Movies**, **Popular Series**. When the user has any in-progress content, **Keep Watching is the first (top-most) row** so resumable items are immediately reachable; when there is no in-progress content the row is omitted and Popular Movies becomes the top row. *(Omitted rows collapse; the remaining rows close up so there is no empty gap.)*
+- Rows render in this order: **Keep Watching**, **My Lists**, **Popular Movies**, **Popular Series**. When the user has any in-progress content, **Keep Watching is the first (top-most) row** so resumable items are immediately reachable; when there is no in-progress content the row is omitted and the next non-empty row becomes the top row. *(Omitted rows collapse; the remaining rows close up so there is no empty gap.)*
+- The **My Lists** row surfaces the user's custom lists (§5.11); it follows Keep Watching so personal content leads over the provider's curated "Popular" rows. It is omitted when the user has no lists.
 - Each row scrolls horizontally and independently; the page itself scrolls vertically if the rows overflow the viewport.
 
 #### Rows
@@ -504,14 +506,65 @@ The **Home** screen is the landing view shown first when the application opens. 
     1. **Resume [SxxEyy]** — resumes the **last in-progress episode** for that series via the standard §5.9 resume flow (the same episode the card represents).
     2. **Go to series** — navigates to that series' detail page (§5.4 `SeriesDetail`) instead of starting playback.
   - The popup is dismissible (click-away / Esc) and is shown only for series content; movie cards never show it.
+- **Removing an item from Keep Watching:** each card exposes a secondary affordance (a right-click context menu, and/or a hover "⋯" button so it is reachable without a right-click) with two destructive actions:
+  - **Mark as watched** — sets the item's completion flag (`set_watch_progress` advancing it past the completion threshold, or a dedicated flag write). The item immediately leaves Keep Watching (completed items are excluded) and instead shows the **watched checkmark** wherever it appears in the catalog (§5.9). For a series episode this marks **that episode** watched; the series stays in Keep Watching if it still has other in-progress episodes.
+  - **Remove from list** — clears the saved progress entirely via the existing `clear_watch_progress` (§16). The item disappears from Keep Watching and shows neither a progress bar nor a checkmark (as if never watched); replaying it later starts fresh.
+  - Both actions update the row in place (the removed card animates out and the rest close up). Removing the last item omits the whole row.
 - Because watch progress stores only `(provider_id, content_type, content_id, position, duration, completed)` and not the catalog item itself, the renderable card data (poster, title, and — for episodes — the parent series for both artwork and the resume target) is resolved on the backend via a dedicated `get_continue_watching` command (§16) that joins progress against the `movies` and `episodes` tables.
+
+**My Lists**
+- A horizontally-scrollable row of **collection-cover cards**, one per custom list (§5.11), most-recently-updated first. Consistent with the other Home rows (same row width, horizontal scroll), but each card represents a whole list rather than a single title.
+- Each cover card shows a **2×2 poster mosaic** of the list's first up-to-four items (falling back to the `Placeholder` tile for empty slots), with the **list name** and **item count** below. Clicking the card opens that list's **List Detail** view (§5.11).
+- A leading **"+ New list"** card is the first item whenever the row is shown, so a list can be created directly from Home; it opens the list editor (§5.11).
+- The row is shown when the user has **at least one** list and is omitted when there are none. (Lists can always also be created from any content item's "Add to list" affordance in the catalog — §5.11 — so a first list does not depend on this row being visible.)
 
 #### Empty / Unavailable States
 
 - If the provider exposes **no "Popular" category** (movies or series), that row is omitted rather than shown empty.
 - If there is **no watch history**, the Keep Watching row is omitted.
+- If the user has **no custom lists**, the My Lists row is omitted (§5.11).
 - If **no provider** is active, Home shows the same "select a provider in Settings" guidance the other sections use.
 - All Home data comes from the local cache and local watch history; no Home row triggers an on-demand provider request.
+
+---
+
+### 5.11 Custom Lists (Playlists)
+
+#### Description
+
+Users can create their own named **lists** — playlists of content they curate, e.g. "Horror movies to watch" or "Binge Worthy TV Shows". A list can hold **movies, TV series, and Live TV channels** (mixed freely in one list), letting the user organize content across the catalog independently of the provider's categories. Lists are stored **locally** (no provider requests) and are **provider-scoped** — they belong to the active provider and are cascade-deleted with it, because the item references (`content_id`s) are provider-specific.
+
+> **Design decision (Open Question #6):** lists are **mixed-content** — a single list may contain any combination of movies, series, and channels — rather than one list per content type. This is the most flexible and matches "playlists". Cards within a list render with the appropriate component for each item's type.
+
+#### Creating & Managing Lists
+
+- **Create:** from the Home **"+ New list"** card (§5.10), from a content item's **"Add to list"** affordance (which offers "+ New list…" inline), or from the List Detail header. Creating asks only for a **name** (required, non-empty; duplicate names are allowed but discouraged with a hint).
+- **Rename / Delete:** available from the List Detail view and from a list cover card's context menu. Deleting prompts for confirmation and removes the list and its membership rows (the underlying catalog content is untouched).
+- **Reorder lists:** the user can order their lists; the order is persisted (`sort_order`) and drives the My Lists row and any list picker. Default order is most-recently-updated first until the user reorders.
+
+#### Adding & Removing Items
+
+- **Add to list:** every browsable content item — `MovieCard`, `SeriesCard`, `ChannelCard`, and the Movie/Series detail views — gains an **"Add to list…"** action in its context menu. It opens a small picker listing the user's lists (with a checkmark for lists the item is already in) plus an inline **"+ New list…"**. Toggling adds/removes the item from that list.
+- **Remove from list:** from the picker (untoggle) or from the **List Detail** view (a per-item "Remove" action). Removing affects only the membership, never the catalog item or its watch progress.
+- **Deduplication:** an item appears in a list at most once (`PRIMARY KEY (list_id, content_type, content_id)`); re-adding is a no-op.
+- **Ordering within a list:** items keep an explicit `position` (newest-added last by default) so the order is stable and, later, user-reorderable.
+
+#### List Detail View
+
+- Opening a list (from the My Lists row or a list picker) shows a dedicated **List Detail** view: the list name (editable), item count, rename/delete controls, and a **virtualized grid** of the list's items.
+- Items render with their native cards by type — `MovieCard` / `SeriesCard` / `ChannelCard` — so behavior matches the dedicated sections (a movie plays/opens its detail, a channel starts playback, etc.), including the §5.9 watch-progress overlays on movies.
+- Mixed types are shown together in one grid in list order; a small type badge distinguishes channels from VOD where useful.
+
+#### Edge Cases
+
+- **Catalog refresh / orphaned items:** a list item whose `content_id` no longer exists after a refresh (the provider dropped it) is **hidden** from the List Detail grid and the cover mosaic and **excluded from the item count**, but its membership row is retained (not auto-deleted) so the item reappears if the content returns on a later refresh. *(This mirrors how `get_continue_watching`'s joins drop missing catalog rows.)*
+- **Empty list:** a list with no (resolvable) items still exists and is shown; its cover uses placeholder tiles and it reads "0 items". The List Detail view shows an empty-state prompt to add content.
+- **Provider scope:** switching the active provider shows that provider's lists only; another provider's lists are untouched and reappear when it is reselected.
+- **Live TV in lists:** channels can be added even though they are never tracked for watch progress (§5.9); they simply carry no progress overlay.
+
+#### Data & IPC
+
+- Backed by two new tables, `user_lists` and `user_list_items` (§15), and a new set of list commands (§16). All reads/writes are local; the cover mosaics and List Detail cards are resolved by joining membership rows against the `movies` / `series` / `live_channels` tables (like the Keep Watching join).
 
 ---
 
@@ -700,9 +753,11 @@ Selecting a section routes to it (the active section is highlighted). The nav ro
 ```
 App
 ├── Home (root route — first screen)
+│   ├── Keep Watching   (in-progress movies/episodes, with progress bars)
+│   ├── My Lists        (custom-list cover cards → List Detail)
 │   ├── Popular Movies  (provider "Popular" category → MovieCards)
-│   ├── Popular Series  (provider "Popular" category → SeriesCards)
-│   └── Keep Watching   (in-progress movies/episodes, with progress bars)
+│   └── Popular Series  (provider "Popular" category → SeriesCards)
+├── List Detail (one custom list → mixed grid of MovieCard/SeriesCard/ChannelCard)
 ├── Live TV
 │   ├── All Channels
 │   └── [Category]
@@ -731,6 +786,14 @@ App
 ### Typography & Density
 
 - Two density modes: **Comfortable** (larger cards, more whitespace) and **Compact** (more items per screen). Settable in Preferences.
+
+### Scrollbars
+
+- The application uses **custom-styled scrollbars** that match the dark, minimal aesthetic — **not** the OS default chrome (on Windows the default is a wide white track with a grey pill and arrow buttons, which clashes with the theme).
+- Target a **thin, track-less bar with a translucent rounded thumb** and **no stepper arrows**: a subtle grey thumb (e.g. `zinc-600/700`) on a transparent or near-transparent track, the thumb brightening slightly on hover. Width on the order of ~8–10px.
+- Apply globally so **every** scroll container is covered — the vertical page scroll, the virtualized lists/grids (Live TV, Movies, TV Shows), and the horizontally-scrolling Home rows.
+- Implemented with global CSS (`::-webkit-scrollbar*` for the WebView2/WebKit webview, plus `scrollbar-width: thin` / `scrollbar-color` for completeness) in the app's root stylesheet — no per-component styling. It must adapt to the light theme when that ships (§13).
+- Scrollbars must remain functional and discoverable (do not hide them entirely on Windows, where overlay/auto-hiding scrollbars are not the platform norm); the goal is restyling, not removal.
 
 ---
 
@@ -823,7 +886,7 @@ Items explicitly planned but deferred beyond v1.0:
 | IMDB ratings integration | High | See §5.8 |
 | EPG (Electronic Program Guide) | High | Requires XMLTV or Xtream EPG endpoint; target v1.1 |
 | Linux platform support | High | Deferred from v1.0; target v1.1 or v2.0 |
-| Favorites / Watch Later | Medium | Persist per-provider, locally only |
+| Favorites / Watch Later | Medium | Largely subsumed by **Custom Lists (§5.11)** — a user can keep a "Watch Later" list. A dedicated one-tap favorite toggle could still layer on top later. |
 | ~~Continue Watching~~ | — | **Promoted into scope — see §5.9 and Milestone 8.** Tracks playback position in SQLite for resume, progress bars, and watched markers. |
 | Skip Intro (TV series) | Low | Exploratory — see §14, Q5. No provider metadata exists for intro markers; only a limited hybrid (container chapters + learned-per-series + manual) is feasible, not Netflix-style auto-detection. |
 | Multiple active providers | Medium | Switch between providers without re-auth |
@@ -846,6 +909,8 @@ Items explicitly planned but deferred beyond v1.0:
 | 3 | For Dolby Vision on Windows, is hardware DV decode (requiring a DV-capable display and driver) required, or is tone-mapped SDR fallback acceptable? | Engineering | Resolved — **Silent fallback to HDR10/SDR; playback never blocked** |
 | 4 | Should the installer be code-signed for both platforms from day one? (Required to avoid OS security warnings on macOS Gatekeeper and Windows SmartScreen.) | Product | Open |
 | 5 | "Skip Intro" for TV series — what approach is acceptable? IPTV providers (Xtream/M3U) supply **no** intro markers, so frame-accurate auto-detection is not feasible without a heavy audio-fingerprinting pipeline. The realistic options are a hybrid of: (a) honoring container chapter markers via mpv when present (accurate but rarely available), (b) a "learned per-series" intro length the user confirms once and is reused for later episodes, and (c) a manual fixed-offset skip button during the opening window. | Engineering / Product | Open — exploration only, no committed milestone |
+| 6 | How should the "My Lists" section on Home represent each custom list (§5.10/§5.11), given a list is a collection rather than a single poster? | Product | Resolved — **a horizontally-scrollable row of collection-cover cards** (2×2 poster mosaic + name + count), consistent with the other Home rows, with a leading "+ New list" card; a card opens List Detail. |
+| 7 | Are custom lists **mixed-content** (movies + series + channels in one list) or **one list per content type**? | Product | Resolved — **mixed-content** (§5.11); a list may hold any combination. |
 
 ---
 
@@ -988,6 +1053,30 @@ CREATE TABLE watch_progress (
   PRIMARY KEY (provider_id, content_type, content_id)
 );
 
+-- Custom user lists / "playlists" (§5.11). Provider-scoped; cascade-delete with
+-- the provider. A list may mix movies, series, and live channels.
+CREATE TABLE user_lists (
+  id          TEXT PRIMARY KEY,                                     -- app-generated UUID
+  provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0,                           -- user ordering of lists
+  created_at  INTEGER NOT NULL,                                     -- Unix timestamp
+  updated_at  INTEGER NOT NULL                                      -- Unix timestamp (membership/name changes)
+);
+
+-- Membership rows for user_lists. content_id refers to movies.id / series.id /
+-- live_channels.id depending on content_type (resolved by JOIN, like the Keep
+-- Watching join). Orphaned rows (content dropped on refresh) are retained but
+-- filtered out at read time.
+CREATE TABLE user_list_items (
+  list_id      TEXT NOT NULL REFERENCES user_lists(id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK (content_type IN ('live', 'movie', 'series')),
+  content_id   TEXT NOT NULL,
+  position     INTEGER NOT NULL,            -- order within the list (newest-added last by default)
+  added_at     INTEGER NOT NULL,            -- Unix timestamp
+  PRIMARY KEY (list_id, content_type, content_id)
+);
+
 -- Indexes for common query patterns
 CREATE INDEX idx_live_channels_provider    ON live_channels(provider_id);
 CREATE INDEX idx_live_channels_category    ON live_channels(provider_id, category_id);
@@ -997,6 +1086,8 @@ CREATE INDEX idx_series_provider           ON series(provider_id);
 CREATE INDEX idx_series_category           ON series(provider_id, category_id);
 CREATE INDEX idx_episodes_series           ON episodes(series_id, provider_id);
 CREATE INDEX idx_watch_progress_section    ON watch_progress(provider_id, content_type);
+CREATE INDEX idx_user_lists_provider       ON user_lists(provider_id, sort_order);
+CREATE INDEX idx_user_list_items_list      ON user_list_items(list_id, position);
 
 -- Full-text search virtual tables
 CREATE VIRTUAL TABLE fts_live_channels USING fts5(
@@ -1212,11 +1303,22 @@ invoke('list_watch_progress', {
   contentType: 'movie' | 'episode'
 }): Promise<Record<string, WatchProgress>>
 
-// Remove an item's progress (e.g. "remove from continue watching").
+// Remove an item's progress (e.g. Keep Watching "Remove from list", §5.10):
+// deletes the row so the item shows neither a progress bar nor a checkmark.
 invoke('clear_watch_progress', {
   providerId: string,
   contentType: 'movie' | 'episode',
   contentId: string
+}): Promise<void>
+
+// Keep Watching "Mark as watched" (§5.10): force the completion flag regardless
+// of whether the runtime is known (set_watch_progress can only infer completion
+// from position/duration). Parks the position at the end when duration is known.
+invoke('mark_watched', {
+  providerId: string,
+  contentType: 'movie' | 'episode',
+  contentId: string,
+  durationSeconds: number | null
 }): Promise<void>
 
 interface WatchProgress {
@@ -1252,6 +1354,82 @@ type ContinueWatchingItem =
 // (case-insensitive name match), then fetch its items via get_movies / get_series.
 ```
 
+### Custom List Commands (§5.11)
+
+```typescript
+// --- List management ---
+
+// Create a list (returns the new list). Name is required/non-empty.
+invoke('create_list', { providerId: string, name: string }): Promise<UserList>
+
+// Rename a list.
+invoke('rename_list', { listId: string, name: string }): Promise<void>
+
+// Delete a list and its membership rows (the catalog content is untouched).
+invoke('delete_list', { listId: string }): Promise<void>
+
+// Persist the user's ordering of their lists (sort_order).
+invoke('reorder_lists', { providerId: string, orderedListIds: string[] }): Promise<void>
+
+// All of the active provider's lists, in sort_order, each with its item count and
+// the first few item posters for the Home cover mosaic (§5.10). Counts/posters
+// exclude items whose catalog row no longer exists. Local-only.
+invoke('get_lists', { providerId: string }): Promise<ListSummary[]>
+
+// --- Membership ---
+
+// Add an item to a list (no-op if already present). content_type is the kind of
+// the catalog item being added.
+invoke('add_to_list', {
+  listId: string,
+  contentType: 'live' | 'movie' | 'series',
+  contentId: string
+}): Promise<void>
+
+// Remove an item from a list (membership only).
+invoke('remove_from_list', {
+  listId: string,
+  contentType: 'live' | 'movie' | 'series',
+  contentId: string
+}): Promise<void>
+
+// Reorder items within a list (optional / future — positions persisted).
+invoke('reorder_list_items', { listId: string, orderedItemKeys: string[] }): Promise<void>
+
+// The resolved items of one list for the List Detail grid (§5.11), joined against
+// movies / series / live_channels so each carries the data to render its native
+// card. In list order; items whose catalog row is missing are omitted.
+invoke('get_list_items', { listId: string }): Promise<UserListItem[]>
+
+// Which of the user's lists already contain a given item — backs the "Add to
+// list" picker checkmarks without a query per list.
+invoke('get_lists_for_item', {
+  providerId: string,
+  contentType: 'live' | 'movie' | 'series',
+  contentId: string
+}): Promise<string[]>   // list ids
+
+interface UserList {
+  id: string;
+  name: string;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface ListSummary extends UserList {
+  itemCount: number;          // resolvable items only
+  coverPosters: (string | null)[]; // up to 4 poster URLs for the mosaic
+}
+
+// One resolved list item, discriminated by kind (mirrors how content cards pick
+// their component). Live channels carry no watch progress (§5.9).
+type UserListItem =
+  | { kind: 'movie'; movie: Movie }
+  | { kind: 'series'; series: Series }
+  | { kind: 'live'; channel: LiveChannel };
+```
+
 ---
 
 ## 17. Project Structure
@@ -1268,7 +1446,9 @@ proscenium/
 │       │   ├── catalog.rs
 │       │   ├── search.rs
 │       │   ├── playback.rs
-│       │   └── settings.rs
+│       │   ├── settings.rs
+│       │   ├── watch.rs               # Watch progress + Keep Watching (§5.9/§5.10)
+│       │   └── lists.rs              # Custom lists / playlists (§5.11)
 │       ├── iptv/                     # Protocol clients
 │       │   ├── mod.rs
 │       │   ├── xtream.rs             # Xtream Codes API client
@@ -1278,7 +1458,9 @@ proscenium/
 │       │   ├── schema.rs             # Schema definitions and migrations
 │       │   ├── providers.rs
 │       │   ├── catalog.rs
-│       │   └── settings.rs
+│       │   ├── settings.rs
+│       │   ├── watch.rs              # watch_progress + continue_watching queries
+│       │   └── lists.rs             # user_lists + user_list_items queries (§5.11)
 │       ├── mpv/                      # libmpv wrapper
 │       │   ├── mod.rs
 │       │   └── player.rs
@@ -1317,6 +1499,15 @@ proscenium/
 │   │   │   ├── VolumeControl.tsx
 │   │   │   ├── TrackSelector.tsx     # Audio/subtitle track picker
 │   │   │   └── BufferingOverlay.tsx
+│   │   ├── home/                    # Home screen (§5.10)
+│   │   │   ├── MediaRow.tsx          # Horizontally-scrollable labeled row
+│   │   │   ├── KeepWatchingCard.tsx
+│   │   │   ├── ContinueWatchingSeriesDialog.tsx
+│   │   │   ├── MyListsRow.tsx        # "My Lists" row of cover cards + "New list" (§5.10)
+│   │   │   └── ListCoverCard.tsx     # One list as a 2×2 poster mosaic + name + count
+│   │   ├── lists/                    # Custom lists / playlists (§5.11)
+│   │   │   ├── ListEditorDialog.tsx  # Create / rename a list
+│   │   │   └── AddToListMenu.tsx     # "Add to list…" picker (toggle + inline create)
 │   │   └── common/
 │   │       ├── SkeletonCard.tsx      # Loading placeholder
 │   │       ├── Placeholder.tsx       # Image fallback
@@ -1324,9 +1515,11 @@ proscenium/
 │   │       ├── WarningBanner.tsx
 │   │       └── ContextMenu.tsx
 │   ├── pages/
+│   │   ├── Home.tsx
 │   │   ├── LiveTV.tsx
 │   │   ├── Movies.tsx
 │   │   ├── TVShows.tsx
+│   │   ├── ListDetail.tsx           # One custom list: mixed virtualized grid (§5.11)
 │   │   └── Settings.tsx
 │   ├── hooks/
 │   │   ├── useProvider.ts
@@ -1390,11 +1583,17 @@ A flat reference of every named component, its location, and its responsibility.
 | `BufferingOverlay` | `player/BufferingOverlay.tsx` | Spinner + timeout message + error state with retry/external player options |
 | `ResumeDialog` | `player/ResumeDialog.tsx` | Pre-playback prompt for movies/episodes with prior progress: "Resume from [MM:SS]" or "Start from beginning" (§5.9) |
 | `ContinueWatchingSeriesDialog` | `home/ContinueWatchingSeriesDialog.tsx` | Choice popup shown when a **series** card in the Home "Keep Watching" row is clicked: "Resume [SxxEyy]" (last in-progress episode, via the §5.9 resume flow) or "Go to series" (navigate to `SeriesDetail`) (§5.10) |
+| `KeepWatchingCard` | `home/KeepWatchingCard.tsx` | A Home "Keep Watching" card: poster (series poster for episodes) + `WatchProgressOverlay`, with a context/⋯ menu for "Mark as watched" / "Remove from list" (§5.10) |
+| `MyListsRow` | `home/MyListsRow.tsx` | The Home "My Lists" row (§5.10): horizontally-scrollable strip of `ListCoverCard`s, led by a "+ New list" card; opens `ListDetail` / `ListEditorDialog` |
+| `ListCoverCard` | `home/ListCoverCard.tsx` | One custom list rendered as a 2×2 poster mosaic + name + item count; context menu for rename/delete (§5.10/§5.11) |
+| `ListDetail` | `pages/ListDetail.tsx` | Full view of one custom list (§5.11): editable name, count, rename/delete, and a virtualized mixed grid of `MovieCard`/`SeriesCard`/`ChannelCard`s with per-item "Remove" |
+| `ListEditorDialog` | `lists/ListEditorDialog.tsx` | Create / rename a list (name input) (§5.11) |
+| `AddToListMenu` | `lists/AddToListMenu.tsx` | "Add to list…" picker opened from a content item's context menu: toggle membership per list (checkmarks) + inline "+ New list…" (§5.11) |
 | `SkeletonCard` | `common/SkeletonCard.tsx` | Animated loading placeholder matching card dimensions |
 | `Placeholder` | `common/Placeholder.tsx` | Styled fallback when no poster/logo image is available |
 | `Toast` | `common/Toast.tsx` | Non-blocking notification (refresh failure, buffering warning, etc.) |
 | `WarningBanner` | `common/WarningBanner.tsx` | Persistent inline banner (expired subscription, offline cache, etc.) |
-| `ContextMenu` | `common/ContextMenu.tsx` | Right-click menu: Play, Open in External Player |
+| `ContextMenu` | `common/ContextMenu.tsx` | Right-click menu: Play, Open in External Player, **Add to list…** (§5.11); on Keep Watching cards also **Mark as watched** / **Remove from list** (§5.10) |
 
 ---
 
@@ -1668,4 +1867,63 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [x] Clicking a series card in Keep Watching opens a popup offering "Resume [SxxEyy]" (last in-progress episode) and "Go to series"; the popup is dismissible and is not shown for movie cards. *(preview: clicking the series card opened `ContinueWatchingSeriesDialog` with "▶ Resume S1E2 (10:00)" and "Go to series"; Esc / click-away dismiss it; clicking the movie card opened the `ResumeDialog` directly with no series popup.)*
 - [x] "Resume" from the popup resumes the last in-progress episode via the standard §5.9 resume flow; "Go to series" navigates to that series' detail page without starting playback. *(preview: "Resume" closed the popup and opened `ResumeDialog` for "Hollow Protocol 002 · S1E2" ("Resume from 10:00" / "Start from beginning"); "Go to series" navigated to `/shows` and opened the "Hollow Protocol 002" `SeriesDetail` with no player.)*
 - [x] Movie cards in Keep Watching are unaffected — clicking still opens the existing `ResumeDialog` with "Resume from [MM:SS]" / "Start from beginning" (no behavior change). *(preview: clicking "Golden Empire 003" opened `ResumeDialog` directly ("Resume from 30:00" / "Start from beginning"), `seriesDialogOpen === false`.)*
+
+### Milestone 12 — Sleek Scrollbars
+
+**Goal:** Replace the OS-default scrollbar chrome (the Windows white track + grey pill + stepper arrows) with a thin, theme-matching scrollbar across the app (§9 › Scrollbars).
+
+**Scope:**
+- Add global scrollbar CSS in the root stylesheet (`src/index.css` / the Tailwind entry): `::-webkit-scrollbar`, `::-webkit-scrollbar-thumb`, `::-webkit-scrollbar-track`, `::-webkit-scrollbar-button` (hidden) for the WebView2/WebKit webview, plus `scrollbar-width: thin` / `scrollbar-color` for completeness.
+- Thin (~8–10px), track-less, rounded translucent grey thumb (e.g. `zinc-600`, brightening on hover); no stepper arrows.
+- Applies to every scroll container: the vertical page, virtualized lists/grids (Live TV/Movies/TV Shows), and the horizontal Home rows. Keep it theme-aware for the future light theme.
+
+**Acceptance Criteria:**
+- [x] Scrollbars throughout the app render as a thin, arrow-less, rounded translucent thumb on a transparent/near-transparent track — not the OS default — in both vertical and horizontal containers. *(preview: global rules in `src/index.css` apply via `*` — computed `scrollbar-width: thin`, `scrollbar-color: rgb(63,63,70) rgba(0,0,0,0)` (zinc-700 thumb / transparent track); all six `::-webkit-scrollbar*` rules present including `::-webkit-scrollbar-button { display:none }`; the thumb uses `border-radius:9999px` + transparent-border/padding-box inset.)*
+- [x] The thumb brightens slightly on hover and scrolling remains fully functional (not hidden). *(preview: a `::-webkit-scrollbar-thumb:hover { background-color:#71717a }` (zinc-500) rule is present; the thumb is restyled, not hidden, so containers stay scrollable.)*
+- [x] Virtualized lists/grids and the horizontal Home rows show the restyled scrollbar. *(preview: the rules are global (`*` + bare `::-webkit-scrollbar*`), so they cover every scroll container; the Home screenshot shows the thin dark horizontal scrollbars under the Popular Movies/Series rows.)*
+
+### Milestone 13 — Keep Watching Item Management
+
+**Goal:** Let the user remove an item from the Home "Keep Watching" row via **Mark as watched** or **Remove from list** (§5.10).
+
+**Scope:**
+- Add a context menu (and a hover "⋯" affordance) to `KeepWatchingCard` with the two actions, reusing `ContextMenu`.
+- **Mark as watched:** set the item's completion flag so it leaves Keep Watching and shows the §5.9 watched checkmark. Finalized as a **dedicated `mark_watched` command** (§16) that forces `completed = true` regardless of whether the runtime is known (parking the position at the end when duration is known) — `set_watch_progress` can only *infer* completion from position/duration, so it can't mark a duration-unknown stream watched. For a series episode, marks that episode; the series stays if other episodes are still in progress.
+- **Remove from list:** call the existing `clear_watch_progress` so the item shows neither bar nor checkmark.
+- Update the row in place (removed card animates out; row closes up; empty row omitted). Keep `devMock.ts` in sync.
+
+**Acceptance Criteria:**
+- [x] Each Keep Watching card exposes "Mark as watched" and "Remove from list" without leaving Home. *(preview: `KeepWatchingCard` gained a right-click handler + a hover "⋯" button (`keep-watching-menu-button`); both open a `ContextMenu` with exactly "Mark as watched" and "Remove from list".)*
+- [x] "Mark as watched" removes the item from Keep Watching and it shows a watched checkmark in the catalog; replaying it skips the resume prompt. *(preview: marking "Golden Empire 003" removed its card (Keep Watching 2→1); searching it afterward showed the `watched-check` overlay and no `progress-bar`. The completed flag is what suppresses the resume prompt — established §5.9/M8 behavior — and the new `mark_watched` sets it.)*
+- [x] "Remove from list" removes the item from Keep Watching with no checkmark and no progress bar; replaying starts fresh. *(preview: removing "Hollow Protocol 002" dropped its card; opening that series' detail showed episode S01E02 with 0 `progress-bar` and 0 `watched-check` — its progress was cleared via `clear_watch_progress`.)*
+- [x] The row updates in place and is omitted once empty; Live TV is still never present. *(preview: each removal updated the row without reload; removing the last item omitted the `home-keep-watching` row entirely (Popular Movies became the top row). Live TV is never returned by `get_continue_watching` — backend invariant from §5.9.)*
+
+### Milestone 14 — Custom Lists (Playlists)
+
+**Goal:** Let users create named lists ("playlists") containing any mix of movies, series, and Live TV channels, and manage membership from anywhere in the catalog (§5.11).
+
+**Scope:**
+- **Schema (§15):** add `user_lists` and `user_list_items` (+ indexes), applied idempotently on launch; provider-scoped, cascade-deleted with the provider.
+- **Commands (§16):** `create_list`, `rename_list`, `delete_list`, `reorder_lists`, `get_lists`, `add_to_list`, `remove_from_list`, `get_list_items`, `get_lists_for_item` (and `reorder_list_items`, optional) — full IPC path: `commands/lists.rs` → `generate_handler![]` in `lib.rs` → `models.rs` (`UserList`/`ListSummary`/`UserListItem`) ↔ `types/index.ts` → `lib/tauri.ts` → `devMock.ts`. Cover/detail data resolved by joining membership against `movies`/`series`/`live_channels`; orphaned items filtered at read time.
+- **UI:** `AddToListMenu` from every content item's context menu (`MovieCard`, `SeriesCard`, `ChannelCard`, detail views) with toggle + inline create; `ListEditorDialog` for create/rename; `ListDetail` page (`pages/ListDetail.tsx`) rendering a virtualized mixed grid using each item's native card with per-item Remove and list rename/delete.
+
+**Acceptance Criteria:**
+- [ ] A user can create a named list and add movies, series, and Live TV channels to it from the catalog's "Add to list…" affordance; re-adding is a no-op.
+- [ ] The "Add to list…" picker shows which lists already contain the item and supports inline list creation.
+- [ ] `ListDetail` shows the list's items in order using `MovieCard`/`SeriesCard`/`ChannelCard`, each behaving as in its dedicated section; items can be removed and the list renamed/deleted.
+- [ ] Lists are provider-scoped and local: switching providers shows only that provider's lists; orphaned items (dropped on refresh) are hidden from the grid/count but their membership is retained; no provider requests occur.
+
+### Milestone 15 — My Lists on the Home Screen
+
+**Goal:** Surface the user's custom lists on Home as a "My Lists" row of collection-cover cards (§5.10, Open Question #6). Depends on Milestone 14.
+
+**Scope:**
+- Add `MyListsRow` + `ListCoverCard` and render "My Lists" on `Home.tsx` in order **Keep Watching, My Lists, Popular Movies, Popular Series**.
+- Each cover card is a 2×2 poster mosaic (from `get_lists`' `coverPosters`) + name + item count, opening `ListDetail` on click; a leading "+ New list" card opens `ListEditorDialog`.
+- Row omitted when the user has no lists; ordered by the user's list `sort_order`.
+
+**Acceptance Criteria:**
+- [ ] Home shows a "My Lists" row of cover cards (2×2 mosaic + name + count) directly below Keep Watching when the user has ≥1 list; omitted when there are none.
+- [ ] Clicking a cover card opens that list's `ListDetail`; the leading "+ New list" card creates a list.
+- [ ] The row reflects list order and updates after lists are created/renamed/deleted or their membership changes; it renders entirely from local data (no provider requests).
 

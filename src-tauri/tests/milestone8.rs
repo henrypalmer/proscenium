@@ -3,7 +3,7 @@
 //! listing, live TV rejection, provider-cascade deletion, and clearing.
 
 use proscenium_lib::commands::providers::{delete_provider_impl, upsert_provider_impl};
-use proscenium_lib::commands::watch::set_watch_progress_impl;
+use proscenium_lib::commands::watch::{mark_watched_impl, set_watch_progress_impl};
 use proscenium_lib::db;
 use proscenium_lib::models::{Provider, ProviderInput, ProviderType};
 use sqlx::{Row, SqlitePool};
@@ -67,6 +67,47 @@ async fn position_is_saved_read_and_survives_reopen() {
         .expect("get")
         .expect("present after reopen");
     assert_eq!(got.position_seconds, 615);
+    pool.close().await;
+    cleanup_db(&path);
+}
+
+#[tokio::test]
+async fn mark_watched_forces_completion_even_without_duration() {
+    // Milestone 13: Keep Watching "Mark as watched" sets the completion flag
+    // regardless of whether the runtime is known — set_watch_progress can't.
+    let path = temp_path("markwatched");
+    let pool = db::init(&path).await.expect("init");
+    let provider = make_provider(&pool).await;
+
+    // Known duration: completed + position parked at the end.
+    mark_watched_impl(&pool, &provider.id, "movie", "m1", Some(5400.0))
+        .await
+        .unwrap();
+    let known = db::watch::get(&pool, &provider.id, "movie", "m1")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(known.completed);
+    assert_eq!(known.duration_seconds, Some(5400));
+    assert_eq!(known.position_seconds, 5400);
+
+    // Unknown duration: still completed (the whole reason mark_watched exists).
+    mark_watched_impl(&pool, &provider.id, "episode", "e1", None)
+        .await
+        .unwrap();
+    let unknown = db::watch::get(&pool, &provider.id, "episode", "e1")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(unknown.completed, "mark_watched must complete even with no duration");
+    assert_eq!(unknown.duration_seconds, None);
+
+    // Live TV is still rejected.
+    assert!(mark_watched_impl(&pool, &provider.id, "live", "c1", None)
+        .await
+        .is_err());
+
+    delete_provider_impl(&pool, &provider.id).await.unwrap();
     pool.close().await;
     cleanup_db(&path);
 }
