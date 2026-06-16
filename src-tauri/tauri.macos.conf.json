@@ -3,7 +3,6 @@
   "bundle": {
     "macOS": {
       "frameworks": [
-        "lib/libSvtAv1Enc.4.1.0.dylib",
         "lib/libarchive.13.dylib",
         "lib/libass.9.dylib",
         "lib/libavcodec.62.28.101.dylib",
@@ -38,6 +37,7 @@
         "lib/libsamplerate.0.2.2.dylib",
         "lib/libshaderc_shared.1.dylib",
         "lib/libssl.3.dylib",
+        "lib/libSvtAv1Enc.4.1.0.dylib",
         "lib/libswresample.6.3.101.dylib",
         "lib/libswscale.9.5.101.dylib",
         "lib/libuchardet.0.0.8.dylib",
