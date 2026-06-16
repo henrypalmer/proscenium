@@ -479,7 +479,7 @@ The **Home** screen is the landing view shown first when the application opens. 
 #### Layout
 
 - A vertical stack of **rows**, each a labeled section with a horizontally-scrollable strip of cards laid out side by side. Cards reuse the exact components from their dedicated sections (`MovieCard`, `SeriesCard`) — same poster art, sizing, hover, click, and context-menu behavior — so a movie on Home behaves identically to a movie in the Movies grid.
-- Rows render in this order: **Popular Movies**, **Popular Series**, **Keep Watching**. *(Omitted rows collapse; the remaining rows close up so there is no empty gap.)*
+- Rows render in this order: **Keep Watching**, **Popular Movies**, **Popular Series**. When the user has any in-progress content, **Keep Watching is the first (top-most) row** so resumable items are immediately reachable; when there is no in-progress content the row is omitted and Popular Movies becomes the top row. *(Omitted rows collapse; the remaining rows close up so there is no empty gap.)*
 - Each row scrolls horizontally and independently; the page itself scrolls vertically if the rows overflow the viewport.
 
 #### Rows
@@ -494,8 +494,17 @@ The **Home** screen is the landing view shown first when the application opens. 
 **Keep Watching**
 - The user's **in-progress** movies and episodes — exactly the items that qualify for a progress bar in §5.9 (meaningful position, **not** completed). Live TV is never included (it is never tracked).
 - Ordered most-recently-watched first (by the watch-progress `updated_at`).
-- Each card shows the same **progress bar overlay** used on Movie cards and episode rows (`WatchProgressOverlay`). Clicking a card resumes that item via the standard resume flow (§5.9): movies/episodes with meaningful progress present the resume prompt.
-- Because watch progress stores only `(provider_id, content_type, content_id, position, duration, completed)` and not the catalog item itself, the renderable card data (poster, title, and — for episodes — the parent series for poster fallback) is resolved on the backend via a dedicated `get_continue_watching` command (§16) that joins progress against the `movies` and `episodes` tables.
+- **Card artwork:**
+  - **Movies** show the movie poster and resume directly (see below).
+  - **Episodes (series content)** show the **parent series poster/image — not the individual episode's thumbnail** — so a show in progress reads as the show, not a single episode. The card's title is the series title. (When the parent series is unknown — e.g. a catalog-orphaned episode — fall back to the episode's own image/title.)
+- Each card shows the same **progress bar overlay** used on Movie cards and episode rows (`WatchProgressOverlay`). For an episode card the bar reflects the **last in-progress episode**'s position within that episode.
+- **Click behavior:**
+  - **Movie card:** clicking goes through the standard resume flow (§5.9) — because every Keep Watching item is in-progress by definition, this always presents the existing `ResumeDialog` prompt ("Resume from [MM:SS]" or "Start from beginning"). This behavior is unchanged.
+  - **Series (episode) card:** clicking opens a small **choice popup** (`ContinueWatchingSeriesDialog`) offering two actions:
+    1. **Resume [SxxEyy]** — resumes the **last in-progress episode** for that series via the standard §5.9 resume flow (the same episode the card represents).
+    2. **Go to series** — navigates to that series' detail page (§5.4 `SeriesDetail`) instead of starting playback.
+  - The popup is dismissible (click-away / Esc) and is shown only for series content; movie cards never show it.
+- Because watch progress stores only `(provider_id, content_type, content_id, position, duration, completed)` and not the catalog item itself, the renderable card data (poster, title, and — for episodes — the parent series for both artwork and the resume target) is resolved on the backend via a dedicated `get_continue_watching` command (§16) that joins progress against the `movies` and `episodes` tables.
 
 #### Empty / Unavailable States
 
@@ -1225,7 +1234,10 @@ interface WatchProgress {
 // against the catalog so each item carries the data needed to render a card
 // plus its progress. Excludes completed items; most-recently-watched first;
 // provider-scoped and entirely local. Episodes include their parent series
-// (when present) for poster fallback.
+// (when present): the Keep Watching card renders the SERIES poster/title (not
+// the episode thumbnail) and uses the episode as the "last in-progress episode"
+// resume target. The series is also the navigation target for the "Go to series"
+// action. Fall back to the episode's own image/title only when the series is null.
 invoke('get_continue_watching', {
   providerId: string,
   limit?: number            // default ~20
@@ -1377,6 +1389,7 @@ A flat reference of every named component, its location, and its responsibility.
 | `TrackSelector` | `player/TrackSelector.tsx` | Dropdown for audio and subtitle track selection |
 | `BufferingOverlay` | `player/BufferingOverlay.tsx` | Spinner + timeout message + error state with retry/external player options |
 | `ResumeDialog` | `player/ResumeDialog.tsx` | Pre-playback prompt for movies/episodes with prior progress: "Resume from [MM:SS]" or "Start from beginning" (§5.9) |
+| `ContinueWatchingSeriesDialog` | `home/ContinueWatchingSeriesDialog.tsx` | Choice popup shown when a **series** card in the Home "Keep Watching" row is clicked: "Resume [SxxEyy]" (last in-progress episode, via the §5.9 resume flow) or "Go to series" (navigate to `SeriesDetail`) (§5.10) |
 | `SkeletonCard` | `common/SkeletonCard.tsx` | Animated loading placeholder matching card dimensions |
 | `Placeholder` | `common/Placeholder.tsx` | Styled fallback when no poster/logo image is available |
 | `Toast` | `common/Toast.tsx` | Non-blocking notification (refresh failure, buffering warning, etc.) |
@@ -1636,4 +1649,23 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [x] Keep Watching lists in-progress (non-completed) movies and episodes, most-recently-watched first, each card showing the §5.9 progress bar; clicking resumes via the standard resume flow. *(preview: an in-progress episode and movie rendered newest-first (episode @-40s before movie @-120s), each with a `progress-bar` overlay; clicking the episode card set `pendingResume` (episode, 600s) and showed `ResumeDialog`. Backend `get_continue_watching` joins non-completed `watch_progress` against `movies`/`episodes` (+ parent `series`), most-recent first — test `continue_watching_orders_by_recency_excludes_completed_and_joins_series`.)*
 - [x] Keep Watching excludes completed items and Live TV, and is omitted entirely when there is no watch history. *(preview: a completed movie in the seed did NOT appear (2 cards, 0 watched-checkmarks); live is never tracked (§5.9, enforced backend). Tests: completed + catalog-orphaned rows excluded by the join; `continue_watching_is_empty_without_history_and_respects_limit` returns `[]` with no history → the row is omitted via `MediaRow`.)*
 - [x] Home renders entirely from the local cache and local watch history — no on-demand provider requests. *(`get_continue_watching` only reads SQLite (`db::watch`/catalog joins); the Popular rows reuse the cached `get_*_categories`/`get_movies`/`get_series` reads. No new network path; the backend test suite runs offline.)*
+
+### Milestone 11 — Keep Watching Refinements
+
+**Goal:** Make the Home "Keep Watching" row (§5.10) the primary entry point for resuming content, and improve how in-progress **series** are represented and resumed.
+
+**Scope:**
+- **Row ordering (§5.10):** when the user has any in-progress content, render **Keep Watching as the first (top-most) row**, above Popular Movies and Popular Series. When there is no in-progress content the row is omitted (unchanged) and Popular Movies remains the top row. Only the row order changes in `Home.tsx`; the `MediaRow` components and their data sources are reused as-is.
+- **Series artwork (§5.10):** for episode-kind Keep Watching items, render the **parent series poster/title** on the card instead of the individual episode's thumbnail. The data is already available on `ContinueWatchingItem` (`episode.series`); this is a card-rendering change plus the fallback to the episode's own image/title when `series` is `null`. No backend/IPC change is required unless the series poster is not currently selected by `get_continue_watching`'s join — confirm the series row carries a poster and extend the join only if needed.
+- **Series resume choice (§5.10):** add `ContinueWatchingSeriesDialog` (`home/ContinueWatchingSeriesDialog.tsx`). Clicking a **series** card opens a small dismissible popup (click-away / Esc) with two actions:
+  - **Resume [SxxEyy]** — resume the last in-progress episode (the episode the card represents) via the existing §5.9 `ResumeDialog`/resume flow.
+  - **Go to series** — navigate to the series' `SeriesDetail` page (§5.4) without starting playback.
+  - **Movie** cards keep their current behavior (click → standard resume flow, no popup).
+
+**Acceptance Criteria:**
+- [x] When in-progress content exists, Keep Watching is the top row on Home (above Popular Movies/Series); with no in-progress content the row is omitted and ordering is otherwise unchanged. *(preview: with two seeded in-progress items the row order is `home-keep-watching` → `home-popular-movies` → `home-popular-series`; `Home.tsx` renders Keep Watching first and `MediaRow` returns `null` for an empty `items`, so no history collapses it and Popular Movies leads.)*
+- [x] In-progress **series** cards in Keep Watching show the parent series poster and title, not the episode thumbnail; when the parent series is unknown the card falls back to the episode's own image/title. *(preview: the episode card rendered the series title "Hollow Protocol 002" (not the episode title "S01E02 — Garden"); `KeepWatchingCard.describe()` now resolves `series?.posterUrl ?? episode.posterUrl ?? null` and `series?.name ?? episode.title`. The mock can't visually distinguish the poster source — its episodes always have `posterUrl: null` — but the series-first precedence and the `null`-series fallback are in the card.)*
+- [x] Clicking a series card in Keep Watching opens a popup offering "Resume [SxxEyy]" (last in-progress episode) and "Go to series"; the popup is dismissible and is not shown for movie cards. *(preview: clicking the series card opened `ContinueWatchingSeriesDialog` with "▶ Resume S1E2 (10:00)" and "Go to series"; Esc / click-away dismiss it; clicking the movie card opened the `ResumeDialog` directly with no series popup.)*
+- [x] "Resume" from the popup resumes the last in-progress episode via the standard §5.9 resume flow; "Go to series" navigates to that series' detail page without starting playback. *(preview: "Resume" closed the popup and opened `ResumeDialog` for "Hollow Protocol 002 · S1E2" ("Resume from 10:00" / "Start from beginning"); "Go to series" navigated to `/shows` and opened the "Hollow Protocol 002" `SeriesDetail` with no player.)*
+- [x] Movie cards in Keep Watching are unaffected — clicking still opens the existing `ResumeDialog` with "Resume from [MM:SS]" / "Start from beginning" (no behavior change). *(preview: clicking "Golden Empire 003" opened `ResumeDialog` directly ("Resume from 30:00" / "Start from beginning"), `seriesDialogOpen === false`.)*
 

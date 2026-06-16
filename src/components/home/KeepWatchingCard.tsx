@@ -7,8 +7,11 @@ interface KeepWatchingCardProps {
   onActivate: (item: ContinueWatchingItem) => void;
 }
 
-/** Title / subtitle / poster for a Keep Watching entry. Episodes show their
- * series (with the episode label) and fall back to the series poster. */
+/** Title / subtitle / poster for a Keep Watching entry. Episodes read as their
+ * series: the series poster and title are used so a show in progress looks like
+ * the show, not a single episode (spec §5.10). When the parent series is
+ * unknown (e.g. a catalog-orphaned episode) we fall back to the episode's own
+ * image/title. */
 function describe(item: ContinueWatchingItem) {
   if (item.kind === "movie") {
     return {
@@ -22,7 +25,7 @@ function describe(item: ContinueWatchingItem) {
   return {
     title: series?.name ?? episode.title,
     subtitle: series ? `${tag} · ${episode.title}` : tag,
-    poster: episode.posterUrl ?? series?.posterUrl ?? null,
+    poster: series?.posterUrl ?? episode.posterUrl ?? null,
   };
 }
 

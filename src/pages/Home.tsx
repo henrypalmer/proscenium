@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
+import ContinueWatchingSeriesDialog from "../components/home/ContinueWatchingSeriesDialog";
 import KeepWatchingCard from "../components/home/KeepWatchingCard";
 import MediaRow from "../components/home/MediaRow";
 import MovieCard from "../components/vod/MovieCard";
@@ -26,6 +27,12 @@ interface MenuState {
   y: number;
 }
 
+/** A Keep Watching episode whose parent series is known — the one case that
+ * opens the series choice popup (spec §5.10). */
+type SeriesChoice = Extract<ContinueWatchingItem, { kind: "episode" }> & {
+  series: Series;
+};
+
 export default function Home() {
   const activeProvider = useCatalogStore((s) => s.activeProvider);
   const refreshTick = useCatalogStore((s) => s.refreshTick);
@@ -38,6 +45,7 @@ export default function Home() {
   const [popularSeries, setPopularSeries] = useState<Series[]>([]);
   const [keepWatching, setKeepWatching] = useState<ContinueWatchingItem[]>([]);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [seriesChoice, setSeriesChoice] = useState<SeriesChoice | null>(null);
 
   useEffect(() => {
     if (!providerId) {
@@ -124,9 +132,9 @@ export default function Home() {
     }
   };
 
-  // Keep Watching click resumes via the standard §5.9 flow (resume prompt when
-  // there is meaningful progress, which there always is here).
-  const resume = (item: ContinueWatchingItem) => {
+  // Resume a Keep Watching item via the standard §5.9 flow (the resume prompt
+  // always appears here because every Keep Watching item is in-progress).
+  const resumeItem = (item: ContinueWatchingItem) => {
     if (item.kind === "movie") {
       void usePlayerStore.getState().openContent({
         providerId: pid,
@@ -148,6 +156,17 @@ export default function Home() {
     }
   };
 
+  // Clicking a Keep Watching card: movies (and catalog-orphaned episodes with no
+  // known series) resume directly; series episodes open the choice popup so the
+  // user can resume the last episode or jump to the series page (spec §5.10).
+  const onKeepWatchingActivate = (item: ContinueWatchingItem) => {
+    if (item.kind === "episode" && item.series) {
+      setSeriesChoice({ ...item, series: item.series });
+    } else {
+      resumeItem(item);
+    }
+  };
+
   const empty =
     popularMovies.length === 0 &&
     popularSeries.length === 0 &&
@@ -156,6 +175,19 @@ export default function Home() {
   return (
     <div className="px-6 pb-10">
       <div className="mx-auto max-w-6xl space-y-8">
+        {/* Keep Watching leads when there is in-progress content (spec §5.10);
+            an empty row is omitted by MediaRow, so Popular Movies becomes top. */}
+        <MediaRow
+          title="Keep Watching"
+          testId="home-keep-watching"
+          items={keepWatching}
+          getKey={(item) =>
+            item.kind === "movie" ? `movie-${item.movie.id}` : `ep-${item.episode.id}`
+          }
+          renderItem={(item) => (
+            <KeepWatchingCard item={item} onActivate={onKeepWatchingActivate} />
+          )}
+        />
         <MediaRow
           title="Popular Movies"
           testId="home-popular-movies"
@@ -178,15 +210,6 @@ export default function Home() {
           renderItem={(series) => (
             <SeriesCard series={series} onActivate={openSeries} />
           )}
-        />
-        <MediaRow
-          title="Keep Watching"
-          testId="home-keep-watching"
-          items={keepWatching}
-          getKey={(item) =>
-            item.kind === "movie" ? `movie-${item.movie.id}` : `ep-${item.episode.id}`
-          }
-          renderItem={(item) => <KeepWatchingCard item={item} onActivate={resume} />}
         />
 
         {empty && (
@@ -212,6 +235,23 @@ export default function Home() {
               onSelect: () => void playMovieExternal(menu.movie),
             },
           ]}
+        />
+      )}
+
+      {seriesChoice && (
+        <ContinueWatchingSeriesDialog
+          series={seriesChoice.series}
+          episode={seriesChoice.episode}
+          resumeSeconds={seriesChoice.progress.positionSeconds}
+          onResume={() => {
+            resumeItem(seriesChoice);
+            setSeriesChoice(null);
+          }}
+          onGoToSeries={() => {
+            openSeries(seriesChoice.series);
+            setSeriesChoice(null);
+          }}
+          onClose={() => setSeriesChoice(null)}
         />
       )}
     </div>

@@ -92,6 +92,24 @@ npm run build
 
 ## Release build
 
+### One-shot script (recommended)
+
+`scripts/build.ps1` runs every step below and leaves a **double-clickable** app so
+you don't have to reinstall each iteration. Cross-platform (Windows `.exe`, macOS
+`.app`); on Windows it puts fnm's Node on PATH, stages the DLLs, exports the
+updater signing key, builds, and copies the DLLs next to the exe.
+
+```powershell
+./scripts/build.ps1            # installers (.msi + -setup.exe) AND a runnable exe
+./scripts/build.ps1 -Fast      # skip installer packaging — just the runnable exe (quicker)
+./scripts/build.ps1 -Fast -Run # ...and launch it
+```
+
+It prints the runnable path: `src-tauri/target/release/proscenium.exe`
+(macOS: `src-tauri/target/release/bundle/macos/Proscenium.app`).
+
+### Manual steps
+
 ```powershell
 npm run build                                      # produces dist/ (embedded into the exe)
 cd src-tauri
