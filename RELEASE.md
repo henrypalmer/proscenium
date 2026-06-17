@@ -239,39 +239,47 @@ See the Tauri updater docs for the exact manifest schema.
 
 ## Building both in CI
 
-The clean way to produce Windows **and** macOS installers from a single tag is GitHub
-Actions with a matrix of runners and the official action. Sketch:
+Windows **and** macOS installers are produced from one GitHub Release by
+[`.github/workflows/release.yml`](.github/workflows/release.yml): a matrix of
+`windows-latest` + `macos-14` runners, each running `tauri-apps/tauri-action`, which
+runs the same `tauri build` and uploads every installer (and its `.sig` updater
+artifact) to the release that triggered it. It fires on **`release: published`** (so
+publishing the `release/1.0.0` GitHub Release builds and attaches the installers) and
+on **`workflow_dispatch`** (a test build whose bundles are kept as workflow artifacts
+rather than uploaded to a release).
 
-```yaml
-name: release
-on:
-  push:
-    tags: ["v*"]
-jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-          - os: macos-latest      # Apple Silicon runner
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: dtolnay/rust-toolchain@stable
-      - run: npm ci
-      # Windows: drop libmpv-2.dll into src-tauri/lib/ (download or restore from cache)
-      # macOS:   brew install mpv && stage libmpv.2.dylib (+ dylibbundler) into src-tauri/lib/
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS signing secrets (APPLE_*) as above
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Proscenium ${{ github.ref_name }}"
-```
+Because the native player libraries and the signing key are **gitignored**, the workflow
+stages them on each runner — this is the only part that needs one-time setup.
 
-`tauri-action` runs the same `tauri build` on each runner and uploads every installer
-(and its `.sig`) to a GitHub Release, which can double as the updater feed.
+### One-time setup
+
+1. **Repo secrets** (Settings › Secrets and variables › Actions):
+   - `TAURI_SIGNING_PRIVATE_KEY` — contents of `src-tauri/proscenium-updater.key`.
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — empty string here (still add the secret).
+   - *(optional, macOS Gatekeeper)* `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
+     `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`.
+2. **`build-deps` release** — `libmpv-2.dll` can't be fetched from a package manager, so
+   host the exact build you validated locally: create a (pre)release tagged `build-deps`
+   and attach `libmpv-2.dll` to it. The Windows job pulls it with
+   `gh release download build-deps --pattern libmpv-2.dll`. To rotate the engine later,
+   replace that asset. *(Alternatives: download from a pinned mpv-winbuild URL, or restore
+   from an Actions cache — the `build-deps` asset is the most reproducible.)*
+
+### What the workflow handles for you
+
+- **Windows:** stages `libmpv-2.dll` (from `build-deps`) and `WebView2Loader.dll` (copied
+  from the `webview2-com-sys` crate in the cargo registry, like `build.ps1`). GitHub's
+  runners build with **MSVC** (the local GNU-only constraint is just that machine's lack of
+  MSVC Build Tools); MSVC static-links the WebView2 loader, but the bundled copy still
+  satisfies the `tauri.windows.conf.json` resource mapping and is otherwise harmless.
+- **macOS:** `brew install mpv dylibbundler`, gathers libmpv's full dylib tree, strips the
+  bogus `@rpath/` `LC_RPATH`, re-signs, and regenerates `tauri.macos.conf.json`'s framework
+  list from the gathered files (so it can't drift) — the §macOS steps above, automated.
+
+### Triggering a release
+
+Publish a GitHub Release (you've done this for `release/1.0.0`) → the workflow builds both
+platforms and attaches `Proscenium_<version>_x64_en-US.msi`, `…-setup.exe`,
+`Proscenium_<version>_aarch64.dmg`, and the updater `.sig` files to it. For future versions,
+bump the version (see the version locations in [DEVELOPMENT.md](DEVELOPMENT.md)/this repo),
+tag, and publish a new Release.
