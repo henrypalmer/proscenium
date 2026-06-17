@@ -3,6 +3,7 @@ import * as api from "../../lib/tauri";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { useProgressStore } from "../../store/progressStore";
+import AddToListMenu from "../lists/AddToListMenu";
 import EpisodeList from "./EpisodeList";
 import { Poster } from "./PosterGrid";
 import type {
@@ -34,6 +35,7 @@ export default function SeriesDetail({
   const [episodes, setEpisodes] = useState<EpisodesBySeason | null>(null);
   const [episodesError, setEpisodesError] = useState<string | null>(null);
   const [season, setSeason] = useState<number | null>(null);
+  const [addTo, setAddTo] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +134,18 @@ export default function SeriesDetail({
                 </span>
               ))}
             </div>
+            <div className="mt-6">
+              <button
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setAddTo({ x: r.left, y: r.bottom });
+                }}
+                data-testid="detail-add-to-list"
+                className="rounded-md border border-zinc-700 px-5 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900"
+              >
+                + Add to list
+              </button>
+            </div>
             {detail === null ? (
               <div className="mt-6 space-y-2">
                 <div className="h-3 w-full animate-pulse rounded bg-zinc-900" />
@@ -197,6 +211,16 @@ export default function SeriesDetail({
           )}
         </div>
       </div>
+      {addTo && (
+        <AddToListMenu
+          providerId={providerId}
+          contentType="series"
+          contentId={series.id}
+          x={addTo.x}
+          y={addTo.y}
+          onClose={() => setAddTo(null)}
+        />
+      )}
     </div>
   );
 }

@@ -4,13 +4,22 @@ import ContextMenu from "../components/common/ContextMenu";
 import ContinueWatchingSeriesDialog from "../components/home/ContinueWatchingSeriesDialog";
 import KeepWatchingCard from "../components/home/KeepWatchingCard";
 import MediaRow from "../components/home/MediaRow";
+import MyListsRow from "../components/home/MyListsRow";
+import AddToListMenu from "../components/lists/AddToListMenu";
 import MovieCard from "../components/vod/MovieCard";
 import SeriesCard from "../components/vod/SeriesCard";
 import * as api from "../lib/tauri";
 import { useCatalogStore } from "../store/catalogStore";
+import { useListsStore } from "../store/listsStore";
 import { usePlayerStore } from "../store/playerStore";
 import { useProgressStore } from "../store/progressStore";
-import type { Category, ContinueWatchingItem, Movie, Series } from "../types";
+import type {
+  Category,
+  ContinueWatchingItem,
+  ListContentType,
+  Movie,
+  Series,
+} from "../types";
 
 /** Cards per Popular row. */
 const ROW_SIZE = 30;
@@ -63,6 +72,17 @@ export default function Home() {
     x: number;
     y: number;
   } | null>(null);
+  const [seriesMenu, setSeriesMenu] = useState<{
+    series: Series;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [addTo, setAddTo] = useState<{
+    contentType: ListContentType;
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!providerId) {
@@ -75,6 +95,8 @@ export default function Home() {
 
     // Watch-progress markers for the Popular Movies cards (spec §5.9).
     void useProgressStore.getState().loadSection(providerId, "movie");
+    // Custom lists for the "My Lists" row (spec §5.10/§5.11).
+    void useListsStore.getState().load(providerId);
 
     void (async () => {
       try {
@@ -236,6 +258,7 @@ export default function Home() {
             />
           )}
         />
+        <MyListsRow onOpenList={(id) => navigate(`/list/${id}`)} />
         <MediaRow
           title="Popular Movies"
           testId="home-popular-movies"
@@ -256,7 +279,11 @@ export default function Home() {
           items={popularSeries}
           getKey={(s) => s.id}
           renderItem={(series) => (
-            <SeriesCard series={series} onActivate={openSeries} />
+            <SeriesCard
+              series={series}
+              onActivate={openSeries}
+              onContextMenu={(s, x, y) => setSeriesMenu({ series: s, x, y })}
+            />
           )}
         />
 
@@ -282,7 +309,44 @@ export default function Home() {
               label: "Open in External Player",
               onSelect: () => void playMovieExternal(menu.movie),
             },
+            {
+              label: "Add to list…",
+              onSelect: () =>
+                setAddTo({ contentType: "movie", id: menu.movie.id, x: menu.x, y: menu.y }),
+            },
           ]}
+        />
+      )}
+
+      {seriesMenu && (
+        <ContextMenu
+          x={seriesMenu.x}
+          y={seriesMenu.y}
+          onClose={() => setSeriesMenu(null)}
+          items={[
+            { label: "Open", onSelect: () => openSeries(seriesMenu.series) },
+            {
+              label: "Add to list…",
+              onSelect: () =>
+                setAddTo({
+                  contentType: "series",
+                  id: seriesMenu.series.id,
+                  x: seriesMenu.x,
+                  y: seriesMenu.y,
+                }),
+            },
+          ]}
+        />
+      )}
+
+      {addTo && (
+        <AddToListMenu
+          providerId={pid}
+          contentType={addTo.contentType}
+          contentId={addTo.id}
+          x={addTo.x}
+          y={addTo.y}
+          onClose={() => setAddTo(null)}
         />
       )}
 

@@ -88,6 +88,16 @@ pub fn run() {
             commands::watch::list_watch_progress,
             commands::watch::get_continue_watching,
             commands::watch::clear_watch_progress,
+            commands::lists::create_list,
+            commands::lists::rename_list,
+            commands::lists::delete_list,
+            commands::lists::reorder_lists,
+            commands::lists::get_lists,
+            commands::lists::add_to_list,
+            commands::lists::remove_from_list,
+            commands::lists::reorder_list_items,
+            commands::lists::get_list_items,
+            commands::lists::get_lists_for_item,
         ])
         .on_window_event(|window, event| {
             // Keep the native video window glued behind the app window.

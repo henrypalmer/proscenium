@@ -8,6 +8,7 @@ interface SeriesGridProps {
   categoryId: string | null;
   version: number;
   onActivate: (series: Series) => void;
+  onContextMenu?: (series: Series, x: number, y: number) => void;
 }
 
 /** Virtualized grid of `SeriesCard` items (spec §18). */
@@ -16,6 +17,7 @@ export default function SeriesGrid({
   categoryId,
   version,
   onActivate,
+  onContextMenu,
 }: SeriesGridProps) {
   const { total, getItem, ensureRange } = usePagedSeries(
     providerId,
@@ -31,7 +33,11 @@ export default function SeriesGrid({
       emptyNoun="series"
       filtered={categoryId !== null}
       renderCard={(series) => (
-        <SeriesCard series={series} onActivate={onActivate} />
+        <SeriesCard
+          series={series}
+          onActivate={onActivate}
+          onContextMenu={onContextMenu}
+        />
       )}
     />
   );

@@ -193,6 +193,31 @@ export interface SearchResults {
   series: Series[];
 }
 
+/** A custom user list / "playlist" (spec §5.11). */
+export interface UserList {
+  id: string;
+  name: string;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A list plus the data the Home "My Lists" cover card needs (spec §5.10):
+ * count of resolvable items and up to four cover posters. */
+export interface ListSummary extends UserList {
+  itemCount: number;
+  coverPosters: (string | null)[];
+}
+
+/** Content type that can be added to a custom list (spec §5.11). */
+export type ListContentType = "live" | "movie" | "series";
+
+/** One resolved list item (spec §5.11), discriminated by `kind`. */
+export type UserListItem =
+  | { kind: "movie"; movie: Movie }
+  | { kind: "series"; series: Series }
+  | { kind: "live"; channel: LiveChannel };
+
 /** One Home "Keep Watching" item (spec §5.10): a movie or episode joined with
  * its catalog row plus the saved progress. Discriminated by `kind`. */
 export type ContinueWatchingItem =

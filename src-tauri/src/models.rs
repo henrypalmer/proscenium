@@ -201,6 +201,39 @@ pub enum ContinueWatchingItem {
     },
 }
 
+/// A custom user list / "playlist" (spec §5.11 / §16). Provider-scoped.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserList {
+    pub id: String,
+    pub name: String,
+    pub sort_order: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// A list plus the data the Home "My Lists" cover card needs (spec §5.10):
+/// the count of *resolvable* items and up to four cover posters.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSummary {
+    #[serde(flatten)]
+    pub list: UserList,
+    pub item_count: i64,
+    pub cover_posters: Vec<Option<String>>,
+}
+
+/// One resolved list item for the List Detail grid (spec §5.11), discriminated
+/// by `kind` so the UI renders the matching card. Live channels carry no
+/// watch progress (§5.9).
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum UserListItem {
+    Movie { movie: MovieItem },
+    Series { series: SeriesItem },
+    Live { channel: LiveChannel },
+}
+
 /// Content-type narrowing for the `search` command (spec §16).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]

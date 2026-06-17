@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod image_cache;
+pub mod lists;
 pub mod providers;
 pub mod schema;
 pub mod settings;

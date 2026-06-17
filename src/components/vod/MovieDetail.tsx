@@ -3,6 +3,7 @@ import * as api from "../../lib/tauri";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { formatDuration } from "../../lib/utils";
+import AddToListMenu from "../lists/AddToListMenu";
 import { Poster } from "./PosterGrid";
 import type { Movie, MovieDetail as MovieDetailData } from "../../types";
 
@@ -25,6 +26,7 @@ export default function MovieDetail({
 }: MovieDetailProps) {
   const notify = useCatalogStore((s) => s.notify);
   const [detail, setDetail] = useState<MovieDetailData | null>(null);
+  const [addTo, setAddTo] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,6 +124,16 @@ export default function MovieDetail({
               >
                 Open in External Player
               </button>
+              <button
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setAddTo({ x: r.left, y: r.bottom });
+                }}
+                data-testid="detail-add-to-list"
+                className="rounded-md border border-zinc-700 px-5 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900"
+              >
+                + Add to list
+              </button>
             </div>
             {detail === null ? (
               <div className="mt-6 space-y-2">
@@ -138,6 +150,16 @@ export default function MovieDetail({
           </div>
         </div>
       </div>
+      {addTo && (
+        <AddToListMenu
+          providerId={providerId}
+          contentType="movie"
+          contentId={movie.id}
+          x={addTo.x}
+          y={addTo.y}
+          onClose={() => setAddTo(null)}
+        />
+      )}
     </div>
   );
 }

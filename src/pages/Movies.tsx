@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
+import AddToListMenu from "../components/lists/AddToListMenu";
 import CategoryPanel from "../components/layout/CategoryPanel";
 import MovieDetail from "../components/vod/MovieDetail";
 import MovieGrid from "../components/vod/MovieGrid";
@@ -28,6 +29,7 @@ export default function Movies() {
    * than a click within this section's grid — closing it then goes back. */
   const [detailFromNav, setDetailFromNav] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [addTo, setAddTo] = useState<{ id: string; x: number; y: number } | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -154,7 +156,22 @@ export default function Movies() {
               label: "Open in External Player",
               onSelect: () => void openExternal(menu.movie),
             },
+            {
+              label: "Add to list…",
+              onSelect: () =>
+                setAddTo({ id: menu.movie.id, x: menu.x, y: menu.y }),
+            },
           ]}
+        />
+      )}
+      {addTo && (
+        <AddToListMenu
+          providerId={activeProvider.id}
+          contentType="movie"
+          contentId={addTo.id}
+          x={addTo.x}
+          y={addTo.y}
+          onClose={() => setAddTo(null)}
         />
       )}
     </div>

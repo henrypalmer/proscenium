@@ -133,6 +133,29 @@ CREATE TABLE IF NOT EXISTS watch_progress (
   PRIMARY KEY (provider_id, content_type, content_id)
 );
 
+-- Custom user lists / "playlists" (§5.11). Provider-scoped; cascade-delete with
+-- the provider. A list may mix movies, series, and live channels.
+CREATE TABLE IF NOT EXISTS user_lists (
+  id          TEXT PRIMARY KEY,                                     -- app-generated UUID
+  provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0,                           -- user ordering of lists
+  created_at  INTEGER NOT NULL,                                     -- Unix timestamp
+  updated_at  INTEGER NOT NULL                                      -- Unix timestamp (membership/name changes)
+);
+
+-- Membership rows for user_lists. content_id refers to movies.id / series.id /
+-- live_channels.id depending on content_type (resolved by JOIN). Orphaned rows
+-- (content dropped on refresh) are retained but filtered out at read time.
+CREATE TABLE IF NOT EXISTS user_list_items (
+  list_id      TEXT NOT NULL REFERENCES user_lists(id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK (content_type IN ('live', 'movie', 'series')),
+  content_id   TEXT NOT NULL,
+  position     INTEGER NOT NULL,            -- order within the list (newest-added last by default)
+  added_at     INTEGER NOT NULL,            -- Unix timestamp
+  PRIMARY KEY (list_id, content_type, content_id)
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_live_channels_provider    ON live_channels(provider_id);
 CREATE INDEX IF NOT EXISTS idx_live_channels_category    ON live_channels(provider_id, category_id);
@@ -142,6 +165,8 @@ CREATE INDEX IF NOT EXISTS idx_series_provider           ON series(provider_id);
 CREATE INDEX IF NOT EXISTS idx_series_category           ON series(provider_id, category_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_series           ON episodes(series_id, provider_id);
 CREATE INDEX IF NOT EXISTS idx_watch_progress_section    ON watch_progress(provider_id, content_type);
+CREATE INDEX IF NOT EXISTS idx_user_lists_provider       ON user_lists(provider_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_user_list_items_list      ON user_list_items(list_id, position);
 
 -- Supplementary to §15: alphabetical paging over large catalogs (§10) needs
 -- an ordered index or every page query re-sorts the full table.
