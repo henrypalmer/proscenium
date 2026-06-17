@@ -8,8 +8,9 @@ name: Release
 # One-time setup required (see RELEASE.md › "Building both in CI"):
 #   - Repo secrets: TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 #     (and optionally the APPLE_* secrets for Developer-ID signing/notarization).
-#   - A "build-deps" release in this repo with libmpv-2.dll attached (the exact
-#     player engine you validated locally — it is gitignored, so CI fetches it).
+# The native player libraries are fetched automatically: libmpv-2.dll from a
+# pinned, SHA-256-verified mpv-winbuild release (Windows) and via Homebrew +
+# dylibbundler (macOS). Nothing to host or vendor.
 
 on:
   release:
@@ -49,22 +50,30 @@ jobs:
         run: npm ci
 
       # --- Windows native libs ---------------------------------------------
-      # NOTE: GitHub's windows-latest builds with the MSVC toolchain (the local
-      # dev machine uses GNU only because it has no MSVC Build Tools). MSVC
-      # static-links the WebView2 loader, but tauri.windows.conf.json still
-      # declares lib/WebView2Loader.dll as a bundle resource, so we stage it
-      # anyway (from the webview2-com-sys crate) to satisfy the bundler.
+      # libmpv-2.dll (the ~112 MB player engine) is fetched from a PINNED
+      # mpv-winbuild release (~30 MB .7z) and verified by SHA-256, so the build
+      # is reproducible without vendoring the binary in the repo. This URL/hash
+      # matches the build validated locally (mpv g304426c390, 2026-06-11); to
+      # upgrade, point both at a newer mpv-winbuild release asset. 7-Zip is
+      # preinstalled on the windows runner. WebView2Loader.dll comes from the
+      # webview2-com-sys crate in the cargo registry (same as build.ps1) — MSVC
+      # static-links it, but tauri.windows.conf.json declares it as a resource.
       - name: Stage native libraries (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LIBMPV_URL: https://github.com/zhongfly/mpv-winbuild/releases/download/2026-06-11-304426c390/mpv-dev-x86_64-20260611-git-304426c390.7z
+          LIBMPV_ARCHIVE_SHA256: A43DFB8C0E89E357C0F2EC4FA8A93622CE601E51D220BF9E84C5F2BFFC489210
         run: |
           New-Item -ItemType Directory -Force src-tauri/lib | Out-Null
-          # libmpv-2.dll — gitignored player engine; pull the exact build you
-          # validated locally from the "build-deps" release.
-          gh release download build-deps --repo "$env:GITHUB_REPOSITORY" --pattern libmpv-2.dll --dir src-tauri/lib --clobber
-          # WebView2Loader.dll — copy from the cargo registry (same as build.ps1).
+          $archive = Join-Path $env:RUNNER_TEMP 'mpv-dev.7z'
+          Invoke-WebRequest -Uri $env:LIBMPV_URL -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
+          if ($hash -ne $env:LIBMPV_ARCHIVE_SHA256) {
+            throw "libmpv archive SHA-256 mismatch: got $hash, expected $env:LIBMPV_ARCHIVE_SHA256"
+          }
+          7z e $archive libmpv-2.dll "-osrc-tauri/lib" -y
+          if (-not (Test-Path src-tauri/lib/libmpv-2.dll)) { throw "libmpv-2.dll missing from the archive" }
           cargo fetch --manifest-path src-tauri/Cargo.toml
           $wv = Get-ChildItem "$env:USERPROFILE/.cargo/registry/src/index.crates.io-*/webview2-com-sys-*/x64/WebView2Loader.dll" | Select-Object -First 1
           if (-not $wv) { throw "WebView2Loader.dll not found in the cargo registry" }

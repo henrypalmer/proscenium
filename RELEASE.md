@@ -248,8 +248,9 @@ publishing the `release/1.0.0` GitHub Release builds and attaches the installers
 on **`workflow_dispatch`** (a test build whose bundles are kept as workflow artifacts
 rather than uploaded to a release).
 
-Because the native player libraries and the signing key are **gitignored**, the workflow
-stages them on each runner — this is the only part that needs one-time setup.
+The signing key is **gitignored** and the native player libraries aren't in the repo, so
+the workflow supplies them on each runner. The only thing you must set up by hand is the
+secrets.
 
 ### One-time setup
 
@@ -258,20 +259,24 @@ stages them on each runner — this is the only part that needs one-time setup.
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — empty string here (still add the secret).
    - *(optional, macOS Gatekeeper)* `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
      `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`.
-2. **`build-deps` release** — `libmpv-2.dll` can't be fetched from a package manager, so
-   host the exact build you validated locally: create a (pre)release tagged `build-deps`
-   and attach `libmpv-2.dll` to it. The Windows job pulls it with
-   `gh release download build-deps --pattern libmpv-2.dll`. To rotate the engine later,
-   replace that asset. *(Alternatives: download from a pinned mpv-winbuild URL, or restore
-   from an Actions cache — the `build-deps` asset is the most reproducible.)*
+
+That's it — the native libraries are fetched automatically (see below), so there's no
+binary to host or branch to maintain.
 
 ### What the workflow handles for you
 
-- **Windows:** stages `libmpv-2.dll` (from `build-deps`) and `WebView2Loader.dll` (copied
-  from the `webview2-com-sys` crate in the cargo registry, like `build.ps1`). GitHub's
-  runners build with **MSVC** (the local GNU-only constraint is just that machine's lack of
-  MSVC Build Tools); MSVC static-links the WebView2 loader, but the bundled copy still
-  satisfies the `tauri.windows.conf.json` resource mapping and is otherwise harmless.
+- **Windows:** downloads `libmpv-2.dll` from a **pinned mpv-winbuild release** (a ~30 MB
+  `.7z`) and verifies its **SHA-256** before extracting — reproducible, with no 112 MB
+  binary vendored in the repo. The pin (`LIBMPV_URL` + `LIBMPV_ARCHIVE_SHA256` in the
+  workflow) matches the build validated locally (`g304426c390`, 2026-06-11); bump both to a
+  newer release to upgrade the engine. `WebView2Loader.dll` is copied from the
+  `webview2-com-sys` crate in the cargo registry (like `build.ps1`). GitHub's runners build
+  with **MSVC** (the local GNU-only constraint is just that machine's lack of MSVC Build
+  Tools); MSVC static-links the WebView2 loader, but the bundled copy still satisfies the
+  `tauri.windows.conf.json` resource mapping and is otherwise harmless.
+- **macOS:** `brew install mpv dylibbundler`, gathers libmpv's full dylib tree, strips the
+  bogus `@rpath/` `LC_RPATH`, re-signs, and regenerates `tauri.macos.conf.json`'s framework
+  list from the gathered files (so it can't drift) — the §macOS steps above, automated.
 - **macOS:** `brew install mpv dylibbundler`, gathers libmpv's full dylib tree, strips the
   bogus `@rpath/` `LC_RPATH`, re-signs, and regenerates `tauri.macos.conf.json`'s framework
   list from the gathered files (so it can't drift) — the §macOS steps above, automated.
