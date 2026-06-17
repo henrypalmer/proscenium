@@ -255,10 +255,17 @@ secrets.
 ### One-time setup
 
 1. **Repo secrets** (Settings › Secrets and variables › Actions):
-   - `TAURI_SIGNING_PRIVATE_KEY` — contents of `src-tauri/proscenium-updater.key`.
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — empty string here (still add the secret).
+   - `TAURI_SIGNING_PRIVATE_KEY` — contents of `src-tauri/proscenium-updater.key`. **This is
+     the only required secret.**
+   - **No password secret.** The key uses an empty password, which the workflow hardcodes
+     (`TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""`). Don't create a `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+     secret — GitHub can't store an empty value, so any placeholder you type becomes a
+     "wrong password" for the key. (Only add it back, with the real password, if you ever
+     re-key *with* one.)
    - *(optional, macOS Gatekeeper)* `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
-     `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`.
+     `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` — set these as a
+     full set only when signing; a non-empty-but-invalid `APPLE_CERTIFICATE` fails the macOS
+     bundle step, so leave them unset to build unsigned.
 
 That's it — the native libraries are fetched automatically (see below), so there's no
 binary to host or branch to maintain.

@@ -108,8 +108,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           # Updater signing (bundle.createUpdaterArtifacts is on — required).
+          # The key was generated with an empty password (`tauri signer generate
+          # -p ""`), so the password is hardcoded empty here — GitHub can't store
+          # an empty secret, and routing it through one only invites a wrong-
+          # password mismatch. If you ever re-key WITH a password, move this to a
+          # secret instead.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           # macOS Developer-ID signing + notarization (optional; the .dmg still
           # builds unsigned, but recipients must right-click → Open once).
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
