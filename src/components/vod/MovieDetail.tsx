@@ -90,7 +90,7 @@ export default function MovieDetail({
         </button>
         <div className="flex gap-6">
           <div className="w-48 shrink-0 sm:w-56">
-            <Poster url={movie.posterUrl} title={movie.name} />
+            <Poster url={movie.posterUrl} title={movie.name} vtName="vt-poster" />
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-white">{movie.name}</h1>

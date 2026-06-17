@@ -117,7 +117,7 @@ export default function SeriesDetail({
         </button>
         <div className="flex gap-6">
           <div className="w-48 shrink-0 sm:w-56">
-            <Poster url={series.posterUrl} title={series.name} />
+            <Poster url={series.posterUrl} title={series.name} vtName="vt-poster" />
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-white">{series.name}</h1>

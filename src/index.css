@@ -50,3 +50,27 @@ body.player-open {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* View Transitions (card → detail cross-fade + shared-element poster morph,
+   driven by src/lib/viewTransition.ts). Keep the root cross-fade brisk so the
+   app stays snappy; the named "vt-poster" element morphs its geometry over the
+   same window. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 220ms;
+  animation-timing-function: ease;
+}
+::view-transition-group(vt-poster) {
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Honor the OS "reduce motion" setting: snap instead of animate. The JS helper
+   already skips the API in this case; this also covers any future direct use. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

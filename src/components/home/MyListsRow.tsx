@@ -39,11 +39,11 @@ export default function MyListsRow({ onOpenList }: MyListsRowProps) {
           <span className="ml-2 text-sm font-normal text-zinc-600">{lists.length}</span>
         )}
       </h2>
-      <div className="flex gap-4 overflow-x-auto pb-2">
+      <div className="-mx-2 flex gap-4 overflow-x-auto px-2 py-2">
         <button
           onClick={() => setEditor({ mode: "create" })}
           data-testid="new-list-card"
-          className="flex aspect-[2/3] w-[150px] shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-zinc-700 text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200"
+          className="relative flex aspect-[2/3] w-[150px] shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-zinc-700 text-zinc-400 transition duration-200 ease-out hover:z-10 hover:scale-[1.04] hover:border-zinc-500 hover:text-zinc-200 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:scale-100"
         >
           <span className="text-2xl leading-none">+</span>
           <span className="mt-2 text-xs">New list</span>

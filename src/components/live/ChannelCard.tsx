@@ -48,7 +48,7 @@ export default function ChannelCard({
         onContextMenu(channel, e.clientX, e.clientY);
       }}
       data-testid="channel-card"
-      className="flex h-14 w-full items-center gap-3 border-b border-zinc-900 px-4 text-left transition-colors hover:bg-zinc-900"
+      className="flex h-14 w-full items-center gap-3 border-b border-zinc-900 px-4 text-left transition-colors hover:bg-zinc-900 active:bg-zinc-800"
     >
       <ChannelLogo url={channel.logoUrl} name={channel.name} />
       <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">

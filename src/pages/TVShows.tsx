@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
 import AddToListMenu from "../components/lists/AddToListMenu";
@@ -6,6 +7,7 @@ import CategoryPanel from "../components/layout/CategoryPanel";
 import SeriesDetail from "../components/vod/SeriesDetail";
 import SeriesGrid from "../components/vod/SeriesGrid";
 import * as api from "../lib/tauri";
+import { startViewTransition } from "../lib/viewTransition";
 import { useCatalogStore } from "../store/catalogStore";
 import type { Category, Series } from "../types";
 
@@ -16,6 +18,8 @@ export default function TVShows() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Series | null>(null);
+  /** Card whose poster morphs in/out of the detail view (View Transitions). */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   /** True when the open detail was reached by navigation (Home/Search) rather
    * than a click within this section's grid — closing it then goes back. */
   const [detailFromNav, setDetailFromNav] = useState(false);
@@ -78,16 +82,24 @@ export default function TVShows() {
     );
   }
 
+  // The clicked poster morphs into the detail's poster via View Transitions:
+  // the grid card is flushed to carry the shared name *before* the snapshot,
+  // then the detail mount is the transitioned update.
   const openDetail = (series: Series) => {
-    setDetail(series);
     setDetailFromNav(false);
+    flushSync(() => setSelectedId(series.id));
+    startViewTransition(() => setDetail(series));
   };
   // Closing returns to the previous page when we arrived via navigation
-  // (e.g. Home or Search), otherwise it just reveals the grid again.
+  // (e.g. Home or Search), otherwise it morphs back into the grid card.
   const closeDetail = () => {
     if (detailFromNav) navigate(-1);
-    else setDetail(null);
+    else startViewTransition(() => setDetail(null));
   };
+
+  // The grid card carries the shared-element name only while the detail is
+  // closed, so the name is never on two elements at once during a transition.
+  const morphId = detail ? null : selectedId;
 
   return (
     <div className="relative flex h-full">
@@ -105,6 +117,7 @@ export default function TVShows() {
           version={refreshTick}
           onActivate={openDetail}
           onContextMenu={(series, x, y) => setMenu({ series, x, y })}
+          morphId={morphId}
         />
       </div>
       {detail && (

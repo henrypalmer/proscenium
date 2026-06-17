@@ -9,6 +9,8 @@ interface MovieGridProps {
   version: number;
   onActivate: (movie: Movie) => void;
   onContextMenu: (movie: Movie, x: number, y: number) => void;
+  /** Id of the card whose poster should morph into the detail view, if any. */
+  morphId?: string | null;
 }
 
 /** Virtualized grid of `MovieCard` items (spec §18). */
@@ -18,6 +20,7 @@ export default function MovieGrid({
   version,
   onActivate,
   onContextMenu,
+  morphId,
 }: MovieGridProps) {
   const { total, getItem, ensureRange } = usePagedMovies(
     providerId,
@@ -38,6 +41,7 @@ export default function MovieGrid({
           providerId={providerId}
           onActivate={onActivate}
           onContextMenu={onContextMenu}
+          morphActive={morphId === movie.id}
         />
       )}
     />

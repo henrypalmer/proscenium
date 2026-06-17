@@ -5,6 +5,9 @@ interface SeriesCardProps {
   series: Series;
   onActivate: (series: Series) => void;
   onContextMenu?: (series: Series, x: number, y: number) => void;
+  /** When true, this card's poster carries the shared-element name so it morphs
+   * into the detail view on open (and back on close). */
+  morphActive?: boolean;
 }
 
 /** Poster and show title (spec §5.4). Click opens the detail view. */
@@ -12,6 +15,7 @@ export default function SeriesCard({
   series,
   onActivate,
   onContextMenu,
+  morphActive,
 }: SeriesCardProps) {
   return (
     <button
@@ -26,9 +30,13 @@ export default function SeriesCard({
       }
       data-testid="series-card"
       title={series.name}
-      className="group block w-full text-left"
+      className="group relative block w-full text-left transition-transform duration-200 ease-out hover:z-10 hover:scale-[1.04] active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:scale-100"
     >
-      <Poster url={series.posterUrl} title={series.name} />
+      <Poster
+        url={series.posterUrl}
+        title={series.name}
+        vtName={morphActive ? "vt-poster" : undefined}
+      />
       <p className="mt-2 truncate text-sm text-zinc-200 group-hover:text-white">
         {series.name}
       </p>

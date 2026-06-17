@@ -44,7 +44,7 @@ export default function KeepWatchingCard({
   const { title, subtitle, poster } = describe(item);
   return (
     <div
-      className="group relative"
+      className="group relative transition-transform duration-200 ease-out hover:z-10 hover:scale-[1.04] active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:scale-100"
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu(item, e.clientX, e.clientY);

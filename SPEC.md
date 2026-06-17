@@ -795,6 +795,17 @@ App
 - Implemented with global CSS (`::-webkit-scrollbar*` for the WebView2/WebKit webview, plus `scrollbar-width: thin` / `scrollbar-color` for completeness) in the app's root stylesheet — no per-component styling. It must adapt to the light theme when that ships (§13).
 - Scrollbars must remain functional and discoverable (do not hide them entirely on Windows, where overlay/auto-hiding scrollbars are not the platform norm); the goal is restyling, not removal.
 
+### Motion & Animation
+
+Motion should make the UI feel responsive and physical without ever competing with the content or taxing the baseline hardware (§10). The guiding rules:
+
+- **Reactivity on hover/press.** Browsable content cards (movie/series posters, Keep Watching cards, list-cover cards) respond to the cursor: a subtle scale-up on hover (~1.04) and a slight scale-down on press (~0.98), so the grid feels alive under the pointer. Caption text may brighten in concert.
+- **Continuity on navigation.** Opening a content detail view transitions from the grid rather than snapping in: the outgoing view cross-fades into the detail, and the clicked **poster morphs** from its grid cell into the detail layout (a shared-element transition), reinforcing where the user came from. Closing reverses it.
+- **Cheap by construction.** Only **compositor-friendly** properties (`transform`, `opacity`) are animated — never layout- or paint-heavy properties (`width`/`height`/`box-shadow`/`top`/`left`) at hover/scroll frequency. No persistent `will-change` on virtualized cells (it would promote dozens of layers and cost GPU memory). Transitions must stay smooth over the 12k-item virtualized grids (§10).
+- **Implementation.** Card hover/press uses CSS transforms (Tailwind utilities). View transitions use the browser **View Transitions API** (`document.startViewTransition`), which is supported by the WebView runtimes Proscenium targets (evergreen Chromium / WebView2 on Windows, recent WebKit on macOS) and runs off the main thread; it degrades to an instant update where unavailable. No animation library is added.
+- **Respect user preference.** All non-essential motion honors `prefers-reduced-motion: reduce` — hover scaling and view transitions collapse to instant state changes.
+- **No motion behind the player.** While the built-in player is open the browser is hidden and the page background is transparent for the native mpv window (§5.6); transitions must not run there.
+
 ---
 
 ## 10. Performance Requirements
@@ -1926,4 +1937,61 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [x] Home shows a "My Lists" row directly below Keep Watching with cover cards (2×2 mosaic + name + count) led by a "+ New list" card; the row is always present (even with no lists) so the first list can be created from Home. *(preview: row order was `home-keep-watching` → `home-my-lists` → `home-popular-movies` → `home-popular-series`; the row showed the "+ New list" card plus "Horror movies to watch" (3 items) and "Binge Worthy TV Shows" (2 items) as 2×2 mosaics, and still renders with the New-list card when there are zero lists.)*
 - [x] Clicking a cover card opens that list's `ListDetail`; the leading "+ New list" card creates a list. *(preview: clicking the Horror cover navigated to `/list/list-1` with its items; the "+ New list" card opened `ListEditorDialog` and created "From Home", which appeared as a new cover immediately.)*
 - [x] The row reflects list order and updates after lists are created/renamed/deleted or their membership changes; it renders entirely from local data (no provider requests). *(preview: the row updated live on create/rename/delete and on membership changes (covers/counts refresh via the shared `listsStore`); `get_lists` reads only SQLite — no provider request.)*
+
+### Milestone 16 — Card Hover Reactivity & Detail-View Transitions
+
+**Goal:** Make the catalog feel responsive and physical — content cards react to the cursor, and opening/closing a detail view animates from the grid instead of snapping — with no measurable performance regression on the baseline hardware (§10). Delivers the §9 "Motion & Animation" guideline.
+
+**Scope:**
+- **Card hover/press (§9):** add a hover scale-up (~1.04), active press (~0.98), and hover `z` lift to every browsable content card so the effect is consistent everywhere: `MovieCard`, `SeriesCard` (covers the Movies/TV Shows grids, Home Popular rows, and Search results — all reuse these), plus the Home-only `KeepWatchingCard`, `ListCoverCard`, and the "+ New list" card. Channel rows (`ChannelCard`) keep their row highlight and gain the press feedback. Implemented with CSS transforms (Tailwind), animating only `transform`.
+- **Horizontal-row clipping fix:** the Home rows (`MediaRow`, `MyListsRow`) scroll horizontally with `overflow-x: auto`, which forces `overflow-y` to compute to `auto` and clips a scaled card's top/bottom (cutting its rounded corners so it reads as a filled rectangle). Add vertical/horizontal breathing room to the scroll containers so scaled cards keep their shape, without shifting the resting layout.
+- **Card → detail transition:** add a small View Transitions helper (`src/lib/viewTransition.ts`) wrapping the state change in `document.startViewTransition` (via `flushSync`), degrading to an instant update where the API is unavailable. In the Movies and TV Shows grids, opening a card cross-fades the view **and morphs the clicked poster** into the detail's poster (shared `view-transition-name`), reversing on close. The shared name is carried by exactly one element at any time (grid card while the detail is closed; detail poster while open) so concurrent transitions never collide.
+- **Reduced motion & guardrails:** all of the above is disabled under `prefers-reduced-motion: reduce` (the helper skips the API; CSS guards the transition pseudo-elements). Only `transform`/`opacity` are animated; no persistent `will-change`; transitions stay smooth over the 12k-item virtualized grids.
+- *(The Home/Search → detail flow navigates routes before opening the detail; a shared-element morph across that navigation is deferred to Milestone 17. The poster cards there still get the hover/press reactivity.)*
+
+**Acceptance Criteria:**
+- [x] Movie and series cards scale up on hover and dip on press across the Movies grid, TV Shows grid, Home Popular rows, and Search results; the animation is smooth and the card keeps its poster shape (no clipping). *(`MovieCard`/`SeriesCard` carry `transition-transform … hover:scale-[1.04] active:scale-[0.98]` and are the shared components for all four surfaces; preview-verified the scaled card fits within the row — 5px overhang per side ≤ the 8px breathing room, `scrollHeight - clientHeight === 0` so nothing clips.)*
+- [x] The Home-only cards — Keep Watching, list-cover, and "+ New list" — get the same hover/press reactivity, so the whole Home screen is consistent. *(scale/press utilities added to `KeepWatchingCard` and `ListCoverCard` wrappers (already `relative`) and to the `new-list-card` button.)*
+- [x] The Home horizontal-row clipping bug is fixed: a hovered/scaled card on Home is no longer cut into a rectangle; resting layout/alignment is unchanged. *(root cause: `overflow-x:auto` forces `overflow-y` to compute to `auto`; `MediaRow`/`MyListsRow` scroll containers now use `-mx-2 px-2 py-2` — preview confirmed 8px room above the card, `overflowY` still auto but `scrollHeight === clientHeight` (no clip/scrollbar), `marginLeft: -8px` keeps cards aligned with the row title; the Home screenshot shows intact resting layout.)*
+- [x] Clicking a card in the Movies or TV Shows grid cross-fades into its detail view and morphs the clicked poster into the detail poster; closing reverses the morph back into the grid card. *(via `lib/viewTransition.ts` wrapping the open/close state change; preview-verified open and close both transition.)*
+- [x] The shared `view-transition-name` is on exactly one element in every state (verified: 1 on open in the detail, 1 on close on the grid card) — no duplicate-name conflicts. *(preview: on open `namedCount === 1` inside `movie-detail`; on close `namedCount === 1` on a `movie-card`; guaranteed by `morphId = detail ? null : selectedId` plus `flushSync` before the snapshot.)*
+- [x] With `prefers-reduced-motion: reduce`, hover scaling and view transitions collapse to instant state changes. *(the helper short-circuits the API when `matchMedia('(prefers-reduced-motion: reduce)')` matches; CSS adds `motion-reduce:` guards on the cards and a `@media (prefers-reduced-motion: reduce)` rule zeroing the `::view-transition-*` animations. The harness can't toggle the OS setting to screenshot it, but both guards are in place.)*
+- [x] No performance regression: only `transform`/`opacity` are animated, no persistent `will-change` is added, and the virtualized grids still scroll smoothly; `npm run build` type-checks clean. *(all animation is CSS `transform` (cards) or the compositor-driven View Transitions API; no `will-change` was added; the M5 virtualization is untouched; `npm run build` (tsc + vite) passes with no type errors.)*
+
+### Milestone 17 — Ambient Motion Polish (Planned)
+
+> **Status:** Planned — documented for the roadmap, not yet implemented.
+
+**Goal:** Extend the §9 motion language beyond cards into content entrance and app chrome, keeping the same performance guardrails.
+
+**Scope:**
+- **Content entrance:** stagger a brief fade/translate-in for Home rows (a non-virtualized, fixed-size set) and for the **first paint** of a grid's data. On the virtualized grids the animation must fire only on initial load — never as cells recycle during scroll — so it cannot cause flicker or jank.
+- **Skeleton → content crossfade:** replace the hard skeleton-to-card swap (poster grids, detail) with a short crossfade.
+- **Route cross-fades:** a gentle cross-fade between top-level sections (Home ↔ Live TV ↔ Movies ↔ TV Shows). Requires integrating View Transitions with React Router navigation (the current pinned `react-router-dom` 6.30 exposes this only via still-unstable APIs — to be designed so it stays robust, including the Home/Search → detail morph deferred from Milestone 16).
+- **Nav micro-interactions:** slide the active-section indicator in `TopNav` between items rather than hard-cutting the highlight.
+
+**Acceptance Criteria:**
+- [ ] Home rows and a grid's first data paint animate in with a capped stagger; no animation re-fires while scrolling the virtualized grids.
+- [ ] Skeletons crossfade into resolved content rather than hard-swapping.
+- [ ] Navigating between top-level sections cross-fades; the Home/Search → detail navigation morphs the poster as the in-grid path does.
+- [ ] The `TopNav` active indicator animates between sections.
+- [ ] All of the above honor `prefers-reduced-motion`, animate only `transform`/`opacity`, and add no measurable scroll/playback regression.
+
+### Milestone 18 — Detail View Redesign (Planned)
+
+> **Status:** Planned — documented for the roadmap, not yet implemented. Needs a design pass and may require new backend data.
+
+**Goal:** Replace the sparse movie/series detail layout (poster + short metadata column over a large empty area) with a richer, more cinematic view that the Milestone 16 poster-morph lands into.
+
+**Scope:**
+- **Hero backdrop:** a full-bleed, blurred-and-darkened treatment derived from the already-loaded poster (free — no new asset), with a gradient scrim behind the title/metadata so the upper area reads as a hero rather than a small poster on black.
+- **Fuller vertical layout:** use the empty lower area — for series, surface the season selector and episode list more prominently; for movies, give synopsis/metadata more presence.
+- **"More like this" (optional, backend-dependent):** a row of related titles (e.g. same genre/category) so the detail view doubles as a discovery surface. This needs a backend query and would follow the §16 IPC pattern.
+- **Morph target:** ensure the shared-element poster morph from Milestone 16 reads well landing into the redesigned layout.
+
+**Acceptance Criteria:**
+- [ ] Movie and series detail views use a hero backdrop derived from the poster with a readable scrim; the large empty area is gone.
+- [ ] The series detail surfaces seasons/episodes prominently; the movie detail gives synopsis/metadata more presence.
+- [ ] If included, a "More like this" row renders related titles from local cache via a §16-style command, with no on-demand provider request beyond existing reads.
+- [ ] The Milestone 16 poster morph still reads correctly into the redesigned layout, and the view respects `prefers-reduced-motion` and the §10 performance budget.
 

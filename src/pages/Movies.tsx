@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
 import AddToListMenu from "../components/lists/AddToListMenu";
@@ -6,6 +7,7 @@ import CategoryPanel from "../components/layout/CategoryPanel";
 import MovieDetail from "../components/vod/MovieDetail";
 import MovieGrid from "../components/vod/MovieGrid";
 import * as api from "../lib/tauri";
+import { startViewTransition } from "../lib/viewTransition";
 import { useCatalogStore } from "../store/catalogStore";
 import { usePlayerStore } from "../store/playerStore";
 import { useProgressStore } from "../store/progressStore";
@@ -25,6 +27,8 @@ export default function Movies() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Movie | null>(null);
+  /** Card whose poster morphs in/out of the detail view (View Transitions). */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   /** True when the open detail was reached by navigation (Home/Search) rather
    * than a click within this section's grid — closing it then goes back. */
   const [detailFromNav, setDetailFromNav] = useState(false);
@@ -87,17 +91,25 @@ export default function Movies() {
     );
   }
 
-  // Open a detail from a grid click (closing returns to the grid).
+  // Open a detail from a grid click (closing returns to the grid). The clicked
+  // poster morphs into the detail's poster via View Transitions: the grid card
+  // is flushed to carry the shared name *before* the "before" snapshot, then the
+  // detail mount is the transitioned update.
   const openDetail = (movie: Movie) => {
-    setDetail(movie);
     setDetailFromNav(false);
+    flushSync(() => setSelectedId(movie.id));
+    startViewTransition(() => setDetail(movie));
   };
   // Closing returns to the previous page when we arrived via navigation
-  // (e.g. Home or Search), otherwise it just reveals the grid again.
+  // (e.g. Home or Search), otherwise it morphs back into the grid card.
   const closeDetail = () => {
     if (detailFromNav) navigate(-1);
-    else setDetail(null);
+    else startViewTransition(() => setDetail(null));
   };
+
+  // The grid card carries the shared-element name only while the detail is
+  // closed, so the name is never on two elements at once during a transition.
+  const morphId = detail ? null : selectedId;
 
   const providerIdForPlayback = activeProvider.id;
   const play = (movie: Movie) =>
@@ -136,6 +148,7 @@ export default function Movies() {
           version={refreshTick}
           onActivate={openDetail}
           onContextMenu={(movie, x, y) => setMenu({ movie, x, y })}
+          morphId={morphId}
         />
       </div>
       {detail && (

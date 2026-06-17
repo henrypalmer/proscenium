@@ -41,7 +41,7 @@ export default function ListCoverCard({ list, onOpen, onMenu }: ListCoverCardPro
   const tiles = [0, 1, 2, 3].map((i) => list.coverPosters[i] ?? null);
   return (
     <div
-      className="group relative"
+      className="group relative transition-transform duration-200 ease-out hover:z-10 hover:scale-[1.04] active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:scale-100"
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu(list, e.clientX, e.clientY);

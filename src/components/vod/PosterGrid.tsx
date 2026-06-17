@@ -11,17 +11,24 @@ export function Poster({
   url,
   title,
   overlay,
+  vtName,
 }: {
   url: string | null;
   title: string;
   /** Optional overlay (e.g. watch-progress bar/checkmark) drawn over the art. */
   overlay?: ReactNode;
+  /** When set, names this poster as a View Transitions shared element so it
+   * morphs between its grid cell and the detail view (see viewTransition.ts). */
+  vtName?: string;
 }) {
   const [state, setState] = useState<"loading" | "loaded" | "error">(
     url ? "loading" : "error",
   );
   return (
-    <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-zinc-800">
+    <div
+      className="relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-zinc-800"
+      style={vtName ? { viewTransitionName: vtName } : undefined}
+    >
       <Placeholder label={title} />
       {url && state !== "error" && (
         <img
