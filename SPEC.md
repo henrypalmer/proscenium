@@ -1,8 +1,8 @@
 # Proscenium — Product Specification
 
-**Version:** 0.7.0 (Draft)
-**Status:** In Progress
-**Last Updated:** 2026-06-16
+**Version:** 1.0.0
+**Status:** Released
+**Last Updated:** 2026-06-17
 
 ---
 

@@ -68,12 +68,12 @@ $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
 npm run tauri build
 ```
 
-Produces (for version `0.1.0`):
+Produces (for version `1.0.0`):
 
 ```
 src-tauri/target/release/bundle/
-├── msi/  Proscenium_0.1.0_x64_en-US.msi   + .msi.sig
-└── nsis/ Proscenium_0.1.0_x64-setup.exe   + -setup.exe.sig
+├── msi/  Proscenium_1.0.0_x64_en-US.msi   + .msi.sig
+└── nsis/ Proscenium_1.0.0_x64-setup.exe   + -setup.exe.sig
 ```
 
 `libmpv-2.dll` **and `WebView2Loader.dll`** are bundled next to the installed `.exe` via
@@ -96,7 +96,7 @@ an Authenticode certificate. Set `bundle.windows.certificateThumbprint` (and
 ## macOS (`.app` + `.dmg`)
 
 > ✅ **Verified on an Apple Silicon Mac (M1 Pro).** `npm run tauri build` produces a
-> self-contained `Proscenium.app` + `Proscenium_0.1.0_aarch64.dmg` with the full libmpv
+> self-contained `Proscenium.app` + `Proscenium_1.0.0_aarch64.dmg` with the full libmpv
 > dependency tree (47 dylibs) embedded. Still outstanding for *distribution*: Developer-ID
 > code signing/notarization (§3 below) and the real updater key. Note also that the native
 > video window is currently Windows-only (`ensure_video_host` returns `Ok(None)` on macOS),
@@ -195,7 +195,7 @@ Produces:
 ```
 src-tauri/target/release/bundle/
 ├── macos/ Proscenium.app
-└── dmg/   Proscenium_0.1.0_aarch64.dmg   (or x64 on Intel)   + .sig
+└── dmg/   Proscenium_1.0.0_aarch64.dmg   (or x64 on Intel)   + .sig
 ```
 
 `bundle.macOS.minimumSystemVersion` is `11.0` (Big Sur), matching the spec.

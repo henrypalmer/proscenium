@@ -1,6 +1,6 @@
 [package]
 name = "proscenium"
-version = "0.1.0"
+version = "1.0.0"
 description = "Cross-platform desktop IPTV client"
 edition = "2021"
 
