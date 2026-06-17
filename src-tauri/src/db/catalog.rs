@@ -187,7 +187,7 @@ pub async fn live_categories(
         .collect())
 }
 
-fn row_to_live_channel(row: &SqliteRow) -> LiveChannel {
+pub(crate) fn row_to_live_channel(row: &SqliteRow) -> LiveChannel {
     LiveChannel {
         id: row.get("id"),
         name: row.get("name"),
@@ -292,7 +292,7 @@ pub(crate) fn row_to_movie(row: &SqliteRow) -> MovieItem {
     }
 }
 
-fn row_to_series(row: &SqliteRow) -> SeriesItem {
+pub(crate) fn row_to_series(row: &SqliteRow) -> SeriesItem {
     SeriesItem {
         id: row.get("id"),
         name: row.get("name"),

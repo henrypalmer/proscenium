@@ -14,6 +14,7 @@ import type {
   ContinueWatchingItem,
   Episode,
   EpisodesBySeason,
+  ListSummary,
   LiveChannel,
   Movie,
   MovieDetail,
@@ -24,6 +25,8 @@ import type {
   SearchResults,
   Series,
   SeriesDetail,
+  UserList,
+  UserListItem,
   WatchProgress,
 } from "../types";
 
@@ -319,6 +322,102 @@ function findEpisodeById(
   return { episode, series: allSeries().find((s) => s.id === seriesId) ?? null };
 }
 
+// --- Mock custom lists / playlists (Milestone 14) ---
+
+interface MockList {
+  id: string;
+  providerId: string;
+  name: string;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+interface MockListItem {
+  contentType: "live" | "movie" | "series";
+  contentId: string;
+  position: number;
+}
+
+const userLists = new Map<string, MockList>();
+const userListItems = new Map<string, MockListItem[]>(); // listId -> items
+let listSeq = 0;
+const newListId = () => `list-${++listSeq}`;
+
+/** Resolve a list item to its catalog card, or null if the content is gone. */
+function resolveListItem(item: MockListItem): UserListItem | null {
+  if (item.contentType === "movie") {
+    const movie = allMovies().find((m) => m.id === item.contentId);
+    return movie ? { kind: "movie", movie } : null;
+  }
+  if (item.contentType === "series") {
+    const series = allSeries().find((s) => s.id === item.contentId);
+    return series ? { kind: "series", series } : null;
+  }
+  const channel = allChannels().find((c) => c.id === item.contentId);
+  return channel ? { kind: "live", channel } : null;
+}
+
+function resolvedItemsFor(listId: string): UserListItem[] {
+  const items = [...(userListItems.get(listId) ?? [])].sort(
+    (a, b) => a.position - b.position,
+  );
+  return items
+    .map(resolveListItem)
+    .filter((x): x is UserListItem => x !== null);
+}
+
+function posterOf(item: UserListItem): string | null {
+  if (item.kind === "movie") return item.movie.posterUrl;
+  if (item.kind === "series") return item.series.posterUrl;
+  return item.channel.logoUrl;
+}
+
+function listSummary(list: MockList): ListSummary {
+  const resolved = resolvedItemsFor(list.id);
+  return {
+    id: list.id,
+    name: list.name,
+    sortOrder: list.sortOrder,
+    createdAt: list.createdAt,
+    updatedAt: list.updatedAt,
+    itemCount: resolved.length,
+    coverPosters: resolved.slice(0, 4).map(posterOf),
+  };
+}
+
+// Pre-seed a couple of lists so the Home "My Lists" row (Milestone 15) shows in
+// browser dev.
+(() => {
+  const nowS = Math.floor(Date.now() / 1000);
+  const horror: MockList = {
+    id: newListId(),
+    providerId: provider.id,
+    name: "Horror movies to watch",
+    sortOrder: 0,
+    createdAt: nowS - 500,
+    updatedAt: nowS - 100,
+  };
+  const binge: MockList = {
+    id: newListId(),
+    providerId: provider.id,
+    name: "Binge Worthy TV Shows",
+    sortOrder: 1,
+    createdAt: nowS - 400,
+    updatedAt: nowS - 50,
+  };
+  userLists.set(horror.id, horror);
+  userLists.set(binge.id, binge);
+  userListItems.set(horror.id, [
+    { contentType: "movie", contentId: "movie-1", position: 0 },
+    { contentType: "movie", contentId: "movie-5", position: 1 },
+    { contentType: "live", contentId: "live-2", position: 2 },
+  ]);
+  userListItems.set(binge.id, [
+    { contentType: "series", contentId: "series-1", position: 0 },
+    { contentType: "series", contentId: "series-3", position: 1 },
+  ]);
+})();
+
 // --- Mock mpv state machine (drives the player UI in browser dev) ---
 
 function defaultMpvState(): MpvState {
@@ -586,6 +685,117 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       items.sort((x, y) => y.progress.updatedAt - x.progress.updatedAt);
       return items.slice(0, limit) as T;
     }
+
+    // --- Custom lists / playlists (Milestone 14) ---
+    case "create_list": {
+      const nowS = Math.floor(Date.now() / 1000);
+      const providerId = a.providerId as string;
+      const nextOrder =
+        Math.max(
+          -1,
+          ...[...userLists.values()]
+            .filter((l) => l.providerId === providerId)
+            .map((l) => l.sortOrder),
+        ) + 1;
+      const list: MockList = {
+        id: newListId(),
+        providerId,
+        name: (a.name as string).trim(),
+        sortOrder: nextOrder,
+        createdAt: nowS,
+        updatedAt: nowS,
+      };
+      userLists.set(list.id, list);
+      userListItems.set(list.id, []);
+      const out: UserList = {
+        id: list.id,
+        name: list.name,
+        sortOrder: list.sortOrder,
+        createdAt: list.createdAt,
+        updatedAt: list.updatedAt,
+      };
+      return out as T;
+    }
+    case "rename_list": {
+      const list = userLists.get(a.listId as string);
+      if (list) {
+        list.name = (a.name as string).trim();
+        list.updatedAt = Math.floor(Date.now() / 1000);
+      }
+      return undefined as T;
+    }
+    case "delete_list": {
+      userLists.delete(a.listId as string);
+      userListItems.delete(a.listId as string);
+      return undefined as T;
+    }
+    case "reorder_lists": {
+      (a.orderedListIds as string[]).forEach((id, idx) => {
+        const list = userLists.get(id);
+        if (list) list.sortOrder = idx;
+      });
+      return undefined as T;
+    }
+    case "get_lists": {
+      const providerId = a.providerId as string;
+      return [...userLists.values()]
+        .filter((l) => l.providerId === providerId)
+        .sort((x, y) => x.sortOrder - y.sortOrder || x.createdAt - y.createdAt)
+        .map(listSummary) as T;
+    }
+    case "add_to_list": {
+      const listId = a.listId as string;
+      const items = userListItems.get(listId) ?? [];
+      const contentType = a.contentType as MockListItem["contentType"];
+      const contentId = a.contentId as string;
+      if (!items.some((i) => i.contentType === contentType && i.contentId === contentId)) {
+        const nextPos = Math.max(-1, ...items.map((i) => i.position)) + 1;
+        items.push({ contentType, contentId, position: nextPos });
+        userListItems.set(listId, items);
+      }
+      const list = userLists.get(listId);
+      if (list) list.updatedAt = Math.floor(Date.now() / 1000);
+      return undefined as T;
+    }
+    case "remove_from_list": {
+      const listId = a.listId as string;
+      const items = userListItems.get(listId) ?? [];
+      userListItems.set(
+        listId,
+        items.filter(
+          (i) => !(i.contentType === a.contentType && i.contentId === a.contentId),
+        ),
+      );
+      const list = userLists.get(listId);
+      if (list) list.updatedAt = Math.floor(Date.now() / 1000);
+      return undefined as T;
+    }
+    case "reorder_list_items": {
+      const listId = a.listId as string;
+      const items = userListItems.get(listId) ?? [];
+      (a.orderedItemKeys as string[]).forEach((key, idx) => {
+        const [ct, cid] = key.split(":");
+        const it = items.find((i) => i.contentType === ct && i.contentId === cid);
+        if (it) it.position = idx;
+      });
+      return undefined as T;
+    }
+    case "get_list_items":
+      return resolvedItemsFor(a.listId as string) as T;
+    case "get_lists_for_item": {
+      const providerId = a.providerId as string;
+      const contentType = a.contentType as string;
+      const contentId = a.contentId as string;
+      const out: string[] = [];
+      for (const list of userLists.values()) {
+        if (list.providerId !== providerId) continue;
+        const items = userListItems.get(list.id) ?? [];
+        if (items.some((i) => i.contentType === contentType && i.contentId === contentId))
+          out.push(list.id);
+      }
+      return out as T;
+    }
+
     case "mpv_play":
       mockMpv.state = { ...mockMpv.state, paused: false };
       return undefined as T;

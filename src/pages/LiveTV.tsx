@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import ContextMenu from "../components/common/ContextMenu";
+import AddToListMenu from "../components/lists/AddToListMenu";
 import CategoryPanel from "../components/layout/CategoryPanel";
 import ChannelFilterBar from "../components/live/ChannelFilterBar";
 import ChannelList from "../components/live/ChannelList";
@@ -23,6 +24,7 @@ export default function LiveTV() {
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [addTo, setAddTo] = useState<{ id: string; x: number; y: number } | null>(null);
 
   const providerId = activeProvider?.id ?? null;
 
@@ -121,7 +123,22 @@ export default function LiveTV() {
               label: "Open in External Player",
               onSelect: () => void openExternal(menu.channel),
             },
+            {
+              label: "Add to list…",
+              onSelect: () =>
+                setAddTo({ id: menu.channel.id, x: menu.x, y: menu.y }),
+            },
           ]}
+        />
+      )}
+      {addTo && (
+        <AddToListMenu
+          providerId={activeProvider.id}
+          contentType="live"
+          contentId={addTo.id}
+          x={addTo.x}
+          y={addTo.y}
+          onClose={() => setAddTo(null)}
         />
       )}
     </div>

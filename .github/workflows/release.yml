@@ -1,0 +1,129 @@
+name: Release
+
+# Builds the Windows and macOS installers when a GitHub Release is published
+# (e.g. the release/1.0.0 release) and uploads them — plus the signed updater
+# artifacts — to that release. `workflow_dispatch` builds without uploading so
+# you can test the pipeline; the bundles are attached as workflow artifacts.
+#
+# One-time setup required (see RELEASE.md › "Building both in CI"):
+#   - Repo secrets: TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+#     (and optionally the APPLE_* secrets for Developer-ID signing/notarization).
+#   - A "build-deps" release in this repo with libmpv-2.dll attached (the exact
+#     player engine you validated locally — it is gitignored, so CI fetches it).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write # upload assets to the release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: macos-14 # Apple Silicon runner (matches the local arm64 build)
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # --- Windows native libs ---------------------------------------------
+      # NOTE: GitHub's windows-latest builds with the MSVC toolchain (the local
+      # dev machine uses GNU only because it has no MSVC Build Tools). MSVC
+      # static-links the WebView2 loader, but tauri.windows.conf.json still
+      # declares lib/WebView2Loader.dll as a bundle resource, so we stage it
+      # anyway (from the webview2-com-sys crate) to satisfy the bundler.
+      - name: Stage native libraries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force src-tauri/lib | Out-Null
+          # libmpv-2.dll — gitignored player engine; pull the exact build you
+          # validated locally from the "build-deps" release.
+          gh release download build-deps --repo "$env:GITHUB_REPOSITORY" --pattern libmpv-2.dll --dir src-tauri/lib --clobber
+          # WebView2Loader.dll — copy from the cargo registry (same as build.ps1).
+          cargo fetch --manifest-path src-tauri/Cargo.toml
+          $wv = Get-ChildItem "$env:USERPROFILE/.cargo/registry/src/index.crates.io-*/webview2-com-sys-*/x64/WebView2Loader.dll" | Select-Object -First 1
+          if (-not $wv) { throw "WebView2Loader.dll not found in the cargo registry" }
+          Copy-Item $wv.FullName src-tauri/lib/
+
+      # --- macOS native libs (RELEASE.md › macOS) --------------------------
+      # libmpv + its full transitive dependency tree, gathered and rpath-fixed,
+      # then the framework list is regenerated so tauri.macos.conf.json matches
+      # whatever the runner's Homebrew produced.
+      - name: Stage libmpv + dependency tree (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install mpv dylibbundler
+          mkdir -p src-tauri/lib
+          cp "$(brew --prefix)/lib/libmpv.2.dylib" src-tauri/lib/libmpv.2.dylib
+          chmod u+w src-tauri/lib/libmpv.2.dylib
+          dylibbundler -of -b -x src-tauri/lib/libmpv.2.dylib -d src-tauri/lib/ -p @rpath
+          install_name_tool -id @rpath/libmpv.2.dylib src-tauri/lib/libmpv.2.dylib
+          # Strip the bogus @rpath/ LC_RPATH dylibbundler adds, or dyld refuses
+          # to load libmpv ("Could not load libmpv"). See RELEASE.md.
+          chmod u+w src-tauri/lib/*.dylib
+          for f in src-tauri/lib/*.dylib; do
+            while otool -l "$f" | grep -A2 'cmd LC_RPATH' | grep -q 'path @rpath/'; do
+              install_name_tool -delete_rpath '@rpath/' "$f"
+            done
+            codesign --force -s - "$f"
+          done
+          # Regenerate the framework list straight from the lib dir so it can't drift.
+          python3 -c 'import json,os; d=sorted(f for f in os.listdir("src-tauri/lib") if f.endswith(".dylib")); print(json.dumps({"$schema":"https://schema.tauri.app/config/2","bundle":{"macOS":{"frameworks":["lib/"+f for f in d]}}}, indent=2))' > src-tauri/tauri.macos.conf.json
+
+      - name: Build & publish installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # Updater signing (bundle.createUpdaterArtifacts is on — required).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS Developer-ID signing + notarization (optional; the .dmg still
+          # builds unsigned, but recipients must right-click → Open once).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          # On `release: published`, attach the artifacts to that release. On
+          # `workflow_dispatch` this is empty, so tauri-action just builds.
+          releaseId: ${{ github.event.release.id }}
+
+      # Convenience for workflow_dispatch test runs (no release to attach to):
+      # keep the installers as downloadable workflow artifacts.
+      - name: Upload bundles as workflow artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: proscenium-${{ runner.os }}
+          path: |
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*-setup.exe
+            src-tauri/target/release/bundle/**/*.dmg
+            src-tauri/target/release/bundle/**/*.app.tar.gz*
+          if-no-files-found: ignore

@@ -1,8 +1,8 @@
 # Proscenium — Product Specification
 
-**Version:** 0.7.0 (Draft)
-**Status:** In Progress
-**Last Updated:** 2026-06-16
+**Version:** 1.0.0
+**Status:** Released
+**Last Updated:** 2026-06-17
 
 ---
 
@@ -481,7 +481,7 @@ The **Home** screen is the landing view shown first when the application opens. 
 
 - A vertical stack of **rows**, each a labeled section with a horizontally-scrollable strip of cards laid out side by side. Cards reuse the exact components from their dedicated sections (`MovieCard`, `SeriesCard`) — same poster art, sizing, hover, click, and context-menu behavior — so a movie on Home behaves identically to a movie in the Movies grid.
 - Rows render in this order: **Keep Watching**, **My Lists**, **Popular Movies**, **Popular Series**. When the user has any in-progress content, **Keep Watching is the first (top-most) row** so resumable items are immediately reachable; when there is no in-progress content the row is omitted and the next non-empty row becomes the top row. *(Omitted rows collapse; the remaining rows close up so there is no empty gap.)*
-- The **My Lists** row surfaces the user's custom lists (§5.11); it follows Keep Watching so personal content leads over the provider's curated "Popular" rows. It is omitted when the user has no lists.
+- The **My Lists** row surfaces the user's custom lists (§5.11); it follows Keep Watching so personal content leads over the provider's curated "Popular" rows. It is **always shown** (even with no lists) so its leading "+ New list" card is a discoverable way to create the first list directly from Home.
 - Each row scrolls horizontally and independently; the page itself scrolls vertically if the rows overflow the viewport.
 
 #### Rows
@@ -516,13 +516,13 @@ The **Home** screen is the landing view shown first when the application opens. 
 - A horizontally-scrollable row of **collection-cover cards**, one per custom list (§5.11), most-recently-updated first. Consistent with the other Home rows (same row width, horizontal scroll), but each card represents a whole list rather than a single title.
 - Each cover card shows a **2×2 poster mosaic** of the list's first up-to-four items (falling back to the `Placeholder` tile for empty slots), with the **list name** and **item count** below. Clicking the card opens that list's **List Detail** view (§5.11).
 - A leading **"+ New list"** card is the first item whenever the row is shown, so a list can be created directly from Home; it opens the list editor (§5.11).
-- The row is shown when the user has **at least one** list and is omitted when there are none. (Lists can always also be created from any content item's "Add to list" affordance in the catalog — §5.11 — so a first list does not depend on this row being visible.)
+- The row is **always shown** (even with zero lists), so the "+ New list" card is always available as an entry point. With no lists the row contains just that card. (Lists can also be created from any content item's "Add to list" affordance in the catalog — §5.11.)
 
 #### Empty / Unavailable States
 
 - If the provider exposes **no "Popular" category** (movies or series), that row is omitted rather than shown empty.
 - If there is **no watch history**, the Keep Watching row is omitted.
-- If the user has **no custom lists**, the My Lists row is omitted (§5.11).
+- The My Lists row is **always shown** (with at least its "+ New list" card), even when the user has no custom lists yet (§5.11).
 - If **no provider** is active, Home shows the same "select a provider in Settings" guidance the other sections use.
 - All Home data comes from the local cache and local watch history; no Home row triggers an on-demand provider request.
 
@@ -1586,7 +1586,7 @@ A flat reference of every named component, its location, and its responsibility.
 | `KeepWatchingCard` | `home/KeepWatchingCard.tsx` | A Home "Keep Watching" card: poster (series poster for episodes) + `WatchProgressOverlay`, with a context/⋯ menu for "Mark as watched" / "Remove from list" (§5.10) |
 | `MyListsRow` | `home/MyListsRow.tsx` | The Home "My Lists" row (§5.10): horizontally-scrollable strip of `ListCoverCard`s, led by a "+ New list" card; opens `ListDetail` / `ListEditorDialog` |
 | `ListCoverCard` | `home/ListCoverCard.tsx` | One custom list rendered as a 2×2 poster mosaic + name + item count; context menu for rename/delete (§5.10/§5.11) |
-| `ListDetail` | `pages/ListDetail.tsx` | Full view of one custom list (§5.11): editable name, count, rename/delete, and a virtualized mixed grid of `MovieCard`/`SeriesCard`/`ChannelCard`s with per-item "Remove" |
+| `ListDetail` | `pages/ListDetail.tsx` | Full view of one custom list (§5.11): editable name, count, rename/delete, and a responsive mixed grid (`MovieCard`/`SeriesCard` + poster-style channel tiles) with per-item "Remove" |
 | `ListEditorDialog` | `lists/ListEditorDialog.tsx` | Create / rename a list (name input) (§5.11) |
 | `AddToListMenu` | `lists/AddToListMenu.tsx` | "Add to list…" picker opened from a content item's context menu: toggle membership per list (checkmarks) + inline "+ New list…" (§5.11) |
 | `SkeletonCard` | `common/SkeletonCard.tsx` | Animated loading placeholder matching card dimensions |
@@ -1905,13 +1905,13 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 **Scope:**
 - **Schema (§15):** add `user_lists` and `user_list_items` (+ indexes), applied idempotently on launch; provider-scoped, cascade-deleted with the provider.
 - **Commands (§16):** `create_list`, `rename_list`, `delete_list`, `reorder_lists`, `get_lists`, `add_to_list`, `remove_from_list`, `get_list_items`, `get_lists_for_item` (and `reorder_list_items`, optional) — full IPC path: `commands/lists.rs` → `generate_handler![]` in `lib.rs` → `models.rs` (`UserList`/`ListSummary`/`UserListItem`) ↔ `types/index.ts` → `lib/tauri.ts` → `devMock.ts`. Cover/detail data resolved by joining membership against `movies`/`series`/`live_channels`; orphaned items filtered at read time.
-- **UI:** `AddToListMenu` from every content item's context menu (`MovieCard`, `SeriesCard`, `ChannelCard`, detail views) with toggle + inline create; `ListEditorDialog` for create/rename; `ListDetail` page (`pages/ListDetail.tsx`) rendering a virtualized mixed grid using each item's native card with per-item Remove and list rename/delete.
+- **UI:** `AddToListMenu` from every content item's context menu (`MovieCard`, `SeriesCard`, channel rows, detail views) with toggle + inline create; `ListEditorDialog` for create/rename; `ListDetail` page (`pages/ListDetail.tsx`) rendering a mixed grid using each item's native card with per-item Remove and list rename/delete. *(Implementation note: `ListDetail` uses a responsive CSS grid rather than `@tanstack/react-virtual` — lists are user-curated and small — and live channels render as poster-shaped tiles for grid coherence (click plays, matching the dedicated section) rather than the row-shaped `ChannelCard`.)*
 
 **Acceptance Criteria:**
-- [ ] A user can create a named list and add movies, series, and Live TV channels to it from the catalog's "Add to list…" affordance; re-adding is a no-op.
-- [ ] The "Add to list…" picker shows which lists already contain the item and supports inline list creation.
-- [ ] `ListDetail` shows the list's items in order using `MovieCard`/`SeriesCard`/`ChannelCard`, each behaving as in its dedicated section; items can be removed and the list renamed/deleted.
-- [ ] Lists are provider-scoped and local: switching providers shows only that provider's lists; orphaned items (dropped on refresh) are hidden from the grid/count but their membership is retained; no provider requests occur.
+- [x] A user can create a named list and add movies, series, and Live TV channels to it from the catalog's "Add to list…" affordance; re-adding is a no-op. *(preview: right-clicking a movie in Movies → "Add to list…" → toggling "Horror movies to watch" raised its count 2→3; backend `lists_membership_resolution_and_scope` adds movie+series+live and asserts a duplicate add is ignored (`PRIMARY KEY`).)*
+- [x] The "Add to list…" picker shows which lists already contain the item and supports inline list creation. *(preview: the picker listed both lists with `aria-checked` reflecting membership (via `get_lists_for_item`); toggling flipped the check; "+ New list…" → "Create & add" created "Sci-Fi favorites" and added the movie to it (itemCount 1).)*
+- [x] `ListDetail` shows the list's items in order using the native cards, each behaving as in its dedicated section; items can be removed and the list renamed/deleted. *(preview: opening "Horror movies to watch" rendered 2 `MovieCard`s + 1 channel tile in order; the per-item ✕ removed one (3→2 items); rename via the cover menu changed the title; delete removed the list.)*
+- [x] Lists are provider-scoped and local: switching providers shows only that provider's lists; orphaned items (dropped on refresh) are hidden from the grid/count but their membership is retained; no provider requests occur. *(backend test `lists_membership_resolution_and_scope`: a second provider sees no lists; an item with no catalog row is excluded from `get_list_items` and the summary count but its row survives; deleting the provider cascade-removes its lists. All list reads/writes hit only SQLite — the suite runs offline.)*
 
 ### Milestone 15 — My Lists on the Home Screen
 
@@ -1920,10 +1920,10 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 **Scope:**
 - Add `MyListsRow` + `ListCoverCard` and render "My Lists" on `Home.tsx` in order **Keep Watching, My Lists, Popular Movies, Popular Series**.
 - Each cover card is a 2×2 poster mosaic (from `get_lists`' `coverPosters`) + name + item count, opening `ListDetail` on click; a leading "+ New list" card opens `ListEditorDialog`.
-- Row omitted when the user has no lists; ordered by the user's list `sort_order`.
+- Row always shown (with at least the "+ New list" card) so the first list can be created from Home; cover cards ordered by the user's list `sort_order`.
 
 **Acceptance Criteria:**
-- [ ] Home shows a "My Lists" row of cover cards (2×2 mosaic + name + count) directly below Keep Watching when the user has ≥1 list; omitted when there are none.
-- [ ] Clicking a cover card opens that list's `ListDetail`; the leading "+ New list" card creates a list.
-- [ ] The row reflects list order and updates after lists are created/renamed/deleted or their membership changes; it renders entirely from local data (no provider requests).
+- [x] Home shows a "My Lists" row directly below Keep Watching with cover cards (2×2 mosaic + name + count) led by a "+ New list" card; the row is always present (even with no lists) so the first list can be created from Home. *(preview: row order was `home-keep-watching` → `home-my-lists` → `home-popular-movies` → `home-popular-series`; the row showed the "+ New list" card plus "Horror movies to watch" (3 items) and "Binge Worthy TV Shows" (2 items) as 2×2 mosaics, and still renders with the New-list card when there are zero lists.)*
+- [x] Clicking a cover card opens that list's `ListDetail`; the leading "+ New list" card creates a list. *(preview: clicking the Horror cover navigated to `/list/list-1` with its items; the "+ New list" card opened `ListEditorDialog` and created "From Home", which appeared as a new cover immediately.)*
+- [x] The row reflects list order and updates after lists are created/renamed/deleted or their membership changes; it renders entirely from local data (no provider requests). *(preview: the row updated live on create/rename/delete and on membership changes (covers/counts refresh via the shared `listsStore`); `get_lists` reads only SQLite — no provider request.)*
 

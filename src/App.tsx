@@ -15,11 +15,13 @@ import SearchOverlay from "./components/search/SearchOverlay";
 import SearchResultsPage from "./components/search/SearchResultsPage";
 import Home from "./pages/Home";
 import LiveTV from "./pages/LiveTV";
+import ListDetail from "./pages/ListDetail";
 import Movies from "./pages/Movies";
 import Settings from "./pages/Settings";
 import TVShows from "./pages/TVShows";
 import { useCatalogStore } from "./store/catalogStore";
 import { usePlayerStore } from "./store/playerStore";
+import { useListsStore } from "./store/listsStore";
 import { useProgressStore } from "./store/progressStore";
 import { useProviderStore } from "./store/providerStore";
 import { useSettingsStore } from "./store/settingsStore";
@@ -58,6 +60,7 @@ function Shell() {
             <Route path="/live" element={<LiveTV />} />
             <Route path="/movies" element={<Movies />} />
             <Route path="/shows" element={<TVShows />} />
+            <Route path="/list/:listId" element={<ListDetail />} />
             <Route path="/search" element={<SearchResultsPage />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -90,6 +93,7 @@ export default function App() {
       catalog: useCatalogStore,
       providers: useProviderStore,
       progress: useProgressStore,
+      lists: useListsStore,
     };
   }, [load]);
 

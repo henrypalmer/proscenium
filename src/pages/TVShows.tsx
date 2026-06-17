@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import ContextMenu from "../components/common/ContextMenu";
+import AddToListMenu from "../components/lists/AddToListMenu";
 import CategoryPanel from "../components/layout/CategoryPanel";
 import SeriesDetail from "../components/vod/SeriesDetail";
 import SeriesGrid from "../components/vod/SeriesGrid";
@@ -17,6 +19,10 @@ export default function TVShows() {
   /** True when the open detail was reached by navigation (Home/Search) rather
    * than a click within this section's grid — closing it then goes back. */
   const [detailFromNav, setDetailFromNav] = useState(false);
+  const [menu, setMenu] = useState<{ series: Series; x: number; y: number } | null>(
+    null,
+  );
+  const [addTo, setAddTo] = useState<{ id: string; x: number; y: number } | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -98,6 +104,7 @@ export default function TVShows() {
           categoryId={selected}
           version={refreshTick}
           onActivate={openDetail}
+          onContextMenu={(series, x, y) => setMenu({ series, x, y })}
         />
       </div>
       {detail && (
@@ -105,6 +112,31 @@ export default function TVShows() {
           providerId={activeProvider.id}
           series={detail}
           onClose={closeDetail}
+        />
+      )}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: "Open", onSelect: () => openDetail(menu.series) },
+            {
+              label: "Add to list…",
+              onSelect: () =>
+                setAddTo({ id: menu.series.id, x: menu.x, y: menu.y }),
+            },
+          ]}
+        />
+      )}
+      {addTo && (
+        <AddToListMenu
+          providerId={activeProvider.id}
+          contentType="series"
+          contentId={addTo.id}
+          x={addTo.x}
+          y={addTo.y}
+          onClose={() => setAddTo(null)}
         />
       )}
     </div>

@@ -7,6 +7,8 @@ import type {
   ConnectionTestResult,
   ContinueWatchingItem,
   EpisodesBySeason,
+  ListContentType,
+  ListSummary,
   LiveChannel,
   Movie,
   MovieDetail,
@@ -21,6 +23,8 @@ import type {
   Series,
   SeriesDetail,
   ProgressContentType,
+  UserList,
+  UserListItem,
   WatchProgress,
 } from "../types";
 
@@ -234,6 +238,66 @@ export function getContinueWatching(
   limit?: number,
 ): Promise<ContinueWatchingItem[]> {
   return invoke("get_continue_watching", { providerId, limit });
+}
+
+// --- Custom lists / playlists (spec §5.11 / §16) ---
+
+export function createList(providerId: string, name: string): Promise<UserList> {
+  return invoke("create_list", { providerId, name });
+}
+
+export function renameList(listId: string, name: string): Promise<void> {
+  return invoke("rename_list", { listId, name });
+}
+
+export function deleteList(listId: string): Promise<void> {
+  return invoke("delete_list", { listId });
+}
+
+export function reorderLists(
+  providerId: string,
+  orderedListIds: string[],
+): Promise<void> {
+  return invoke("reorder_lists", { providerId, orderedListIds });
+}
+
+export function getLists(providerId: string): Promise<ListSummary[]> {
+  return invoke("get_lists", { providerId });
+}
+
+export function addToList(
+  listId: string,
+  contentType: ListContentType,
+  contentId: string,
+): Promise<void> {
+  return invoke("add_to_list", { listId, contentType, contentId });
+}
+
+export function removeFromList(
+  listId: string,
+  contentType: ListContentType,
+  contentId: string,
+): Promise<void> {
+  return invoke("remove_from_list", { listId, contentType, contentId });
+}
+
+export function reorderListItems(
+  listId: string,
+  orderedItemKeys: string[],
+): Promise<void> {
+  return invoke("reorder_list_items", { listId, orderedItemKeys });
+}
+
+export function getListItems(listId: string): Promise<UserListItem[]> {
+  return invoke("get_list_items", { listId });
+}
+
+export function getListsForItem(
+  providerId: string,
+  contentType: ListContentType,
+  contentId: string,
+): Promise<string[]> {
+  return invoke("get_lists_for_item", { providerId, contentType, contentId });
 }
 
 export const mpv = {
