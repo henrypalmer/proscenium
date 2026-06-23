@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
@@ -24,24 +24,39 @@ export default function Movies() {
   const refreshTick = useCatalogStore((s) => s.refreshTick);
   const notify = useCatalogStore((s) => s.notify);
 
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Home/Search navigate here with a movie to open immediately. Initialize the
+  // detail from that state so it is present on the first *synchronous* render —
+  // the View Transitions snapshot is taken right after the navigation commits
+  // (before effects run), so this is what lets the poster morph across the route
+  // change (Milestone 17).
+  const navMovie = (location.state as { openMovie?: Movie } | null)?.openMovie ?? null;
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Movie | null>(null);
+  const [detail, setDetail] = useState<Movie | null>(navMovie);
   /** Card whose poster morphs in/out of the detail view (View Transitions). */
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** True when the open detail was reached by navigation (Home/Search) rather
    * than a click within this section's grid — closing it then goes back. */
-  const [detailFromNav, setDetailFromNav] = useState(false);
+  const [detailFromNav, setDetailFromNav] = useState(navMovie !== null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [addTo, setAddTo] = useState<{ id: string; x: number; y: number } | null>(null);
-  const location = useLocation();
-  const navigate = useNavigate();
 
   const providerId = activeProvider?.id ?? null;
 
+  // Skip the detail reset on the very first run so a nav-provided detail
+  // (initialized above) survives mount; later provider/refresh changes still
+  // close any open detail.
+  const firstCatRun = useRef(true);
   useEffect(() => {
-    setDetail(null);
-    setDetailFromNav(false);
+    if (firstCatRun.current) {
+      firstCatRun.current = false;
+    } else {
+      setDetail(null);
+      setDetailFromNav(false);
+    }
     if (!providerId) {
       setCategories([]);
       return;

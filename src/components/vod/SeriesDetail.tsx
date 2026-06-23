@@ -153,7 +153,7 @@ export default function SeriesDetail({
               </div>
             ) : (
               detail.description && (
-                <p className="mt-6 max-w-prose text-sm leading-relaxed text-zinc-400">
+                <p className="prosc-enter mt-6 max-w-prose text-sm leading-relaxed text-zinc-400">
                   {detail.description}
                 </p>
               )
@@ -177,7 +177,7 @@ export default function SeriesDetail({
               No episodes are available for this series.
             </p>
           ) : (
-            <>
+            <div className="prosc-enter">
               <div
                 data-testid="season-selector"
                 className="flex flex-wrap gap-1.5"
@@ -207,7 +207,7 @@ export default function SeriesDetail({
                   />
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </div>

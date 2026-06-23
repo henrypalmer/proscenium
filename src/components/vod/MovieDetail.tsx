@@ -142,7 +142,7 @@ export default function MovieDetail({
               </div>
             ) : (
               detail.description && (
-                <p className="mt-6 max-w-prose text-sm leading-relaxed text-zinc-400">
+                <p className="prosc-enter mt-6 max-w-prose text-sm leading-relaxed text-zinc-400">
                   {detail.description}
                 </p>
               )

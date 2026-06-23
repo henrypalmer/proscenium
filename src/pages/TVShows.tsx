@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
@@ -15,26 +15,39 @@ export default function TVShows() {
   const activeProvider = useCatalogStore((s) => s.activeProvider);
   const refreshTick = useCatalogStore((s) => s.refreshTick);
 
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Home/Search navigate here with a series to open immediately. Initialize the
+  // detail from that state so it is present on the first *synchronous* render,
+  // which is what lets the poster morph across the route change (Milestone 17).
+  const navSeries =
+    (location.state as { openSeries?: Series } | null)?.openSeries ?? null;
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Series | null>(null);
+  const [detail, setDetail] = useState<Series | null>(navSeries);
   /** Card whose poster morphs in/out of the detail view (View Transitions). */
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** True when the open detail was reached by navigation (Home/Search) rather
    * than a click within this section's grid — closing it then goes back. */
-  const [detailFromNav, setDetailFromNav] = useState(false);
+  const [detailFromNav, setDetailFromNav] = useState(navSeries !== null);
   const [menu, setMenu] = useState<{ series: Series; x: number; y: number } | null>(
     null,
   );
   const [addTo, setAddTo] = useState<{ id: string; x: number; y: number } | null>(null);
-  const location = useLocation();
-  const navigate = useNavigate();
 
   const providerId = activeProvider?.id ?? null;
 
+  // Skip the detail reset on the very first run so a nav-provided detail
+  // survives mount; later provider/refresh changes still close any open detail.
+  const firstCatRun = useRef(true);
   useEffect(() => {
-    setDetail(null);
-    setDetailFromNav(false);
+    if (firstCatRun.current) {
+      firstCatRun.current = false;
+    } else {
+      setDetail(null);
+      setDetailFromNav(false);
+    }
     if (!providerId) {
       setCategories([]);
       return;

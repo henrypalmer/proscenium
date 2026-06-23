@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import * as api from "../../lib/tauri";
+import { startViewTransition } from "../../lib/viewTransition";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { useProgressStore } from "../../store/progressStore";
@@ -50,6 +52,10 @@ export default function SearchResultsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [results, setResults] = useState<SearchResultsData | null>(null);
   const [loading, setLoading] = useState(false);
+  /** The result card whose poster morphs into the detail view on navigation. */
+  const [morph, setMorph] = useState<{ type: "movie" | "series"; id: string } | null>(
+    null,
+  );
   /** Bumped per search so stale responses can't overwrite newer ones. */
   const requestSeq = useRef(0);
 
@@ -127,10 +133,21 @@ export default function SearchResultsPage() {
       title: channel.name,
     });
   };
-  const openMovie = (movie: Movie) =>
-    navigate("/movies", { state: { openMovie: movie } });
-  const openSeries = (series: Series) =>
-    navigate("/shows", { state: { openSeries: series } });
+  // Name the clicked poster, then navigate; the deferred transition waits for
+  // the destination detail to mount so the poster morphs across the route
+  // change (Milestone 17).
+  const openMovie = (movie: Movie) => {
+    flushSync(() => setMorph({ type: "movie", id: movie.id }));
+    startViewTransition(() =>
+      navigate("/movies", { state: { openMovie: movie } }),
+    );
+  };
+  const openSeries = (series: Series) => {
+    flushSync(() => setMorph({ type: "series", id: series.id }));
+    startViewTransition(() =>
+      navigate("/shows", { state: { openSeries: series } }),
+    );
+  };
 
   const empty =
     results !== null &&
@@ -203,6 +220,7 @@ export default function SearchResultsPage() {
                   providerId={providerId}
                   onActivate={openMovie}
                   onContextMenu={noop}
+                  morphActive={morph?.type === "movie" && morph.id === movie.id}
                 />
               )}
             />
@@ -214,7 +232,11 @@ export default function SearchResultsPage() {
               items={results.series}
               getKey={(s) => s.id}
               renderItem={(series) => (
-                <SeriesCard series={series} onActivate={openSeries} />
+                <SeriesCard
+                  series={series}
+                  onActivate={openSeries}
+                  morphActive={morph?.type === "series" && morph.id === series.id}
+                />
               )}
             />
           </div>

@@ -64,6 +64,29 @@ body.player-open {
   animation-duration: 260ms;
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* The active top-nav pill is a shared element, so changing sections morphs it
+   from the old item to the new one — a sliding indicator (Milestone 17). */
+::view-transition-group(nav-active) {
+  animation-duration: 240ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Content entrance (Milestone 17): a brief fade + lift used for Home rows and a
+   grid's first data paint. `both` keeps staggered items hidden until their
+   delay elapses. Only transform/opacity animate (compositor-friendly). */
+@keyframes prosc-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.prosc-enter {
+  animation: prosc-fade-in-up 300ms ease-out both;
+}
 
 /* Honor the OS "reduce motion" setting: snap instead of animate. The JS helper
    already skips the API in this case; this also covers any future direct use. */
@@ -71,6 +94,9 @@ body.player-open {
   ::view-transition-group(*),
   ::view-transition-old(*),
   ::view-transition-new(*) {
+    animation: none !important;
+  }
+  .prosc-enter {
     animation: none !important;
   }
 }

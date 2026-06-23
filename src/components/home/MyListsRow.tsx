@@ -43,13 +43,17 @@ export default function MyListsRow({ onOpenList }: MyListsRowProps) {
         <button
           onClick={() => setEditor({ mode: "create" })}
           data-testid="new-list-card"
-          className="relative flex aspect-[2/3] w-[150px] shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-zinc-700 text-zinc-400 transition duration-200 ease-out hover:z-10 hover:scale-[1.04] hover:border-zinc-500 hover:text-zinc-200 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:scale-100"
+          className="prosc-enter relative flex aspect-[2/3] w-[150px] shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-zinc-700 text-zinc-400 transition duration-200 ease-out hover:z-10 hover:scale-[1.04] hover:border-zinc-500 hover:text-zinc-200 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:scale-100"
         >
           <span className="text-2xl leading-none">+</span>
           <span className="mt-2 text-xs">New list</span>
         </button>
-        {lists.map((list) => (
-          <div key={list.id} className="w-[150px] shrink-0">
+        {lists.map((list, i) => (
+          <div
+            key={list.id}
+            className="prosc-enter w-[150px] shrink-0"
+            style={{ animationDelay: `${Math.min(i + 1, 10) * 30}ms` }}
+          >
             <ListCoverCard
               list={list}
               onOpen={onOpenList}

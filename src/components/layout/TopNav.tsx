@@ -1,4 +1,6 @@
+import type { MouseEvent } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { startViewTransition } from "../../lib/viewTransition";
 import { useCatalogStore } from "../../store/catalogStore";
 import { useProviderStore } from "../../store/providerStore";
 import { useSearchStore } from "../../store/searchStore";
@@ -92,6 +94,21 @@ export default function TopNav() {
         : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
     }`;
 
+  // The active pill is a shared element, so a route change morphs it from the
+  // old item to the new one — a sliding indicator (Milestone 17).
+  const linkStyle = ({ isActive }: { isActive: boolean }) =>
+    isActive ? { viewTransitionName: "nav-active" } : undefined;
+
+  // Cross-fade the content area when switching sections (Milestone 17). Lets
+  // normal modified clicks through; degrades to an instant nav when the View
+  // Transitions API is unavailable or reduced-motion is set.
+  const go = (e: MouseEvent, to: string) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)
+      return;
+    e.preventDefault();
+    startViewTransition(() => navigate(to));
+  };
+
   return (
     <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex items-center justify-center gap-2 px-4">
       {provider && (
@@ -124,8 +141,10 @@ export default function TopNav() {
             key={item.to}
             to={item.to}
             end={item.end}
+            onClick={(e) => go(e, item.to)}
             data-testid={`nav-${item.label.replace(/\s+/g, "-").toLowerCase()}`}
             className={linkClass}
+            style={linkStyle}
           >
             {item.icon}
             <span>{item.label}</span>

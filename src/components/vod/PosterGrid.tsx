@@ -89,6 +89,18 @@ export default function PosterGrid<T>({
   const refreshing = useCatalogStore((s) => s.refreshing);
   const refresh = useCatalogStore((s) => s.refresh);
 
+  // First-paint entrance (spec §9 / Milestone 17): the initial top rows of a
+  // freshly-loaded dataset fade in with a capped stagger. Gated so it fires only
+  // on the first paint of each dataset (reset on category/catalog switch) and
+  // only for the top few rows — never for cells recycled during scroll, which
+  // always have indices past the threshold.
+  const [firstPaint, setFirstPaint] = useState(true);
+  useEffect(() => {
+    setFirstPaint(true);
+    const t = setTimeout(() => setFirstPaint(false), 700);
+    return () => clearTimeout(t);
+  }, [resetKey]);
+
   useLayoutEffect(() => {
     const el = parentRef.current;
     if (!el) return;
@@ -191,8 +203,21 @@ export default function PosterGrid<T>({
               >
                 {cells.map((index) => {
                   const item = total === null ? undefined : getItem(index);
+                  // Animate only the initial top rows on first paint; recycled
+                  // cells during scroll have indices past this threshold.
+                  const entering = firstPaint && index < columns * 3;
                   return (
-                    <div key={index} style={{ width: cellWidth, flexShrink: 0 }}>
+                    <div
+                      key={index}
+                      className={entering ? "prosc-enter" : undefined}
+                      style={{
+                        width: cellWidth,
+                        flexShrink: 0,
+                        animationDelay: entering
+                          ? `${Math.min(index, 16) * 25}ms`
+                          : undefined,
+                      }}
+                    >
                       {item ? (
                         renderCard(item)
                       ) : (

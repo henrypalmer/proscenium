@@ -33,8 +33,12 @@ export default function MediaRow<T>({
           horizontal breathing room: overflow-x:auto forces overflow-y to auto,
           which would otherwise clip a scaled card (spec §9 Motion). */}
       <div className="-mx-2 flex gap-4 overflow-x-auto px-2 py-2">
-        {items.map((item) => (
-          <div key={getKey(item)} className="w-[150px] shrink-0">
+        {items.map((item, i) => (
+          <div
+            key={getKey(item)}
+            className="prosc-enter w-[150px] shrink-0"
+            style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
+          >
             {renderItem(item)}
           </div>
         ))}

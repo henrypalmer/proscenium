@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
 import ContinueWatchingSeriesDialog from "../components/home/ContinueWatchingSeriesDialog";
@@ -7,8 +8,11 @@ import MediaRow from "../components/home/MediaRow";
 import MyListsRow from "../components/home/MyListsRow";
 import AddToListMenu from "../components/lists/AddToListMenu";
 import MovieCard from "../components/vod/MovieCard";
+import MovieDetail from "../components/vod/MovieDetail";
 import SeriesCard from "../components/vod/SeriesCard";
+import SeriesDetail from "../components/vod/SeriesDetail";
 import * as api from "../lib/tauri";
+import { startViewTransition } from "../lib/viewTransition";
 import { useCatalogStore } from "../store/catalogStore";
 import { useListsStore } from "../store/listsStore";
 import { usePlayerStore } from "../store/playerStore";
@@ -64,6 +68,16 @@ export default function Home() {
 
   const [popularMovies, setPopularMovies] = useState<Movie[]>([]);
   const [popularSeries, setPopularSeries] = useState<Series[]>([]);
+  /** The card whose poster morphs in/out of the detail overlay. Kept set after
+   * close so the reverse morph lands back on the same card (View Transitions). */
+  const [morph, setMorph] = useState<{ type: "movie" | "series"; id: string } | null>(
+    null,
+  );
+  /** Detail shown as an in-place overlay (not a route change) so Home stays
+   * mounted — scroll is preserved and the poster morphs back on close. */
+  const [detail, setDetail] = useState<
+    { type: "movie"; item: Movie } | { type: "series"; item: Series } | null
+  >(null);
   const [keepWatching, setKeepWatching] = useState<ContinueWatchingItem[]>([]);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [seriesChoice, setSeriesChoice] = useState<SeriesChoice | null>(null);
@@ -151,10 +165,20 @@ export default function Home() {
 
   const pid = activeProvider.id;
 
-  const openMovie = (movie: Movie) =>
-    navigate("/movies", { state: { openMovie: movie } });
-  const openSeries = (series: Series) =>
-    navigate("/shows", { state: { openSeries: series } });
+  // Open the detail as an in-place overlay with the poster morph (Milestone 16
+  // pattern): flush the clicked card's shared name in *before* the snapshot,
+  // then mount the detail as the transitioned update. Because Home never
+  // unmounts, closing morphs the poster straight back into the same card with
+  // scroll preserved — unlike a route change, which would refetch and replay.
+  const openMovie = (movie: Movie) => {
+    flushSync(() => setMorph({ type: "movie", id: movie.id }));
+    startViewTransition(() => setDetail({ type: "movie", item: movie }));
+  };
+  const openSeries = (series: Series) => {
+    flushSync(() => setMorph({ type: "series", id: series.id }));
+    startViewTransition(() => setDetail({ type: "series", item: series }));
+  };
+  const closeDetail = () => startViewTransition(() => setDetail(null));
   const playMovie = (movie: Movie) =>
     void usePlayerStore.getState().openContent({
       providerId: pid,
@@ -241,62 +265,80 @@ export default function Home() {
     keepWatching.length === 0;
 
   return (
-    <div className="px-6 pb-10">
-      <div className="mx-auto max-w-6xl space-y-8">
-        {/* Keep Watching leads when there is in-progress content (spec §5.10);
-            an empty row is omitted by MediaRow, so Popular Movies becomes top. */}
-        <MediaRow
-          title="Keep Watching"
-          testId="home-keep-watching"
-          items={keepWatching}
-          getKey={cwKey}
-          renderItem={(item) => (
-            <KeepWatchingCard
-              item={item}
-              onActivate={onKeepWatchingActivate}
-              onMenu={(it, x, y) => setKwMenu({ item: it, x, y })}
-            />
-          )}
-        />
-        <MyListsRow onOpenList={(id) => navigate(`/list/${id}`)} />
-        <MediaRow
-          title="Popular Movies"
-          testId="home-popular-movies"
-          items={popularMovies}
-          getKey={(m) => m.id}
-          renderItem={(movie) => (
-            <MovieCard
-              movie={movie}
-              providerId={pid}
-              onActivate={openMovie}
-              onContextMenu={(m, x, y) => setMenu({ movie: m, x, y })}
-            />
-          )}
-        />
-        <MediaRow
-          title="Popular Series"
-          testId="home-popular-series"
-          items={popularSeries}
-          getKey={(s) => s.id}
-          renderItem={(series) => (
-            <SeriesCard
-              series={series}
-              onActivate={openSeries}
-              onContextMenu={(s, x, y) => setSeriesMenu({ series: s, x, y })}
-            />
-          )}
-        />
+    <div className="relative h-full">
+      <div className="h-full overflow-y-auto px-6 pb-10">
+        <div className="mx-auto max-w-6xl space-y-8">
+          {/* Keep Watching leads when there is in-progress content (spec §5.10);
+              an empty row is omitted by MediaRow, so Popular Movies becomes top. */}
+          <MediaRow
+            title="Keep Watching"
+            testId="home-keep-watching"
+            items={keepWatching}
+            getKey={cwKey}
+            renderItem={(item) => (
+              <KeepWatchingCard
+                item={item}
+                onActivate={onKeepWatchingActivate}
+                onMenu={(it, x, y) => setKwMenu({ item: it, x, y })}
+              />
+            )}
+          />
+          <MyListsRow onOpenList={(id) => navigate(`/list/${id}`)} />
+          <MediaRow
+            title="Popular Movies"
+            testId="home-popular-movies"
+            items={popularMovies}
+            getKey={(m) => m.id}
+            renderItem={(movie) => (
+              <MovieCard
+                movie={movie}
+                providerId={pid}
+                onActivate={openMovie}
+                onContextMenu={(m, x, y) => setMenu({ movie: m, x, y })}
+                morphActive={
+                  detail === null && morph?.type === "movie" && morph.id === movie.id
+                }
+              />
+            )}
+          />
+          <MediaRow
+            title="Popular Series"
+            testId="home-popular-series"
+            items={popularSeries}
+            getKey={(s) => s.id}
+            renderItem={(series) => (
+              <SeriesCard
+                series={series}
+                onActivate={openSeries}
+                onContextMenu={(s, x, y) => setSeriesMenu({ series: s, x, y })}
+                morphActive={
+                  detail === null && morph?.type === "series" && morph.id === series.id
+                }
+              />
+            )}
+          />
 
-        {empty && (
-          <div className="flex h-72 flex-col items-center justify-center gap-2 text-center">
-            <p className="text-sm font-medium text-zinc-400">Nothing here yet</p>
-            <p className="max-w-sm text-xs text-zinc-600">
-              Start watching something, or browse Movies and Series — your
-              Popular picks and Keep Watching will show up here.
-            </p>
-          </div>
-        )}
+          {empty && (
+            <div className="flex h-72 flex-col items-center justify-center gap-2 text-center">
+              <p className="text-sm font-medium text-zinc-400">Nothing here yet</p>
+              <p className="max-w-sm text-xs text-zinc-600">
+                Start watching something, or browse Movies and Series — your
+                Popular picks and Keep Watching will show up here.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Detail rendered like Movies/TV Shows: absolute within this relative
+          page (z-20) so it sits *below* the floating nav (z-30), keeping the nav
+          visible. Home stays mounted, so closing morphs the poster back. */}
+      {detail &&
+        (detail.type === "movie" ? (
+          <MovieDetail providerId={pid} movie={detail.item} onClose={closeDetail} />
+        ) : (
+          <SeriesDetail providerId={pid} series={detail.item} onClose={closeDetail} />
+        ))}
 
       {menu && (
         <ContextMenu
