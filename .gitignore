@@ -7,3 +7,5 @@ src-tauri/lib/
 # Updater signing keys — never commit the private key (Milestone 7)
 src-tauri/*.key
 src-tauri/*.key.pub
+
+.DS_Store
