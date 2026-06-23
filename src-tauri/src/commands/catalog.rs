@@ -293,6 +293,7 @@ pub async fn get_movie_detail_impl(
         description: meta.description,
         genre: meta.genre,
         duration_seconds: meta.duration_seconds,
+        backdrop_url: meta.backdrop_url,
     })
 }
 
@@ -352,6 +353,7 @@ pub async fn get_series_detail_impl(
         series,
         description: meta.description,
         genre: meta.genre,
+        backdrop_url: meta.backdrop_url,
     })
 }
 

@@ -128,6 +128,8 @@ pub struct MovieDetail {
     pub description: Option<String>,
     pub genre: Option<String>,
     pub duration_seconds: Option<i64>,
+    /// Wide hero backdrop (spec §5.4, Milestone 18); null falls back to the poster.
+    pub backdrop_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -137,6 +139,8 @@ pub struct SeriesDetail {
     pub series: SeriesItem,
     pub description: Option<String>,
     pub genre: Option<String>,
+    /// Wide hero backdrop (spec §5.4, Milestone 18); null falls back to the poster.
+    pub backdrop_url: Option<String>,
 }
 
 /// Everything one full refresh produces; persisted atomically.

@@ -249,12 +249,34 @@ fn description_from(info: &Value) -> Option<String> {
         .find_map(|k| value_to_string(&info[*k]).filter(|s| !s.is_empty()))
 }
 
+/// Pick a wide backdrop image URL from an Xtream `info` object (spec §5.4 hero,
+/// Milestone 18). `backdrop_path` is usually an array of URLs; some panels
+/// expose it as a single string. Fall back to the provided single-URL keys
+/// (`cover_big`/`movie_image` for movies, `cover` for series).
+fn backdrop_from(info: &Value, fallback_keys: &[&str]) -> Option<String> {
+    if let Value::Array(items) = &info["backdrop_path"] {
+        if let Some(url) = items
+            .iter()
+            .find_map(|v| value_to_string(v).filter(|s| !s.is_empty()))
+        {
+            return Some(url);
+        }
+    }
+    if let Some(url) = value_to_string(&info["backdrop_path"]).filter(|s| !s.is_empty()) {
+        return Some(url);
+    }
+    fallback_keys
+        .iter()
+        .find_map(|k| value_to_string(&info[*k]).filter(|s| !s.is_empty()))
+}
+
 /// On-demand movie metadata (spec §6 `get_vod_info`, Milestone 5).
 #[derive(Debug, Clone, Default)]
 pub struct VodInfo {
     pub description: Option<String>,
     pub genre: Option<String>,
     pub duration_seconds: Option<i64>,
+    pub backdrop_url: Option<String>,
 }
 
 pub async fn fetch_vod_info(creds: &XtreamCreds<'_>, vod_id: &str) -> Result<VodInfo, String> {
@@ -265,6 +287,7 @@ pub async fn fetch_vod_info(creds: &XtreamCreds<'_>, vod_id: &str) -> Result<Vod
         description: description_from(info),
         genre: value_to_string(&info["genre"]).filter(|s| !s.is_empty()),
         duration_seconds: value_to_i64(&info["duration_secs"]),
+        backdrop_url: backdrop_from(info, &["cover_big", "movie_image"]),
     })
 }
 
@@ -274,6 +297,7 @@ pub async fn fetch_vod_info(creds: &XtreamCreds<'_>, vod_id: &str) -> Result<Vod
 pub struct SeriesInfo {
     pub description: Option<String>,
     pub genre: Option<String>,
+    pub backdrop_url: Option<String>,
     pub episodes: Vec<EpisodeItem>,
 }
 
@@ -333,6 +357,7 @@ pub async fn fetch_series_info(
     Ok(SeriesInfo {
         description: description_from(info),
         genre: value_to_string(&info["genre"]).filter(|s| !s.is_empty()),
+        backdrop_url: backdrop_from(info, &["cover", "cover_big"]),
         episodes,
     })
 }

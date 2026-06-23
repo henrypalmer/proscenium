@@ -504,6 +504,102 @@ async fn movie_detail_degrades_gracefully_without_metadata() {
     cleanup_db(&path);
 }
 
+// --- Detail hero backdrop selection (Milestone 18) ---
+
+#[tokio::test]
+async fn movie_detail_backdrop_prefers_backdrop_path_then_falls_back() {
+    // Three movies exercise the selection order: backdrop_path array → cover_big
+    // → none. The handler keys off the vod_id in the request target.
+    let base = spawn_server(move |target| {
+        if !target.contains("action=get_vod_info") {
+            return None;
+        }
+        let body: &str = if target.contains("vod_id=201") {
+            r#"{"info":{"backdrop_path":["http://img/bd1.jpg","http://img/bd2.jpg"],"cover_big":"http://img/big.jpg"}}"#
+        } else if target.contains("vod_id=202") {
+            r#"{"info":{"backdrop_path":[],"cover_big":"http://img/big.jpg"}}"#
+        } else {
+            r#"{"info":{"plot":"No art here."}}"#
+        };
+        Some(("application/json", body.as_bytes().to_vec()))
+    })
+    .await;
+
+    let path = temp_path("movie-backdrop");
+    let pool = db::init(&path).await.expect("init");
+    let provider = make_xtream_provider(&pool, &base).await;
+
+    let data = CatalogData {
+        vod_categories: vec![category("20", "Action", 0)],
+        movies: vec![
+            movie("201", "Array", "20"),
+            movie("202", "Fallback", "20"),
+            movie("203", "Bare", "20"),
+        ],
+        ..Default::default()
+    };
+    db::catalog::replace_catalog(&pool, &provider.id, &data, 1_700_000_000)
+        .await
+        .expect("seed");
+
+    let cache = DetailCache::default();
+    // First non-empty backdrop_path entry wins.
+    let d201 = get_movie_detail_impl(&pool, &cache, &provider.id, "201")
+        .await
+        .expect("201");
+    assert_eq!(d201.backdrop_url.as_deref(), Some("http://img/bd1.jpg"));
+    // Empty backdrop_path → cover_big fallback.
+    let d202 = get_movie_detail_impl(&pool, &cache, &provider.id, "202")
+        .await
+        .expect("202");
+    assert_eq!(d202.backdrop_url.as_deref(), Some("http://img/big.jpg"));
+    // Neither present → null (poster fallback handled on the frontend).
+    let d203 = get_movie_detail_impl(&pool, &cache, &provider.id, "203")
+        .await
+        .expect("203");
+    assert!(d203.backdrop_url.is_none());
+
+    delete_provider_impl(&pool, &provider.id).await.unwrap();
+    pool.close().await;
+    cleanup_db(&path);
+}
+
+#[tokio::test]
+async fn series_detail_backdrop_falls_back_to_cover() {
+    let base = spawn_server(move |target| {
+        if !target.contains("action=get_series_info") {
+            return None;
+        }
+        // No backdrop_path; the series fallback key is `cover`.
+        let body = r#"{"info":{"name":"Show","plot":"x","cover":"http://img/cover.jpg"},"episodes":{}}"#;
+        Some(("application/json", body.as_bytes().to_vec()))
+    })
+    .await;
+
+    let path = temp_path("series-backdrop");
+    let pool = db::init(&path).await.expect("init");
+    let provider = make_xtream_provider(&pool, &base).await;
+
+    let data = CatalogData {
+        series_categories: vec![category("30", "Crime", 0)],
+        series: vec![series("301", "Show", "30")],
+        ..Default::default()
+    };
+    db::catalog::replace_catalog(&pool, &provider.id, &data, 1_700_000_000)
+        .await
+        .expect("seed");
+
+    let cache = DetailCache::default();
+    let detail = get_series_detail_impl(&pool, &cache, &provider.id, "301")
+        .await
+        .expect("detail");
+    assert_eq!(detail.backdrop_url.as_deref(), Some("http://img/cover.jpg"));
+
+    delete_provider_impl(&pool, &provider.id).await.unwrap();
+    pool.close().await;
+    cleanup_db(&path);
+}
+
 // --- Series detail: metadata + episode persistence in one fetch ---
 
 #[tokio::test]

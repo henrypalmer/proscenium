@@ -232,7 +232,7 @@ A section of the UI dedicated to browsing and launching live TV channels.
 #### Layout
 
 - Top-level navigation entry labeled **"Live TV"**.
-- A sidebar or tab-strip lists all available **channel categories** (e.g., "Sports", "News", "Entertainment", "Kids").
+- A sidebar or tab-strip lists all available **channel categories** (e.g., "Sports", "News", "Entertainment", "Kids"). The category panel (shared with Movies/TV Shows) is **collapsible** to a thin rail and defaults to expanded (Milestone 19).
 - A special **"All Channels"** entry at the top of the category list shows every channel regardless of category.
 - The main content area shows channels for the selected category as a list or grid.
 - A **channel filter bar** sits directly above the channel list (see below).
@@ -277,14 +277,14 @@ A section for browsing VOD content: movies and TV series. These are presented as
 
 **Movies**
 - Top-level navigation entry **"Movies"**.
-- A sidebar or filter strip lists all available **genres** (e.g., "Action", "Comedy", "Drama", "Documentary").
-- An **"All Movies"** entry shows the full movie catalog.
-- Main area: grid of movie cards (poster art, title, year).
+- A sidebar or filter strip lists all available **genres** (e.g., "Action", "Comedy", "Drama", "Documentary"). The genre panel is **collapsible** (defaults to expanded; see §5.3 and Milestone 19).
+- An **"All Movies"** entry shows the full movie catalog as a **vertical stack of per-genre rows** — the provider's "Popular" genre first, then the remaining genres alphabetically — each a horizontally-scrollable strip of movie cards (Milestone 19). A row's title selects that genre's full grid.
+- Selecting a specific genre shows that genre's full grid of movie cards (poster art, title, year).
 
 **TV Series**
 - Top-level navigation entry **"TV Shows"**.
-- Same genre filter structure as Movies.
-- Main area: grid of series cards (poster art, show title).
+- Same genre filter structure as Movies, including the collapsible panel and the per-genre "All Shows" row stack (Milestone 19).
+- Main area: per-genre row stack (All) or a full grid of series cards (a selected genre).
 - Selecting a series opens a detail view showing seasons and episodes.
 
 #### Movie/Series Card
@@ -297,13 +297,15 @@ Each card displays:
 
 #### Detail View
 
-Selecting a movie or series opens a detail panel/page showing:
-- Full-size banner or poster art.
-- Title, year, genre tags.
-- Description/synopsis (from provider metadata or IMDB).
+Selecting a movie or series opens a detail panel/page laid out as a **full-bleed hero** (§9 Motion & Animation, Milestone 18): a backdrop image fills the top band behind a gradient scrim, with the poster overlapping the hero's lower edge and the title/metadata/actions reading over the scrim. The backdrop uses the provider's real backdrop art when available (Xtream `backdrop_path`/`cover_big` for movies, `backdrop_path`/`cover` for series), falling back to a blurred-and-darkened treatment of the poster so the hero is never flat black. The clicked poster **morphs** into the hero poster via the shared-element transition (§9). The view shows:
+- Hero backdrop with scrim, and the poster art overlapping its lower edge.
+- Title, year, genre tags, duration, and provider/IMDB rating (when available).
+- Description/synopsis (from provider metadata or IMDB), given fuller presence in the lower area below the hero.
 - IMDB rating and vote count (when available).
-- For series: season selector → episode list with episode titles, numbers, and descriptions.
-- Play button (built-in player) and Open in External Player button.
+- For series: season selector → episode list with episode titles, numbers, and descriptions, surfaced prominently in the lower area.
+- Play button (built-in player), Open in External Player button, and Add to list.
+
+> The backdrop loads directly from the provider URL; on-disk caching of cover art/backdrops is the §5.7 feature, deferred to its own milestone. A "More like this" related-titles row is a planned follow-up (§13) and is not part of the initial redesign.
 
 ---
 
@@ -894,6 +896,8 @@ Items explicitly planned but deferred beyond v1.0:
 | Feature | Priority | Notes |
 |---------|----------|-------|
 | Cover art propagation (TMDB) | High | See §5.7 |
+| On-disk cover-art / backdrop cache | Medium | The §5.7 download-to-disk pipeline (download → app-data dir → `image_cache` upsert → serve via Tauri asset protocol) for **all** art (posters + backdrops). The `image_cache` table + 30-day eviction exist but are an unused stub (`image_cache::upsert` has no callers); all art currently loads directly from provider URLs. Deferred out of Milestone 18 — caching one image type in isolation is low value. |
+| "More like this" (related titles) | Medium | A row of related titles (same genre/category) on the movie/series detail view so it doubles as a discovery surface. Needs a local `get_related` command (§16 IPC pattern, no provider request). Deferred follow-up to the Milestone 18 detail redesign. |
 | IMDB ratings integration | High | See §5.8 |
 | EPG (Electronic Program Guide) | High | Requires XMLTV or Xtream EPG endpoint; target v1.1 |
 | Linux platform support | High | Deferred from v1.0; target v1.1 or v2.0 |
@@ -1498,6 +1502,8 @@ proscenium/
 │   │   │   ├── SeriesGrid.tsx
 │   │   │   ├── SeriesCard.tsx
 │   │   │   ├── SeriesDetail.tsx      # Season selector + episode list
+│   │   │   ├── HeroBackdrop.tsx      # Full-bleed detail hero backdrop (§5.4, M18)
+│   │   │   ├── GenreRows.tsx         # Per-genre row stack for the "All" view (§5.4, M19)
 │   │   │   └── EpisodeList.tsx
 │   │   ├── search/
 │   │   │   ├── SearchOverlay.tsx     # Global search modal
@@ -1581,6 +1587,8 @@ A flat reference of every named component, its location, and its responsibility.
 | `SeriesDetail` | `vod/SeriesDetail.tsx` | Series banner, metadata, season selector, renders `EpisodeList` |
 | `EpisodeList` | `vod/EpisodeList.tsx` | List of episodes for the selected season; each row has a play button, progress bar, and watched checkmark |
 | `PosterGrid` | `vod/PosterGrid.tsx` | Shared virtualized poster grid (and lazy `Poster` image) backing `MovieGrid` and `SeriesGrid` |
+| `HeroBackdrop` | `vod/HeroBackdrop.tsx` | Full-bleed darkened hero backdrop behind the movie/series detail (§5.4, M18): provider backdrop when available, blurred-poster fallback otherwise |
+| `GenreRows` | `vod/GenreRows.tsx` | The "All Movies/All Shows" overview (§5.4, M19): a vertical stack of per-genre horizontal card strips (Popular first, then A–Z), each lazy-loaded; a row title selects that genre's full grid |
 | `WatchProgressOverlay` | `vod/WatchProgressOverlay.tsx` | Thin bottom progress bar (in-progress) or corner watched checkmark (completed), overlaid on a movie/episode thumbnail (§5.9) |
 | `SearchOverlay` | `search/SearchOverlay.tsx` | Modal overlay; opens on Cmd/Ctrl+F; contains `SearchBar` and `SearchResults` |
 | `SearchBar` | `search/SearchBar.tsx` | Debounced input + content type filter tabs |
@@ -1979,21 +1987,65 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 
 > *Verification note: the click-driven interactions were verified at the DOM level in the browser preview (open/close of the Home detail overlay, `path` unchanged, Home staying mounted, and the `vt-poster` name moving to exactly one element and returning to the original card on close), and the build type-checks clean. The headless preview tab is permanently `visibilityState:hidden`, which freezes the CSS-animation/View-Transition timeline, so the **live playback** of the entrance stagger, the cross-fades, and the poster morph could not be screen-captured — those rely on the same mechanism whose animation was verified visually in Milestone 16. A final visual pass in the real Tauri window is still recommended.*
 
-### Milestone 18 — Detail View Redesign (Planned)
+### Milestone 18 — Detail View Redesign
 
-> **Status:** Planned — documented for the roadmap, not yet implemented. Needs a design pass and may require new backend data.
+**Goal:** Replace the sparse movie/series detail layout (a small poster + short metadata column on a flat black field, with a large empty lower area) with a cinematic, full-bleed **hero** layout that uses the provider's real backdrop art where available and that the Milestone 16/17 poster-morph lands into cleanly.
 
-**Goal:** Replace the sparse movie/series detail layout (poster + short metadata column over a large empty area) with a richer, more cinematic view that the Milestone 16 poster-morph lands into.
+**Design decisions (resolved during the M18 design pass):**
+- **Backdrop source:** use the provider's **real backdrop image** when it supplies one, falling back to a blurred/darkened treatment of the poster when it does not — so there is always a hero, never flat black. Xtream already returns backdrop art in the on-demand metadata responses (`get_vod_info` → `backdrop_path[]` / `cover_big` / `movie_image`; `get_series_info` → `backdrop_path[]` / `cover`); these are currently parsed-and-discarded, so capturing one URL is a small backend slice.
+- **Image loading:** the backdrop loads **directly from the provider URL** (like every poster today — `<img src={url} loading="lazy">`). No on-disk image cache is added in M18. The `image_cache` table + 30-day eviction exist but are an unused stub (`image_cache::upsert` has no callers); building the real download-to-disk-and-serve pipeline is the §5.7 "Cover Art caching" feature and is **deferred to its own milestone covering all art** (posters + backdrops) — caching one image type in isolation is low value.
+- **Layout style:** **full-bleed hero** (Plex/Netflix style) — the backdrop occupies the top band of the view with a gradient scrim into the page background; the poster overlaps the hero's lower edge; title, year, duration/rating, genre chips, and the action buttons sit over/beside the scrim.
+- **"More like this":** **deferred** to a later milestone (it needs a new `get_related` backend query). M18 is the visual redesign + backdrop slice only.
 
 **Scope:**
-- **Hero backdrop:** a full-bleed, blurred-and-darkened treatment derived from the already-loaded poster (free — no new asset), with a gradient scrim behind the title/metadata so the upper area reads as a hero rather than a small poster on black.
-- **Fuller vertical layout:** use the empty lower area — for series, surface the season selector and episode list more prominently; for movies, give synopsis/metadata more presence.
-- **"More like this" (optional, backend-dependent):** a row of related titles (e.g. same genre/category) so the detail view doubles as a discovery surface. This needs a backend query and would follow the §16 IPC pattern.
-- **Morph target:** ensure the shared-element poster morph from Milestone 16 reads well landing into the redesigned layout.
+- **Backdrop data (backend slice):** add `backdropUrl: string | null` to `MovieDetail` and `SeriesDetail`. Full IPC path: extend the parse in `iptv/xtream.rs` (`get_vod_info` / `get_series_info`) to select one backdrop URL — first non-empty `backdrop_path[]` entry, else `cover_big`/`cover`/`movie_image`, else `null` — then `models.rs` ↔ `types/index.ts`; the detail fetch itself already exists (`get_movie_detail` / `get_series_detail`, session-cached) and gains no new round-trip. Keep `devMock.ts` in sync (supply a sample backdrop).
+- **Hero layout (frontend):** redesign `MovieDetail` and `SeriesDetail` to the full-bleed hero above. The backdrop is darkened with a gradient scrim so the title/metadata/buttons read against it; the poster overlaps the hero's lower edge. When `backdropUrl` is `null`, derive the hero from the poster (CSS blur + scale + darken). All existing actions are preserved unchanged: Play, Open in External Player, Add to list, season switching, episode play/external, and the §5.9 watch-progress overlays.
+- **Fuller vertical layout:** use the previously-empty lower area below the hero — **movies** give the synopsis + metadata more presence; **series** surface the season selector and `EpisodeList` prominently (more vertical room, full width).
+- **Morph target:** keep exactly **one** `vt-poster`-named element (the overlapping hero poster) in every state so the Milestone 16/17 shared-element morph lands into the new layout without duplicate-name conflicts; closing reverse-morphs back into the grid/Home card as before.
+- **Reduced motion & performance (§9/§10):** the backdrop is a static image/blur — no new animation is added; the only motion remains the existing compositor-driven poster morph (`transform`/`opacity`, no persistent `will-change`); honor `prefers-reduced-motion`; the redesign is a single view and must not regress the 12k-item virtualized grids.
+
+**Out of scope (explicitly deferred to their own milestones):**
+- "More like this" related-titles row (`get_related` command).
+- On-disk image caching / the §5.7 cover-art pipeline (download → app-data dir → `image_cache` upsert → serve via Tauri asset protocol) for all art.
 
 **Acceptance Criteria:**
-- [ ] Movie and series detail views use a hero backdrop derived from the poster with a readable scrim; the large empty area is gone.
-- [ ] The series detail surfaces seasons/episodes prominently; the movie detail gives synopsis/metadata more presence.
-- [ ] If included, a "More like this" row renders related titles from local cache via a §16-style command, with no on-demand provider request beyond existing reads.
-- [ ] The Milestone 16 poster morph still reads correctly into the redesigned layout, and the view respects `prefers-reduced-motion` and the §10 performance budget.
+- [x] Movie and series detail views render a full-bleed hero backdrop with a readable gradient scrim and the poster overlapping the hero's lower edge; the title/metadata/buttons read clearly over it and the previous large empty black area is gone. *(preview: both `MovieDetail` and `SeriesDetail` render the new `HeroBackdrop` band (`h-[420px]`) with vertical+horizontal scrims fading into `bg-zinc-950`; the poster sits in an `items-end … pt-[140px]` row so it overlaps the hero's lower edge, with title/year/rating/genres/buttons beside it and the synopsis below — screenshot-verified for a movie and a series.)*
+- [x] When the provider supplies a backdrop (Xtream `backdrop_path`/`cover_big` for movies, `backdrop_path`/`cover` for series) it is used; when it does not, the hero falls back to a blurred/darkened treatment of the poster so there is always a hero. The backdrop loads directly from the provider URL — no new on-disk cache is introduced. *(backend test `movie_detail_backdrop_prefers_backdrop_path_then_falls_back` asserts the array→`cover_big`→null order and `series_detail_backdrop_falls_back_to_cover` the series `cover` fallback; preview exercised all three `data-hero-source` paths — `backdrop` (no filter), `poster` (`blur(40px) scale(1.25)`), and `none` (scrim only). The image is a plain `<img src={url}>`; `image_cache::upsert` still has no callers.)*
+- [x] The series detail surfaces the season selector and episode list prominently in the fuller lower layout; the movie detail gives synopsis/metadata more presence. Play, Open in External Player, Add to list, season switching, episode play, and the §5.9 watch-progress overlays all behave exactly as before. *(preview: series detail shows an "Episodes" heading + season tabs + episode rows each with Play/External below the hero; movie detail has a labelled "Synopsis" block. All handlers (`play`, `openExternal`, add-to-list, `setSeason`, `EpisodeList`) are unchanged — `EpisodeList`/`WatchProgressOverlay` were not touched.)*
+- [x] The Milestone 16/17 poster morph still lands correctly into the redesigned layout — exactly one `vt-poster` element per state — and closing reverse-morphs back into the originating card as before. *(preview: exactly 1 element with computed `view-transition-name: vt-poster` inside both the open movie and series detail; the grid/`viewTransition.ts` open/close logic is untouched, so the close reverse-morph into the grid card is unchanged.)*
+- [x] The redesign honors `prefers-reduced-motion`, stays within the §10 performance budget, adds no on-demand provider request beyond the existing `get_movie_detail`/`get_series_detail` fetch, and `npm run build` type-checks clean. *(the hero is a static image/blur — no new animation is added, so reduced-motion is inherently respected; the only motion remains the existing compositor poster morph; the backdrop rides the existing detail fetch (no new IPC/network); `npm run build` (tsc + vite) passes; no console errors during the preview pass.)*
+- [x] No "More like this" row and no on-disk image-cache pipeline are introduced (both deferred to their own milestones). *(neither was added; both are tracked in §13.)*
+
+### Milestone 19 — Immersive Home Rows, Collapsible Genre Panel & Genre-Sectioned Browse (Planned)
+
+> **Status:** Planned — documented for the roadmap, not yet implemented.
+
+**Goal:** Make the catalog feel fuller and more Netflix-like: give the Home rows more of the screen, let the Movies/TV Shows genre panel collapse, and turn the "All Movies/All Shows" view into a stack of per-genre rows instead of one flat grid. Three independent UI/UX slices, all frontend-only (no backend/IPC changes — every read reuses existing catalog commands).
+
+**Design decisions (resolved during the M19 planning pass):**
+- **Collapsed genre panel:** collapses to a **thin rail with an expand chevron** anchored where the panel was; the content area widens to fill the freed space. The panel **defaults to expanded** on every entry — collapsing is a transient toggle, not persisted.
+- **Genre-row titles (All view):** each genre's row title is **clickable** (with a "See all ›" affordance) and selects that genre — switching to the existing full virtualized grid for it and highlighting it in the side panel.
+
+**Scope:**
+
+- **A. Fuller Home rows (§5.10):** make the Home card strips take more of the viewport and feel less boxed-in. In `Home.tsx`, drop the `max-w-6xl` centering and tighten the horizontal page padding so the rows run near-edge-to-edge (keep a small Netflix-style margin, not literally zero, and preserve the existing negative-margin breathing room so hovered/scaled cards aren't clipped — §9). Enlarge the card width in `MediaRow` and `MyListsRow` (and the "+ New list" card) from the current `w-[150px]` to a larger size, applied consistently across **Keep Watching, My Lists, Popular Movies, and Popular Series**. Card internals (`MovieCard`/`SeriesCard`/`ListCoverCard`/`KeepWatchingCard`) scale with their container, so only the strip cell width changes. No behavior change — hover/press, morph, context menus, and the §5.9 overlays are untouched.
+
+- **B. Collapsible genre panel (§5.3/§5.4):** add a collapse/expand control to `CategoryPanel` (used by both Movies and TV Shows). Expanded is the default on every mount; a chevron in the panel header collapses it to a thin rail bearing only an expand chevron, and the grid/rows area reflows to the reclaimed width. The sort toggle and genre list are unchanged when expanded. (Live TV continues to use `CategoryPanel` as today; the collapse control is available there too for consistency but the milestone's acceptance focuses on Movies/TV Shows.)
+
+- **C. Genre-sectioned "All" browse (§5.4):** when **"All Movies"/"All Shows"** is selected (`selected === null`), replace the single flat `MovieGrid`/`SeriesGrid` with a vertical stack of **per-genre horizontal rows**, each labeled with the genre name above a horizontally-scrollable strip (the same visual pattern as Home's Popular rows). Row order: the provider's **"Popular"** genre first (resolved by the existing case-insensitive `\bpopular\b` match, and **excluded** from the list below to avoid duplication), then the remaining genres in **alphabetical ascending** order. Selecting a specific genre in the side panel keeps the **current full virtualized grid** for that genre — the sectioned view is only for "All".
+  - **New component `GenreRows` (`vod/GenreRows.tsx`):** renders the stacked genre strips for the active section. Each strip fetches its first page (capped at a reasonable strip length, ~30) via the existing `get_movies` / `get_series` with that `categoryId`, reusing `MovieCard` / `SeriesCard` (with the §5.9 overlays and the Milestone 16/17 poster morph). To stay within the §10 budget when a provider has many genres, **each row lazy-loads its items when it scrolls near the viewport** (IntersectionObserver) rather than fetching all genres up front; an empty genre (no items) **omits its row**.
+  - **Row title → full grid:** clicking a genre's title or its "See all ›" affordance calls the page's existing `onSelect(categoryId)`, switching to that genre's full grid and highlighting it in the panel.
+  - **Movies/TV Shows wiring:** `Movies.tsx` / `TVShows.tsx` branch on `selected === null` to render `GenreRows` (passing the already-fetched `categories`, the open-detail/morph handlers, the context-menu handler, and `onSelect`), and otherwise render the existing grid. The detail-open morph (`selectedId`/`morphId`) flows into `GenreRows` cards exactly as it does for the grid.
+
+- **Reduced motion & performance (§9/§10):** Home-row and genre-row entrance reuse the existing `prosc-enter` capped-stagger (only `transform`/`opacity`); the genre rows lazy-load to avoid a burst of requests; virtualized grids for a selected genre are unchanged; honor `prefers-reduced-motion`; `npm run build` type-checks clean.
+
+**Out of scope:** no backend/IPC/schema changes; no new catalog queries (genre strips reuse `get_movies`/`get_series`); Live TV's browse layout is unchanged (it keeps its virtualized channel list and filter).
+
+**Acceptance Criteria:**
+- [ ] The Home rows (Keep Watching, My Lists, Popular Movies, Popular Series) use larger cards and span more of the viewport width with reduced horizontal dead space; hovered/scaled cards are not clipped and all existing card behavior (hover/press, morph, context menus, §5.9 overlays) is unchanged.
+- [ ] In Movies and TV Shows the genre panel can be collapsed to a thin rail (content widens to fill) and re-expanded via the chevron; it defaults to expanded on every entry.
+- [ ] With "All Movies"/"All Shows" selected, the view is a vertical stack of per-genre horizontal rows — the "Popular" genre first (and not repeated below), then the remaining genres alphabetically ascending; empty genres are omitted; each row reuses the section's standard cards with the §5.9 overlays and the poster morph.
+- [ ] Clicking a genre row's title (or "See all ›") switches to that genre's existing full virtualized grid and highlights it in the side panel; selecting a genre directly in the panel shows the full grid as today.
+- [ ] The genre rows lazy-load their items as they scroll into view (no upfront fetch of every genre), reusing the existing `get_movies`/`get_series` reads with no new backend/IPC; the experience stays within the §10 performance budget on a many-genre catalog.
+- [ ] All new/changed motion honors `prefers-reduced-motion`, animates only `transform`/`opacity`, and `npm run build` type-checks clean.
 

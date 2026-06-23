@@ -5,6 +5,7 @@ import { usePlayerStore } from "../../store/playerStore";
 import { useProgressStore } from "../../store/progressStore";
 import AddToListMenu from "../lists/AddToListMenu";
 import EpisodeList from "./EpisodeList";
+import HeroBackdrop from "./HeroBackdrop";
 import { Poster } from "./PosterGrid";
 import type {
   Episode,
@@ -107,28 +108,31 @@ export default function SeriesDetail({
       data-testid="series-detail"
       className="absolute inset-0 z-20 overflow-y-auto bg-zinc-950"
     >
-      <div className="mx-auto max-w-4xl p-6">
+      <HeroBackdrop backdropUrl={detail?.backdropUrl ?? null} posterUrl={series.posterUrl} />
+      <div className="relative mx-auto max-w-5xl px-6 pb-12">
         <button
           onClick={onClose}
           data-testid="detail-back"
-          className="mb-4 rounded-md px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
+          className="mt-4 rounded-md bg-zinc-950/40 px-2 py-1 text-sm text-zinc-300 backdrop-blur-sm hover:bg-zinc-900 hover:text-zinc-100"
         >
           ← Back
         </button>
-        <div className="flex gap-6">
-          <div className="w-48 shrink-0 sm:w-56">
+        <div className="flex items-end gap-6 pt-[140px]">
+          <div className="w-40 shrink-0 drop-shadow-2xl sm:w-52">
             <Poster url={series.posterUrl} title={series.name} vtName="vt-poster" />
           </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold text-white">{series.name}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-400">
+          <div className="min-w-0 flex-1 pb-1">
+            <h1 className="text-3xl font-bold text-white drop-shadow-md">
+              {series.name}
+            </h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-300">
               {series.releaseYear && <span>{series.releaseYear}</span>}
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {genres.map((genre) => (
                 <span
                   key={genre}
-                  className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs text-zinc-300"
+                  className="rounded-full bg-zinc-800/80 px-2.5 py-0.5 text-xs text-zinc-200 backdrop-blur-sm"
                 >
                   {genre}
                 </span>
@@ -141,27 +145,22 @@ export default function SeriesDetail({
                   setAddTo({ x: r.left, y: r.bottom });
                 }}
                 data-testid="detail-add-to-list"
-                className="rounded-md border border-zinc-700 px-5 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900"
+                className="rounded-md border border-zinc-600 bg-zinc-950/40 px-5 py-2 text-sm font-medium text-zinc-100 backdrop-blur-sm hover:bg-zinc-900"
               >
                 + Add to list
               </button>
             </div>
-            {detail === null ? (
-              <div className="mt-6 space-y-2">
-                <div className="h-3 w-full animate-pulse rounded bg-zinc-900" />
-                <div className="h-3 w-5/6 animate-pulse rounded bg-zinc-900" />
-              </div>
-            ) : (
-              detail.description && (
-                <p className="prosc-enter mt-6 max-w-prose text-sm leading-relaxed text-zinc-400">
-                  {detail.description}
-                </p>
-              )
-            )}
           </div>
         </div>
 
-        <div className="mt-8">
+        {detail !== null && detail.description && (
+          <p className="prosc-enter mt-6 max-w-3xl text-[15px] leading-relaxed text-zinc-300">
+            {detail.description}
+          </p>
+        )}
+
+        <div className="mt-10">
+          <h2 className="mb-3 text-lg font-semibold text-zinc-100">Episodes</h2>
           {episodesError !== null ? (
             <p className="text-sm text-red-400">
               Could not load episodes: {episodesError}

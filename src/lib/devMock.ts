@@ -148,6 +148,19 @@ function svgPoster(seed: number, title: string): string {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
+/** Wide 16:9 hero backdrop data-URI (spec §5.4, M18). */
+function svgBackdrop(seed: number, title: string): string {
+  const hue = (seed * 67) % 360;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0" stop-color="hsl(${hue},45%,32%)"/>` +
+    `<stop offset="1" stop-color="hsl(${(hue + 40) % 360},50%,16%)"/></linearGradient></defs>` +
+    `<rect width="1280" height="720" fill="url(#g)"/>` +
+    `<text x="80" y="600" font-size="120" fill="hsla(${hue},60%,75%,0.25)" font-family="sans-serif">${encodeURIComponent(title).slice(0, 2)}${seed % 100}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 function posterFor(i: number, title: string): string | null {
   return i % 3 === 0
     ? svgPoster(i, title)
@@ -554,6 +567,12 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
           "A restless drifter uncovers a conspiracy that reaches further than anyone imagined. (Mock synopsis from the dev backend.)",
         genre: `${found.categoryName}, Adventure`,
         durationSeconds: 5400 + (Number(found.id.replace("movie-", "")) % 8) * 600,
+        // Most movies carry a provider backdrop; every 5th has none so the
+        // poster-blur fallback path is exercised too (spec §5.4, M18).
+        backdropUrl:
+          Number(found.id.replace("movie-", "")) % 5 === 0
+            ? null
+            : svgBackdrop(Number(found.id.replace("movie-", "")), found.name),
       } satisfies MovieDetail as T;
     }
     case "get_series_detail": {
@@ -564,6 +583,12 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
         description:
           "Each season follows a new cast tangled in the same mystery. (Mock synopsis from the dev backend.)",
         genre: `${found.categoryName}, Mystery`,
+        // Series with even index get a backdrop; odd ones fall back to the
+        // blurred poster so both hero paths render in the preview (M18).
+        backdropUrl:
+          Number(found.id.replace("series-", "")) % 2 === 0
+            ? svgBackdrop(Number(found.id.replace("series-", "")) + 7, found.name)
+            : null,
       } satisfies SeriesDetail as T;
     }
     case "search":

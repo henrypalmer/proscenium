@@ -93,11 +93,15 @@ export interface MovieDetail extends Movie {
   description: string | null;
   genre: string | null;
   durationSeconds: number | null;
+  /** Wide hero backdrop (spec §5.4, M18); null falls back to the poster. */
+  backdropUrl: string | null;
 }
 
 export interface SeriesDetail extends Series {
   description: string | null;
   genre: string | null;
+  /** Wide hero backdrop (spec §5.4, M18); null falls back to the poster. */
+  backdropUrl: string | null;
 }
 
 /** Keyed by season number (JSON object keys arrive as strings). */
