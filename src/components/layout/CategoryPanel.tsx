@@ -24,6 +24,9 @@ export default function CategoryPanel({
   onSelect,
 }: CategoryPanelProps) {
   const [sort, setSort] = useState<SortMode>("alpha");
+  // Defaults to expanded; collapsing is transient — the panel remounts per
+  // section so it always reopens expanded (spec §5.3, Milestone 19).
+  const [collapsed, setCollapsed] = useState(false);
 
   const sorted = useMemo(() => {
     if (sort === "provider") return categories; // backend order = sort_order
@@ -37,26 +40,60 @@ export default function CategoryPanel({
       active ? "bg-zinc-800 font-medium text-white" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
     }`;
 
+  // Collapsed: a thin rail with an expand chevron, anchored where the panel was
+  // (content area widens to fill the freed space).
+  if (collapsed) {
+    return (
+      <nav
+        className="flex w-10 shrink-0 flex-col items-center border-r border-zinc-800 pt-3"
+        data-testid="category-panel"
+        data-collapsed="true"
+      >
+        <button
+          onClick={() => setCollapsed(false)}
+          title={`Show ${title}`}
+          data-testid="category-panel-toggle"
+          className="rounded-md p-1.5 text-base leading-none text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
+        >
+          <span aria-hidden>»</span>
+          <span className="sr-only">Show {title}</span>
+        </button>
+      </nav>
+    );
+  }
+
   return (
     <nav
       className="flex w-56 shrink-0 flex-col border-r border-zinc-800"
       data-testid="category-panel"
+      data-collapsed="false"
     >
-      <div className="flex items-center justify-between px-4 pb-1 pt-3">
+      <div className="flex items-center justify-between gap-1 px-4 pb-1 pt-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
           {title}
         </span>
-        <button
-          onClick={() => setSort(sort === "alpha" ? "provider" : "alpha")}
-          title={
-            sort === "alpha"
-              ? "Sorted A–Z — switch to provider order"
-              : "Provider order — switch to A–Z"
-          }
-          className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"
-        >
-          {sort === "alpha" ? "A–Z" : "Provider"}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setSort(sort === "alpha" ? "provider" : "alpha")}
+            title={
+              sort === "alpha"
+                ? "Sorted A–Z — switch to provider order"
+                : "Provider order — switch to A–Z"
+            }
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"
+          >
+            {sort === "alpha" ? "A–Z" : "Provider"}
+          </button>
+          <button
+            onClick={() => setCollapsed(true)}
+            title={`Hide ${title}`}
+            data-testid="category-panel-toggle"
+            className="rounded-md px-1.5 py-0.5 text-base leading-none text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"
+          >
+            <span aria-hidden>«</span>
+            <span className="sr-only">Hide {title}</span>
+          </button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2 pt-1">
         <button

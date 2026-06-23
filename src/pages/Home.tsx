@@ -266,8 +266,8 @@ export default function Home() {
 
   return (
     <div className="relative h-full">
-      <div className="h-full overflow-y-auto px-6 pb-10">
-        <div className="mx-auto max-w-6xl space-y-8">
+      <div className="h-full overflow-y-auto px-4 pb-10">
+        <div className="space-y-8">
           {/* Keep Watching leads when there is in-progress content (spec §5.10);
               an empty row is omitted by MediaRow, so Popular Movies becomes top. */}
           <MediaRow

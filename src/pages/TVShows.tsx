@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
 import AddToListMenu from "../components/lists/AddToListMenu";
 import CategoryPanel from "../components/layout/CategoryPanel";
+import GenreRows from "../components/vod/GenreRows";
+import SeriesCard from "../components/vod/SeriesCard";
 import SeriesDetail from "../components/vod/SeriesDetail";
 import SeriesGrid from "../components/vod/SeriesGrid";
 import * as api from "../lib/tauri";
@@ -84,6 +86,16 @@ export default function TVShows() {
     }
   }, [location.state, location.pathname, navigate]);
 
+  // Per-genre strip fetcher for the "All" overview (memoized so a row only
+  // refetches when the provider changes, not on every parent render).
+  const fetchSeriesPage = useCallback(
+    (catId: string): Promise<Series[]> =>
+      providerId
+        ? api.getSeries(providerId, catId, 1, 30).then((r) => r.items)
+        : Promise.resolve([]),
+    [providerId],
+  );
+
   if (!activeProvider) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -124,14 +136,35 @@ export default function TVShows() {
         onSelect={setSelected}
       />
       <div className="min-w-0 flex-1">
-        <SeriesGrid
-          providerId={activeProvider.id}
-          categoryId={selected}
-          version={refreshTick}
-          onActivate={openDetail}
-          onContextMenu={(series, x, y) => setMenu({ series, x, y })}
-          morphId={morphId}
-        />
+        {/* "All Series" → per-genre row stack (M19); a selected genre → the
+            existing full virtualized grid. Falls back to the grid when the
+            provider exposes no genres. */}
+        {selected === null && categories.length > 0 ? (
+          <GenreRows<Series>
+            categories={categories}
+            resetKey={`${activeProvider.id}:${refreshTick}`}
+            fetchPage={fetchSeriesPage}
+            getKey={(s) => s.id}
+            onSelectGenre={setSelected}
+            renderCard={(series) => (
+              <SeriesCard
+                series={series}
+                onActivate={openDetail}
+                onContextMenu={(s, x, y) => setMenu({ series: s, x, y })}
+                morphActive={morphId === series.id}
+              />
+            )}
+          />
+        ) : (
+          <SeriesGrid
+            providerId={activeProvider.id}
+            categoryId={selected}
+            version={refreshTick}
+            onActivate={openDetail}
+            onContextMenu={(series, x, y) => setMenu({ series, x, y })}
+            morphId={morphId}
+          />
+        )}
       </div>
       {detail && (
         <SeriesDetail

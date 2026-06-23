@@ -36,7 +36,7 @@ export default function MediaRow<T>({
         {items.map((item, i) => (
           <div
             key={getKey(item)}
-            className="prosc-enter w-[150px] shrink-0"
+            className="prosc-enter w-[180px] shrink-0"
             style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
           >
             {renderItem(item)}

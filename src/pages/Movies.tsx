@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import ContextMenu from "../components/common/ContextMenu";
 import AddToListMenu from "../components/lists/AddToListMenu";
 import CategoryPanel from "../components/layout/CategoryPanel";
+import GenreRows from "../components/vod/GenreRows";
+import MovieCard from "../components/vod/MovieCard";
 import MovieDetail from "../components/vod/MovieDetail";
 import MovieGrid from "../components/vod/MovieGrid";
 import * as api from "../lib/tauri";
@@ -95,6 +97,16 @@ export default function Movies() {
     }
   }, [location.state, location.pathname, navigate]);
 
+  // Per-genre strip fetcher for the "All" overview (memoized so a row only
+  // refetches when the provider changes, not on every parent render).
+  const fetchMoviePage = useCallback(
+    (catId: string): Promise<Movie[]> =>
+      providerId
+        ? api.getMovies(providerId, catId, 1, 30).then((r) => r.items)
+        : Promise.resolve([]),
+    [providerId],
+  );
+
   if (!activeProvider) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -157,14 +169,36 @@ export default function Movies() {
         onSelect={setSelected}
       />
       <div className="min-w-0 flex-1">
-        <MovieGrid
-          providerId={activeProvider.id}
-          categoryId={selected}
-          version={refreshTick}
-          onActivate={openDetail}
-          onContextMenu={(movie, x, y) => setMenu({ movie, x, y })}
-          morphId={morphId}
-        />
+        {/* "All Movies" → per-genre row stack (M19); a selected genre → the
+            existing full virtualized grid. Falls back to the grid when the
+            provider exposes no genres. */}
+        {selected === null && categories.length > 0 ? (
+          <GenreRows<Movie>
+            categories={categories}
+            resetKey={`${activeProvider.id}:${refreshTick}`}
+            fetchPage={fetchMoviePage}
+            getKey={(m) => m.id}
+            onSelectGenre={setSelected}
+            renderCard={(movie) => (
+              <MovieCard
+                movie={movie}
+                providerId={activeProvider.id}
+                onActivate={openDetail}
+                onContextMenu={(m, x, y) => setMenu({ movie: m, x, y })}
+                morphActive={morphId === movie.id}
+              />
+            )}
+          />
+        ) : (
+          <MovieGrid
+            providerId={activeProvider.id}
+            categoryId={selected}
+            version={refreshTick}
+            onActivate={openDetail}
+            onContextMenu={(movie, x, y) => setMenu({ movie, x, y })}
+            morphId={morphId}
+          />
+        )}
       </div>
       {detail && (
         <MovieDetail
