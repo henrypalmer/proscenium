@@ -242,6 +242,13 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => ({
         (state.playing && !state.buffering && state.position > 0),
     });
 
+    // A newly-arrived stream error (spec §12, Milestone 22): upgrade the opaque
+    // mpv message to a classified, user-facing reason (4xx/5xx/network/timeout)
+    // and log a secret-redacted diagnostic line, in the background.
+    if (state.error && !previous.fatalError && previous.nowPlaying) {
+      void refineStreamError(set, get, previous.nowPlaying, state.error);
+    }
+
     // Throttled position persistence for VOD (spec §5.9).
     const np = previous.nowPlaying;
     if (np && np.contentType !== "live" && state.playing && state.position > 0) {
@@ -253,6 +260,33 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * Replace an opaque mpv error with a classified, user-facing reason (spec §12,
+ * Milestone 22). Runs in the background after the error first appears; only
+ * applies if the same item is still open and still errored.
+ */
+async function refineStreamError(
+  set: (partial: Partial<PlayerStoreState>) => void,
+  get: () => PlayerStoreState,
+  np: NowPlaying,
+  rawError: string,
+): Promise<void> {
+  try {
+    const message = await api.diagnosePlaybackFailure(
+      np.providerId,
+      np.contentType,
+      np.contentId,
+      rawError,
+    );
+    const cur = get();
+    if (cur.open && cur.nowPlaying?.contentId === np.contentId && cur.fatalError) {
+      set({ fatalError: message });
+    }
+  } catch {
+    // Diagnosis is best-effort; keep the raw error if it fails.
+  }
+}
 
 /** Shared playback launch used by openContent and the resume prompt. */
 async function startPlayback(

@@ -5,7 +5,9 @@ import BufferingOverlay from "./BufferingOverlay";
 import PlayerControls from "./PlayerControls";
 import type { TrackInfo } from "../../types";
 
-const CONTROLS_HIDE_MS = 3000;
+// Longer grace before the control bar auto-hides (Milestone 22): the old 3s was
+// easy to miss when reaching for volume / track / fullscreen targets.
+const CONTROLS_HIDE_MS = 4500;
 
 async function setFullscreen(on: boolean): Promise<void> {
   if (inTauri) {
@@ -172,7 +174,7 @@ export default function PlayerOverlay() {
         <PlayerControls
           state={state}
           title={nowPlaying.title}
-          isLive={nowPlaying.contentType === "live" || state.duration === null}
+          isLive={nowPlaying.contentType === "live"}
           onToggleFullscreen={() => void toggleFullscreen()}
           onClose={() => void handleClose()}
         />

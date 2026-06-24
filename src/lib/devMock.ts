@@ -91,7 +91,6 @@ function allChannels(): LiveChannel[] {
         categoryId: category,
         categoryName: category,
         logoUrl,
-        streamUrl: `http://mock.local/live/${i}.ts`,
         streamExt: "ts",
         epgChannelId: null,
       };
@@ -181,7 +180,6 @@ function allMovies(): Movie[] {
         categoryId: genre,
         categoryName: genre,
         posterUrl: posterFor(i, name),
-        streamUrl: `http://mock.local/movie/${i}.mp4`,
         containerExt: "mp4",
         releaseYear: i % 7 === 0 ? null : 1965 + (i % 60),
         rating: i % 5 === 0 ? null : ((i % 70) / 10 + 2.9).toFixed(1),
@@ -227,7 +225,6 @@ function episodesFor(seriesId: string): EpisodesBySeason {
         // Provider-style redundant title (series/SxxEyy embedded) so the
         // frontend's cleanEpisodeTitle normalization is exercised in dev.
         title: `S${String(s).padStart(2, "0")}E${String(e + 1).padStart(2, "0")} — ${name}`,
-        streamUrl: `http://mock.local/series/${n}/${s}/${e + 1}.mp4`,
         containerExt: "mp4",
         durationSeconds: 1260 + ((n + e) % 5) * 300,
         // Mix of real (SVG), broken, and missing art so the thumbnail's
@@ -644,6 +641,10 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
     case "open_in_external_player":
       console.info("[devMock] external player:", a.streamUrl);
       return undefined as T;
+    case "diagnose_playback_failure":
+      // Mirror the backend's classified message (Milestone 22). The mock has no
+      // real provider to probe, so it returns a representative 403-style reason.
+      return ("Provider denied this video (HTTP 403). Live TV is unaffected — VOD may be temporarily restricted by the provider." as unknown) as T;
     case "mpv_load_url":
       mockMpv.load(a.url as string, a.startSeconds as number | undefined);
       return undefined as T;

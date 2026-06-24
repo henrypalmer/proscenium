@@ -184,6 +184,13 @@ impl MpvPlayer {
         set("terminal", "no")?;
         set("keep-open", "yes")?; // VOD end: hold last frame instead of going idle
         set("cache", "yes")?;
+        // Subtitles default OFF (spec §5.6, Milestone 22): don't auto-select an
+        // embedded or sidecar subtitle track on load — the user opts in from the
+        // track menu. `sub-visibility=yes` ensures a track they *do* select is
+        // actually rendered. Runtime `sid` changes (set_subtitle_track) override.
+        set("sub-auto", "no")?;
+        set("sid", "no")?;
+        set("sub-visibility", "yes")?;
         // Hardware decode by default (spec §11); silent software fallback —
         // including the Dolby Vision chain — is handled inside libmpv.
         set("hwdec", if config.hwdec { "auto-safe" } else { "no" })?;

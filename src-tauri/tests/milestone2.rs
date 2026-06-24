@@ -297,15 +297,15 @@ async fn xtream_refresh_persists_full_catalog() {
     assert_eq!(count(&pool, "live_categories").await, 2);
 
     // Category names resolved; unknown category falls back.
-    let row = sqlx::query("SELECT category_name, stream_url FROM live_channels WHERE id = '101'")
+    let row = sqlx::query("SELECT category_name, stream_url, stream_ext FROM live_channels WHERE id = '101'")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(row.get::<String, _>("category_name"), "News");
-    assert_eq!(
-        row.get::<String, _>("stream_url"),
-        format!("{base}/live/u1/pw1/101.ts")
-    );
+    // Milestone 21: the password-bearing URL is never persisted; only the id +
+    // stream_ext are stored and the URL is composed at playback time.
+    assert_eq!(row.get::<String, _>("stream_url"), "");
+    assert_eq!(row.get::<String, _>("stream_ext"), "ts");
     let row = sqlx::query("SELECT category_name FROM live_channels WHERE id = '103'")
         .fetch_one(&pool)
         .await
@@ -313,14 +313,14 @@ async fn xtream_refresh_persists_full_catalog() {
     assert_eq!(row.get::<String, _>("category_name"), "Uncategorized");
 
     // Movie metadata: container/year coercion from mixed JSON types.
-    let row = sqlx::query("SELECT stream_url, release_year FROM movies WHERE id = '201'")
+    let row = sqlx::query("SELECT stream_url, container_ext, release_year FROM movies WHERE id = '201'")
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        row.get::<String, _>("stream_url"),
-        format!("{base}/movie/u1/pw1/201.mkv")
-    );
+    // Milestone 21: no password-bearing URL on disk; container_ext is what the
+    // playback-time URL composition uses.
+    assert_eq!(row.get::<String, _>("stream_url"), "");
+    assert_eq!(row.get::<String, _>("container_ext"), "mkv");
     assert_eq!(row.get::<i64, _>("release_year"), 1995);
     let row = sqlx::query("SELECT release_year FROM movies WHERE id = '202'")
         .fetch_one(&pool)

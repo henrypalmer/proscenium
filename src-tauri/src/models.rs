@@ -73,6 +73,10 @@ pub struct LiveChannel {
     pub category_id: String,
     pub category_name: String,
     pub logo_url: Option<String>,
+    /// Internal only: never serialized to the frontend (spec §5.1 / Milestone 21).
+    /// For M3U it holds the provider's direct URL; for Xtream it is empty and the
+    /// playable URL is composed at playback time from the keychain secret.
+    #[serde(skip_serializing)]
     pub stream_url: String,
     pub stream_ext: String,
     pub epg_channel_id: Option<String>,
@@ -86,6 +90,9 @@ pub struct MovieItem {
     pub category_id: String,
     pub category_name: String,
     pub poster_url: Option<String>,
+    /// Internal only: never serialized to the frontend (Milestone 21). Empty for
+    /// Xtream (composed at playback from the keychain secret); the direct URL for M3U.
+    #[serde(skip_serializing)]
     pub stream_url: String,
     pub container_ext: String,
     pub release_year: Option<i64>,
@@ -112,6 +119,9 @@ pub struct EpisodeItem {
     pub season: i64,
     pub episode: i64,
     pub title: String,
+    /// Internal only: never serialized to the frontend (Milestone 21). Empty for
+    /// Xtream (composed at playback from the keychain secret); the direct URL for M3U.
+    #[serde(skip_serializing)]
     pub stream_url: String,
     pub container_ext: String,
     pub duration_seconds: Option<i64>,

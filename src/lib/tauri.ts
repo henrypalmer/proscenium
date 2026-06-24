@@ -177,6 +177,26 @@ export function openInExternalPlayer(
   return invoke("open_in_external_player", { streamUrl, player });
 }
 
+/**
+ * Diagnose a failed stream load (spec §12, Milestone 22): probes the provider
+ * and returns a user-facing reason distinguishing 4xx/5xx/network/timeout. The
+ * backend logs a secret-redacted diagnostic line. Never rejects with the raw
+ * mpv error — always resolves to a human-readable message.
+ */
+export function diagnosePlaybackFailure(
+  providerId: string,
+  contentType: PlayableContentType,
+  contentId: string,
+  mpvError: string | null,
+): Promise<string> {
+  return invoke("diagnose_playback_failure", {
+    providerId,
+    contentType,
+    contentId,
+    mpvError,
+  });
+}
+
 /** Watch progress (spec §5.9). `contentType` is "movie" or "episode" only. */
 export function getWatchProgress(
   providerId: string,

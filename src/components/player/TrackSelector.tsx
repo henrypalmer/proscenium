@@ -47,7 +47,7 @@ export default function TrackSelector({
         title={
           kind === "audio" ? "Audio track (A)" : "Subtitle track (S)"
         }
-        className="rounded p-1.5 text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
+        className="rounded p-2 text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
       >
         {kind === "audio" ? (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">

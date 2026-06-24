@@ -72,6 +72,7 @@ pub fn run() {
             commands::search::search,
             commands::playback::resolve_stream_url,
             commands::playback::open_in_external_player,
+            commands::playback::diagnose_playback_failure,
             commands::playback::mpv_load_url,
             commands::playback::mpv_play,
             commands::playback::mpv_pause,

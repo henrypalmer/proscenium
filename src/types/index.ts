@@ -49,7 +49,6 @@ export interface LiveChannel {
   categoryId: string;
   categoryName: string;
   logoUrl: string | null;
-  streamUrl: string;
   streamExt: string;
   epgChannelId: string | null;
 }
@@ -60,7 +59,6 @@ export interface Movie {
   categoryId: string;
   categoryName: string;
   posterUrl: string | null;
-  streamUrl: string;
   containerExt: string;
   releaseYear: number | null;
   rating: string | null;
@@ -82,7 +80,6 @@ export interface Episode {
   season: number;
   episode: number;
   title: string;
-  streamUrl: string;
   containerExt: string;
   durationSeconds: number | null;
   posterUrl: string | null;

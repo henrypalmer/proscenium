@@ -28,12 +28,16 @@ export default function PlayerControls({
   onToggleFullscreen,
   onClose,
 }: PlayerControlsProps) {
+  // Three distinct bar modes (Milestone 22): a seekable VOD, a genuine live
+  // stream, or a VOD whose duration isn't known yet (loading or failed) — the
+  // last must NOT masquerade as "● LIVE / 0:00".
   const seekable = !isLive && state.duration !== null;
+  const loadingVod = !isLive && state.duration === null;
 
   return (
     <div
       data-testid="player-controls"
-      className="pointer-events-auto absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-5 pb-4 pt-10"
+      className="pointer-events-auto absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-6 pb-5 pt-12"
     >
       {seekable ? (
         <input
@@ -45,13 +49,23 @@ export default function PlayerControls({
           onChange={(e) => void mpv.seek(Number(e.target.value))}
           aria-label="Seek"
           data-testid="seek-bar"
-          className="mb-2 h-1 w-full cursor-pointer accent-zinc-100"
+          className="mb-3 h-1.5 w-full cursor-pointer accent-zinc-100"
         />
-      ) : (
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-red-400">
+      ) : isLive ? (
+        <div
+          data-testid="live-badge"
+          className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-red-400"
+        >
           <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
           Live
         </div>
+      ) : (
+        // VOD still resolving a duration (or failed) — neutral placeholder track.
+        <div
+          data-testid="seek-placeholder"
+          aria-hidden="true"
+          className="mb-3 h-1.5 w-full rounded-full bg-white/15"
+        />
       )}
 
       <div className="flex items-center gap-3">
@@ -60,7 +74,7 @@ export default function PlayerControls({
           aria-label={state.paused ? "Play" : "Pause"}
           title={state.paused ? "Play (Space)" : "Pause (Space)"}
           data-testid="play-pause"
-          className="rounded p-1.5 text-white hover:bg-white/10"
+          className="rounded p-2 text-white hover:bg-white/10"
         >
           {state.paused ? (
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
@@ -76,7 +90,9 @@ export default function PlayerControls({
         <span className="text-xs tabular-nums text-zinc-300">
           {seekable
             ? `${formatTime(state.position)} / ${formatTime(state.duration ?? 0)}`
-            : formatTime(state.position)}
+            : loadingVod
+              ? "" // unknown duration yet — don't show a misleading 0:00
+              : formatTime(state.position)}
         </span>
 
         <span className="min-w-0 flex-1 truncate text-center text-sm text-zinc-200">
@@ -99,7 +115,7 @@ export default function PlayerControls({
           onClick={onToggleFullscreen}
           aria-label="Toggle full screen"
           title="Full screen (F)"
-          className="rounded p-1.5 text-zinc-300 hover:bg-white/10 hover:text-white"
+          className="rounded p-2 text-zinc-300 hover:bg-white/10 hover:text-white"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
             <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
@@ -110,7 +126,7 @@ export default function PlayerControls({
           aria-label="Close player"
           title="Close (Esc)"
           data-testid="player-close"
-          className="rounded p-1.5 text-zinc-300 hover:bg-white/10 hover:text-white"
+          className="rounded p-2 text-zinc-300 hover:bg-white/10 hover:text-white"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
             <path d="M6 6l12 12M18 6L6 18" />

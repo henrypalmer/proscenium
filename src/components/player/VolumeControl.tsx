@@ -12,7 +12,7 @@ export default function VolumeControl({ volume, muted }: VolumeControlProps) {
         onClick={() => void mpv.setMute(!muted)}
         aria-label={muted ? "Unmute" : "Mute"}
         title={muted ? "Unmute (M)" : "Mute (M)"}
-        className="rounded p-1.5 text-zinc-300 hover:bg-white/10 hover:text-white"
+        className="rounded p-2 text-zinc-300 hover:bg-white/10 hover:text-white"
       >
         {muted || volume === 0 ? (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">

@@ -196,6 +196,26 @@ pub async fn apply(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     // existing databases — `CREATE TABLE IF NOT EXISTS` above only covers fresh
     // installs, and SQLite's `ALTER TABLE ADD COLUMN` has no `IF NOT EXISTS`.
     add_column_if_missing(pool, "episodes", "overview", "TEXT").await?; // M20 §5.4
+    scrub_xtream_stream_urls(pool).await?; // M21 §5.1 — credential hardening
+    Ok(())
+}
+
+/// Milestone 21: earlier builds persisted the full Xtream stream URL with the
+/// provider password embedded in cleartext (`…/movie/<user>/<password>/<id>.ext`).
+/// The playable URL is now composed at playback time from the keychain secret, so
+/// scrub any such URLs already on disk. Idempotent (the `<> ''` guard makes it a
+/// no-op once cleared) and scoped to Xtream rows — M3U URLs are provider-supplied
+/// and carry no app-injected secret, so they are preserved.
+async fn scrub_xtream_stream_urls(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    for table in ["movies", "episodes", "live_channels"] {
+        sqlx::query(&format!(
+            "UPDATE {table} SET stream_url = ''
+             WHERE stream_url <> ''
+               AND provider_id IN (SELECT id FROM providers WHERE type = 'xtream')"
+        ))
+        .execute(pool)
+        .await?;
+    }
     Ok(())
 }
 

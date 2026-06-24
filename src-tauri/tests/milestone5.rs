@@ -381,7 +381,14 @@ async fn xtream_episodes_fetched_on_demand_and_persisted() {
 
     let pilot = &grouped[&1][0];
     assert_eq!(pilot.title, "Pilot");
-    assert_eq!(pilot.stream_url, format!("{base}/series/u1/pw1/5001.mkv"));
+    // Milestone 21: the password-bearing URL is no longer persisted; the catalog
+    // row carries only the id + container_ext, and the playable URL is composed
+    // at playback time from the keychain secret.
+    assert_eq!(pilot.stream_url, "");
+    let resolved = resolve_stream_url_impl(&pool, &provider.id, "episode", &pilot.id)
+        .await
+        .expect("resolve episode");
+    assert_eq!(resolved, format!("{base}/series/u1/pw1/5001.mkv"));
     assert_eq!(pilot.duration_seconds, Some(1800));
     assert_eq!(pilot.poster_url.as_deref(), Some("http://img/e1.jpg"));
     // Missing title/extension fall back.
