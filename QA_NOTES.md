@@ -1,3 +1,10 @@
+# Prompt Used
+```text
+Your job for this session is to be a thorough end user tester of Proscenium. Your goal is to take notes on positives, negatives, and areas for improvement as you navigate and use Proscenium. You are a professional QA lead. Click through all of the screens, test all of the flows between screens, taking note of things that work well and things that feel awkward. The notes you produce should be formatted such that they can be passed off to an engineer who can act on the points made. Do not use faked data. There is already an existing provider setup, SRP Tech App, so please use it for your testing.
+
+The app is available at 'C:\Users\henry\Documents\workspace\proscenium\src-tauri\target\release\proscenium.exe'
+```
+
 # Proscenium — End-User QA Notes
 
 **Tester:** QA lead (manual exploratory session)
