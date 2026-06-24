@@ -912,6 +912,11 @@ Items explicitly planned but deferred beyond v1.0:
 | Picture-in-Picture (all platforms) | Low | Windows PiP support is limited |
 | Dark/light theme toggle | Low | Dark is default; light theme option |
 | Custom M3U group ordering | Low | User-defined category sort |
+| Recently-watched channels row | Low | Live-TV "Recently watched" channels row and a "now playing / last watched" indicator on the channel you just viewed. Idea from the 2026-06-24 QA pass (`QA_NOTES.md` §2). |
+| Friendlier track-menu labels | Low | Subtitle/audio menus expose codec names ("eng · dvd_subtitle", "eng · ac3"); show friendly labels ("English", "English (SRT)", "English 5.1") and de-duplicate identical entries. QA idea (`QA_NOTES.md` §7); the track-selection *fix* is Milestone 22. |
+| Watched / in-list badge legend | Low | The green "✓" badge on some cards (watched / in a list) is unlabeled; add a tooltip or legend. QA idea (`QA_NOTES.md` §1). |
+| Global Live-TV filter scope | Low | The Live-TV filter box is scoped to the selected category; offer a hint or a toggle to search all channels without first selecting "All Channels". QA idea (`QA_NOTES.md` §2). |
+| Clarify LIVE-badge timer | Low | The LIVE badge's running timer is ambiguous (session-elapsed vs. buffer/time-shift position); clarify or hide it for pure-live streams. QA idea (`QA_NOTES.md` §2). |
 
 ---
 
@@ -2078,3 +2083,115 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [x] Backend: `EpisodeItem.overview` is parsed from Xtream `info.plot`/`info.overview`/`info.description`, with `models.rs` ↔ `types/index.ts` ↔ `devMock.ts` in sync and **no new IPC round-trip** (it rides `get_episodes`/`get_series_detail`). A backend test covers the parse + fallback order. *(`episode_overview_from` selects plot→overview→description; persisted via a new `episodes.overview` column with an idempotent `add_column_if_missing` migration for existing DBs. Backend test `series_detail_enriches_and_persists_episodes` asserts `plot` is preferred and `overview` is the fallback; `cargo test --tests` passes all suites.)*
 - [x] The episode list is **virtualized** (taller image-bearing rows, potentially long seasons — §10); all motion honors `prefers-reduced-motion`, animates only `transform`/`opacity`, and `npm run build` type-checks clean. *(preview: rows are absolutely-positioned via `translateY` inside a `@tanstack/react-virtual`-sized spacer, windowed against the detail's scroll container with `scrollMargin`; no new keyframe motion is added (only an existing-style hover highlight), so reduced-motion is inherently respected; `npm run build` (tsc + vite) passes clean with no console errors during the preview pass.)*
 
+---
+
+> **Milestones 21–26 originate from the end-user QA pass on 2026-06-24** (`QA_NOTES.md`, real-data session against the SRP Tech App provider on the local release build). They translate the prioritized defects and UX-friction findings into shippable slices. Pure "idea" suggestions from that pass (recently-watched channels, friendlier codec labels, watched-badge legend, a global Live-TV filter, the LIVE-timer clarification) are tracked in the §13 Future Roadmap rather than as milestones. The provider-side Cloudflare 403 on VOD media paths (`QA_NOTES.md` §9) is **not** an app bug and is excluded; only the app-side issues it exposed (opaque errors, missing logging, and the plaintext-credential leak) are scoped below.
+
+### Milestone 21 — Credential Hardening: Composed Stream URLs
+
+**Goal:** Stop persisting fully-formed stream URLs that embed the provider password in cleartext. Today `movies.stream_url` and the episode stream URLs are stored in the catalog DB as `…/movie/<user>/<password>/<id>.<ext>`, which leaks the secret into SQLite and defeats the keychain-only design (`keychain.rs`, §5.1). Store only the pieces needed to **compose** the URL at playback time, reading the password from the OS keychain — so the secret never lands on disk in the catalog (`QA_NOTES.md` §9). This is sequenced first because it is a security defect.
+
+**Scope:**
+- **Schema (§15):** stop storing the password-bearing URL. Persist the Xtream **stream id** + **container extension** (and the analogous M3U direct URL, which is provider-supplied and carries no app-injected secret) instead of the composed `stream_url`. Apply the change as an **idempotent migration** for existing DBs (the `add_column_if_missing` pattern used in Milestone 20), and clear/rewrite any already-persisted password-bearing URLs on first launch after upgrade so existing installs are scrubbed, not just new refreshes.
+- **Refresh persistence (`iptv/xtream.rs`, `db/`):** during catalog refresh, write stream id + container ext for movies and episodes rather than the full URL. Live channels already stream from a non-VOD path (and live kept working in QA) — verify live is handled the same way and carries no embedded secret.
+- **Playback compose (`commands/playback.rs`):** resolve the playable URL at play time by composing provider base + user + **keychain password** + id + ext, reusing/extending the existing `resolve_stream_url_for_movie_and_episode` path (Milestone 5) so the built-in player, "Open in External Player", and the resume flow all get a freshly-composed URL. The keychain remains the only at-rest location for the secret.
+- **Secret redaction:** ensure the composed URL (with password) is never written to logs, events, error strings, or the DB — only used transiently for the mpv/handoff call. This dovetails with the logging added in Milestone 22.
+- **IPC touch-points (§16):** follow the five-place pattern (`commands/*.rs` → `generate_handler![]` → `models.rs` ↔ `types/index.ts` → `lib/tauri.ts` → `devMock.ts`) for any model field changes (e.g. movie/episode now expose id+ext instead of a full URL); keep `devMock.ts` in sync.
+
+**Acceptance Criteria:**
+- [ ] After a catalog refresh, no row in `movies`, `episodes`, or `live_channels` contains the provider password in cleartext; the catalog stores stream id + container ext (or the provider's own secret-free direct URL for M3U). *(backend test: refresh a seeded Xtream provider and assert no persisted stream field contains the keychain password substring.)*
+- [ ] Upgrading an existing install with already-persisted password-bearing URLs scrubs them on first launch (idempotent migration), without requiring the user to delete `%APPDATA%\proscenium`.
+- [ ] Movie playback, episode playback, "Open in External Player", and resume all still launch the correct stream — the playable URL is composed at play time from the keychain secret, not read from the catalog DB. *(backend test on the compose path; player launch verified in the real Tauri window.)*
+- [ ] The composed password-bearing URL never appears in any log line, emitted event, error message, or DB column — only in the transient playback/handoff call.
+- [ ] `cargo test --tests` and `npm run build` pass clean.
+
+### Milestone 22 — Player Controls: Subtitle/Track Selection & Stream-Error Surfacing
+
+**Goal:** Fix the player's most impactful defects from QA: subtitle selection does nothing, subtitles default ON, stream-load failures show an opaque "loading failed" with no logging, and a failed VOD load mislabels the bar as live. Also widen the auto-hiding control bar's hit area (`QA_NOTES.md` §7, §2, §9).
+
+**Scope:**
+- **Subtitle selection (`mpv/`):** make the subtitle track menu actually change the active track — selecting **"Off"** disables subtitles (`sid=no`) and selecting a specific track switches to it; the menu's checkmark reflects the real mpv `sid` state. Audio-track selection already works (§7) — mirror its wiring. Investigate why the current selection has no effect (property set vs. observed) and verify against a multi-subtitle stream.
+- **Default subtitles Off:** auto-select **no** subtitle track on stream start (`sub-auto=no` / `sid=no` by default) so subtitles are opt-in, per common player expectation (§7). Confirm this is consistent across Live TV, movies, and episodes.
+- **Stream-error surfacing:** replace the bare "loading failed" with a cause-bearing message that distinguishes **4xx / 5xx / network / timeout** (e.g. "Provider denied this video (HTTP 403). Live TV is unaffected — VOD may be temporarily restricted."). Capture the HTTP status and mpv error string from the player pipeline and present a user-readable reason (§9). Update §5.6 / §12 error-handling wording as needed.
+- **Stream-failure logging:** on a failed load, log the failing URL **secret-redacted** (per Milestone 21), the HTTP status, and the mpv error string, so field diagnosis is possible (QA found empty logs on failure). Define where these go (stderr/app log) so launching the exe with captured output yields a diagnosable trace.
+- **Failed-VOD bar mode:** a failed VOD/movie load must not render the control bar as **"● LIVE / 0:00"** — keep VOD mode (or a neutral error state) so the bar matches the content type (§9).
+- **Control-bar ergonomics:** increase the control bar's hit area and lengthen the hover/auto-hide grace period so volume, track menus, fullscreen, and × are not a thin strip at the extreme bottom edge that's easy to miss (§2, §7). Keep the player z-order/transparency "sandwich" (CLAUDE.md, `mpv/mod.rs`) intact.
+
+**Acceptance Criteria:**
+- [ ] In the player, choosing "Off" disables subtitles and choosing a different subtitle track switches to it; the menu checkmark reflects the actual active track. Verified on a stream with multiple subtitle tracks.
+- [ ] Subtitles default to Off on stream start across Live TV, movies, and episodes; the user can turn them on from the track menu.
+- [ ] A failed stream load shows a cause-bearing message distinguishing 4xx/5xx/network/timeout (with HTTP status where available), not a bare "loading failed".
+- [ ] A failed load writes a diagnosable log line containing the secret-redacted URL, HTTP status, and mpv error string; launching the release exe with captured stdout/stderr surfaces it.
+- [ ] A failed VOD load no longer renders the bar as "● LIVE / 0:00" — the bar reflects VOD/error state.
+- [ ] The control bar has a larger hit area and a longer auto-hide grace; the player overlay/transparency and z-order behavior are unchanged.
+
+### Milestone 23 — App-Wide Keyboard Shortcuts
+
+**Goal:** Close the systemic accessibility gap QA called out: the Escape key closes nothing, space doesn't pause, and no media/navigation shortcuts are wired anywhere (`QA_NOTES.md` §2, §5, §7, §8). Implement a single, shared keyboard-handling pass across the player, modals, and overlays.
+
+**Scope:**
+- **Player shortcuts:** **space** = play/pause, **f** = fullscreen toggle, **m** = mute, **←/→** = seek (VOD/episodes), **↑/↓** = volume, **Esc** = close player. Wire these to the existing `playerStore` actions; for pure-live streams, seek/pause behave sensibly (or are no-ops) per §5.6.
+- **Modals & overlays:** **Esc** closes/cancels the search overlay (§5), the **resume modal** (§3), the **new-list** and **list-editor** modals, and the **add-to-list** picker; **Enter** submits the focused single-action modal (e.g. New-list "Create"). This complements the explicit Cancel button added in Milestone 26.
+- **Search results navigation:** **↑/↓** (or arrow keys) move through results and **Enter** opens the focused result, for keyboard-first use (§5).
+- **Focus discipline:** shortcuts must not hijack typing in text inputs (filter box, name fields) — handle key events with input-focus awareness, and scope player keys to when the player is active. Centralize in one handler/hook rather than ad-hoc listeners per component.
+
+**Acceptance Criteria:**
+- [ ] In the player, space pauses/resumes, f toggles fullscreen, m mutes, ←/→ seek (VOD/episodes), ↑/↓ change volume, and Esc closes the player — verified on a real stream.
+- [ ] Esc closes the search overlay, the resume modal, and the list/add-to-list modals; Enter submits the focused single-action modal.
+- [ ] Search results can be moved through with arrow keys and opened with Enter.
+- [ ] Shortcuts do not fire while typing in a text input (filter box, list-name field); player keys are scoped to an active player.
+- [ ] `npm run build` type-checks clean.
+
+### Milestone 24 — Feedback, Confirmation & Settings Wiring
+
+**Goal:** Address the recurring "actions complete silently or destructively" and "Settings don't visibly wire to the UI" themes (`QA_NOTES.md` §8) in one pass: a shared toast/confirm pattern, plus fixing the two broken Settings controls. Covers catalog-refresh feedback, destructive-delete safety, add-to-list confirmation, and the Density/Appearance controls (§1, §6).
+
+**Scope:**
+- **Shared toast + confirm primitives:** introduce (or extend the existing `Toast`) a reusable toast and a `ConfirmDialog` used by the items below, so feedback/confirmation are consistent app-wide.
+- **Catalog-refresh feedback (§6):** the manual ↻ refresh currently gives no spinner/progress/toast and the provider's **"Last refreshed"** timestamp doesn't update even though data changes. Wire a "Refreshing… (N/total)" indicator to the **already-emitted** `catalog:refresh_progress` events (consumed in `catalogStore.ts`), and **update "Last refreshed"** on `catalog:refresh_complete`. Confirm the timestamp persists and re-renders the provider card.
+- **Destructive-delete safety (§1, §6):** **list delete** currently removes a list instantly with no confirm/undo (real data loss for a populated list) — add a confirm dialog ("Delete '<name>' and its N items?") and/or an undo toast. **Provider delete** must show the same confirmation (QA did not destructively test it but flagged the identical gap). Apply the shared `ConfirmDialog`.
+- **Add-to-list confirmation (§1):** adding a title to a list currently only flips a small checkbox inside the still-open dropdown — easy to miss. Show a brief toast ("Added to <list>") on add.
+- **Density toggle (§6):** the Appearance → Density control has no visible effect and reverts to "Comfortable" after navigating away — i.e. it's neither wired to layout nor persisted. Make Density (Comfortable/Compact) actually change list/grid density (§9 Typography & Density) **and** persist via the settings store so the control reflects the stored value on return.
+- **Theme control restyle (§6):** the app is dark-only ("Light theme is planned"), but the disabled "Dark" button looks clickable. Restyle it to read clearly as the only/active option (light theme itself stays deferred — §13).
+
+**Acceptance Criteria:**
+- [ ] Triggering a manual catalog refresh shows a visible progress/spinner indicator driven by `catalog:refresh_progress`, and the provider's "Last refreshed" timestamp updates on completion and persists across navigation/restart.
+- [ ] Deleting a custom list prompts for confirmation (and/or offers undo); deleting a provider prompts for confirmation. No list/provider is destroyed by a single un-guarded click.
+- [ ] Adding an item to a list shows a confirmation toast.
+- [ ] Switching Density to Compact produces a visible layout change and the setting persists (the control still reads "Compact" after navigating away and on restart).
+- [ ] The Appearance theme control no longer looks like a clickable choice when Dark is the only option.
+- [ ] `npm run build` type-checks clean; backend tests pass.
+
+### Milestone 25 — Catalog Display & Empty-State Cleanup
+
+**Goal:** Stop missing/redundant provider data from leaking into the UI: blank channel names, the duplicated series-name/episode-code in titles, the "?" empty-list cover, and the missing in-list removal affordance (`QA_NOTES.md` §2, §4, §1, §8).
+
+**Scope:**
+- **Blank channel names (§2):** ~10 channels in "All Channels" render with no name text (empty rows). Add a graceful fallback — a placeholder name (e.g. stream id / "Untitled channel") and/or filter out truly empty entries — so no channel row is unidentifiable. Decide at render time and/or normalize on refresh.
+- **Title de-duplication (§4):** the player title bar reads "Black Mirror — Black Mirror - S02E01 - Be Right Back" and Keep Watching reads "S2:E1 · Black Mirror - S02E01 - …" because the composed label concatenates structured fields over a provider episode title that **already** embeds the series name and `SxxEyy`. Reuse/extend the **`cleanEpisodeTitle` helper added in Milestone 20** (`lib/utils.ts`) so the **player title bar** and the **Keep Watching label** strip the redundant series/`SxxEyy` prefix and compose from structured fields — e.g. "Black Mirror · S2:E1 — Be Right Back". Display-only normalization; no provider data is mutated.
+- **Empty-list cover (§1):** an empty list's Home cover currently shows a 2×2 grid of "?" placeholders, which looks broken. Use a neutral empty-list icon for the zero-item cover (`ListCoverCard`).
+- **Remove-from-list affordance (§1):** within `ListDetail`, the list view has no way to remove an item (hover only scales the poster) — the user must open the title's detail and untick. Add a hover remove (×) control or reuse the right-click context menu's remove in the list grid, calling the existing `remove_from_list` (Milestone 14).
+
+**Acceptance Criteria:**
+- [ ] No channel row renders with empty/blank name text — channels with missing names show a readable fallback (or are filtered), in both A-Z and PROVIDER sort.
+- [ ] The player title bar and the Keep Watching label show a de-duplicated title (series name and SxxEyy appear once), composed via the shared `cleanEpisodeTitle` normalization; no provider data is altered.
+- [ ] An empty custom list shows a neutral empty-state cover icon on Home instead of a "?" placeholder mosaic.
+- [ ] An item can be removed directly from `ListDetail` (hover ✕ or context menu) without opening the title's detail page; the grid and count update in place.
+- [ ] `npm run build` type-checks clean.
+
+### Milestone 26 — Resume Affordances & Row Scroll Controls
+
+**Goal:** Make resume/continue entry points consistent across detail pages and give horizontal rows a discoverable scroll affordance — the remaining UX-friction items from QA (`QA_NOTES.md` §3, §4, §1).
+
+**Scope:**
+- **Movie detail in-progress state (§3):** after partial playback, the movie detail page still shows a generic "Play" with no progress, and resume only surfaces as a modal *after* clicking Play — inconsistent with the Home thumbnail (which shows a progress bar). On the detail page, change "Play" → **"Resume from MM:SS"** with a secondary **"Start over"**, and show a progress bar on/under the poster when the title is in progress. Use the existing §5.9 watch-progress data.
+- **Series top-level Play/Continue CTA (§4):** the series detail has no top-level play/resume button — the user must scroll to the episode list and pick. Add a **"Resume SxxEyy" / "Play S1:E1"** CTA near the title (mirroring movies), targeting the last in-progress episode or the first episode.
+- **Resume modal Cancel (§3):** the "Resume playback?" modal has only Resume / Start-from-beginning; backdrop-click dismiss isn't discoverable. Add an explicit **Cancel** button (Esc-to-dismiss is delivered by Milestone 23).
+- **Row scroll chevrons (§1, §3):** Home carousels have **no** scroll arrows while the genre rows have tiny/subtle ones — inconsistent affordance. Add **hover-reveal chevron buttons** at the row edges and **standardize** them across all horizontal rows (Home Popular/My Lists/Keep Watching and the Movies/TV Shows genre rows). Respect the existing scaled-card breathing room (§9, Milestone 16) so chevrons don't clip cards.
+
+**Acceptance Criteria:**
+- [ ] A movie that is in progress shows "Resume from MM:SS" + "Start over" on its detail page, plus a progress indicator — consistent with its Home thumbnail; a not-started movie shows "Play".
+- [ ] The series detail page has a top-level Play/Resume CTA near the title that starts the first episode or resumes the last in-progress one, without scrolling to the episode list.
+- [ ] The resume modal has an explicit Cancel/close button in addition to Resume / Start from beginning.
+- [ ] Home carousels and the genre rows show consistent hover-reveal scroll chevrons at the row edges; clicking them scrolls the row, and scaled/hovered cards are not clipped.
+- [ ] `npm run build` type-checks clean.

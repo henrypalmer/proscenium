@@ -221,6 +221,27 @@ The defects below are mostly **polish and feedback gaps** rather than broken cor
 
 ---
 
+## 9. Incident: "loading failed" on all Movies/Series (VOD) — root cause
+
+During the session, VOD playback (Movies and Series episodes) began failing with a bare **"loading failed"** while **Live TV kept working**. Diagnosed end-to-end:
+
+- The VOD URL the app builds (e.g. `https://srptechapp.com/movie/<user>/<pw>/111950.mkv`) returns **HTTP 403 Forbidden**; the **live** URL returns 200 and streams.
+- **403 is served by Cloudflare** (`Server: cloudflare`, `CF-RAY`, `Cf-Cache-Status: BYPASS`) in front of the provider — i.e. the provider's edge is blocking VOD **media file paths** (`/movie/…`, `/series/…`) specifically.
+- It is **account/provider-wide**, not a bad entry or user-agent: every movie+episode tested returns 403 across 4 different user-agents.
+- The **account is healthy**: `player_api.php` → `auth:1, status:"Active"`, future `exp_date`, `active_cons:1 / max_connections:3`; and `get_vod_streams` API returns 200 (2.5 MB JSON). Live streams 200.
+
+**Conclusion:** This is a **provider/Cloudflare-side block on VOD media paths**, not an app bug and not caused by an app setting. (VOD also worked *after* the in-app catalog refresh earlier in the session, so the refresh isn't the cause.) It may be a temporary anti-abuse/WAF/hotlink rule (possibly tripped by rapid sequential VOD opens/seeks) or provider VOD downtime. "Open in External Player" would hit the same URL → same 403.
+
+**Real app-side issues this exposed (actionable):**
+- 🐞 **Opaque error.** The player shows only "loading failed" with no HTTP status or reason. 💡 Surface the cause (e.g. "Provider denied this video (HTTP 403). Live TV is unaffected — VOD may be temporarily restricted."), and distinguish 4xx/5xx/network/timeouts.
+- 🐞 **No logging of stream failures.** Launching the exe with stdout/stderr captured produced **empty logs** on a failed load — the mpv/stream error and HTTP status are not logged anywhere, making field diagnosis impossible. 💡 Log the failing URL (secret-redacted), HTTP status, and mpv error string.
+- 🐞 **Security: provider password stored in plaintext.** `movies.stream_url` (and `episodes`) persist the full URL **including the password in cleartext** (`/movie/<user>/<password>/…`), even though `providers.password` is a `keyring:` reference. This defeats the keychain-only design and leaks the secret into the catalog DB. 💡 Store only stream ids + container_ext and compose URLs at playback time using the keychain secret.
+- ⚠️ A failed VOD load renders the control bar as **"● LIVE / 0:00"** (wrong mode/duration for a movie). Cosmetic, but reinforces the unhelpful error.
+
+**User guidance:** Not fixable from the app — it's the provider's edge returning 403 for VOD. Likely clears on its own; if it persists, it's a provider support issue (tell them: "live works, but VOD returns 403 via Cloudflare").
+
+---
+
 ### Test coverage notes
 - All findings from the real local release build (`src-tauri/target/release/proscenium.exe`) against the existing **SRP Tech App** Xtream provider with live data. No mock/fake data used.
 - Playback verified on real streams: ESPN HD (live), Alien 1979 (VOD movie), Black Mirror S2E1 (series episode).
