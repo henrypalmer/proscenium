@@ -153,6 +153,34 @@ fn hardware_decode_is_active_for_h264_and_h265() {
 }
 
 #[test]
+fn hardware_decode_setting_applies_on_reload() {
+    // The player instance is reused across streams, so `mpv_load_url` now
+    // (re)applies the Hardware-decode setting at load time via `set_hwdec`. This
+    // proves a runtime toggle actually reaches the decoder on the next stream
+    // rather than being frozen at player creation.
+    let player = headless_player(true);
+
+    // Created with hwdec on → the first file hardware-decodes.
+    player.load_url(h264_file().to_str().unwrap(), None).unwrap();
+    let on = wait_for(&player, Duration::from_secs(15), |s| {
+        s.playing && s.position > 0.3 && s.hwdec_current.is_some()
+    });
+    assert!(on.hwdec_current.is_some(), "expected hardware decode initially");
+
+    // Turn it off and reload — the next file must decode in software.
+    player.set_hwdec(false).unwrap();
+    player.load_url(h264_file().to_str().unwrap(), None).unwrap();
+    let off = wait_for(&player, Duration::from_secs(15), |s| {
+        s.playing && s.position > 0.3
+    });
+    assert!(
+        off.hwdec_current.is_none(),
+        "hwdec should be off after set_hwdec(false), got {:?}",
+        off.hwdec_current
+    );
+}
+
+#[test]
 fn failed_stream_reports_an_error_state() {
     let player = headless_player(false);
     // Connection-refused port: the stream fails quickly.

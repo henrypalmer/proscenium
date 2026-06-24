@@ -16,6 +16,12 @@ interface SearchBarProps {
   onQueryChange: (query: string) => void;
   /** Pressing Enter commits the search (spec §5.5) with the trimmed query. */
   onSubmit?: (query: string) => void;
+  /**
+   * Combobox key delegate (Milestone 23): handles ↑/↓/Enter for result-list
+   * navigation. Returns true when it consumed the event, so the input skips its
+   * default Enter-to-commit behavior.
+   */
+  onKeyNav?: (e: React.KeyboardEvent<HTMLInputElement>) => boolean;
   /** Pre-populates the input (e.g. the committed query on the results screen). */
   initialText?: string;
   contentType: SearchContentType;
@@ -31,6 +37,7 @@ interface SearchBarProps {
 export default function SearchBar({
   onQueryChange,
   onSubmit,
+  onKeyNav,
   initialText = "",
   contentType,
   onContentTypeChange,
@@ -68,6 +75,7 @@ export default function SearchBar({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
+            if (onKeyNav?.(e)) return; // ↑/↓/Enter consumed by result navigation
             if (e.key === "Enter") onSubmit?.(text.trim());
           }}
           placeholder="Search channels, movies, and series…"

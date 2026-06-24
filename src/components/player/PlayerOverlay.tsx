@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { inTauri, mpv } from "../../lib/tauri";
+import { useWindowKeydown } from "../../lib/keyboard";
 import { usePlayerStore } from "../../store/playerStore";
 import BufferingOverlay from "./BufferingOverlay";
 import PlayerControls from "./PlayerControls";
@@ -77,7 +78,18 @@ export default function PlayerOverlay() {
   // open or the native video behind the WebView stays hidden.
   useEffect(() => {
     document.body.classList.toggle("player-open", open);
-    if (open) pokeControls();
+    if (open) {
+      pokeControls();
+      // Keep keyboard focus on the WebView (Milestone 23): mpv renders into a
+      // separate native window glued behind us; if that window takes focus the
+      // WebView never receives keydown and the player shortcuts go dead. Pull
+      // focus back to the main window so space/Esc/f/m/arrows reach this handler.
+      if (inTauri) {
+        void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
+          getCurrentWindow().setFocus().catch(() => {}),
+        );
+      }
+    }
     return () => document.body.classList.remove("player-open");
   }, [open, pokeControls]);
 
@@ -90,10 +102,11 @@ export default function PlayerOverlay() {
     await setFullscreen(!(await isFullscreen()));
   }, []);
 
-  // Keyboard shortcuts (spec §5.6).
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
+  // Player keyboard shortcuts (spec §5.6, Milestone 23): scoped to an open
+  // player and skipped while focus is in a text input (focus discipline), both
+  // enforced centrally by `useWindowKeydown`.
+  useWindowKeydown(
+    (e: KeyboardEvent) => {
       const s = usePlayerStore.getState().mpv;
       switch (e.key) {
         case " ":
@@ -142,10 +155,10 @@ export default function PlayerOverlay() {
         }
       }
       pokeControls();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, handleClose, toggleFullscreen, pokeControls]);
+    },
+    [handleClose, toggleFullscreen, pokeControls],
+    { enabled: open, ignoreEditable: true },
+  );
 
   if (!open || !nowPlaying) return null;
 

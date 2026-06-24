@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../../lib/tauri";
+import { useWindowKeydown } from "../../lib/keyboard";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { useSearchStore } from "../../store/searchStore";
 import SearchBar from "./SearchBar";
-import SearchResults from "./SearchResults";
+import SearchResults, { type ActiveResult } from "./SearchResults";
+import { INLINE_LIMIT } from "./SearchResultGroup";
 import type {
   Category,
   LiveChannel,
@@ -28,8 +30,8 @@ export default function SearchOverlay() {
   const open = useSearchStore((s) => s.open);
   const setOpen = useSearchStore((s) => s.setOpen);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
+  useWindowKeydown(
+    (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         e.preventDefault(); // also suppresses the WebView's native find bar
         // The player overlay has its own keyboard surface; search stays out.
@@ -38,10 +40,9 @@ export default function SearchOverlay() {
         e.preventDefault();
         setOpen(false);
       }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [setOpen]);
+    },
+    [setOpen],
+  );
 
   if (!open) return null;
   return <SearchPanel onClose={() => setOpen(false)} />;
@@ -144,6 +145,67 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
     navigate(`/search?${params.toString()}`);
   };
 
+  // --- Keyboard navigation of the result list (spec §5.5, Milestone 23) ---
+  // A flat sequence over the inline-visible results (the first 5 of each group,
+  // matching the rendered preview) so ↑/↓ move a single highlight across groups.
+  type NavItem =
+    | { kind: "live"; item: LiveChannel }
+    | { kind: "movie"; item: Movie }
+    | { kind: "series"; item: Series };
+
+  const navItems = useMemo<NavItem[]>(() => {
+    if (!results) return [];
+    return [
+      ...results.liveChannels
+        .slice(0, INLINE_LIMIT)
+        .map((item): NavItem => ({ kind: "live", item })),
+      ...results.movies
+        .slice(0, INLINE_LIMIT)
+        .map((item): NavItem => ({ kind: "movie", item })),
+      ...results.series
+        .slice(0, INLINE_LIMIT)
+        .map((item): NavItem => ({ kind: "series", item })),
+    ];
+  }, [results]);
+
+  const [activeIndex, setActiveIndex] = useState(-1);
+  // Reset the highlight whenever the result set changes (new query/filter).
+  useEffect(() => setActiveIndex(-1), [navItems]);
+
+  const activateNav = (nav: NavItem) => {
+    if (nav.kind === "live") playChannel(nav.item);
+    else if (nav.kind === "movie") openMovie(nav.item);
+    else openSeries(nav.item);
+  };
+
+  // Combobox keys on the input: ↑/↓ move the highlight, Enter opens the
+  // highlighted result (otherwise the input commits the full search).
+  const handleNavKey = (e: React.KeyboardEvent<HTMLInputElement>): boolean => {
+    if (navItems.length === 0) return false;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.min(i + 1, navItems.length - 1));
+      return true;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(i - 1, -1));
+      return true;
+    }
+    if (e.key === "Enter" && activeIndex >= 0 && activeIndex < navItems.length) {
+      e.preventDefault();
+      activateNav(navItems[activeIndex]);
+      return true;
+    }
+    return false;
+  };
+
+  const activeItem =
+    activeIndex >= 0 && activeIndex < navItems.length ? navItems[activeIndex] : null;
+  const activeResult: ActiveResult | null = activeItem
+    ? { kind: activeItem.kind, id: activeItem.item.id }
+    : null;
+
   return (
     <div
       data-testid="search-overlay"
@@ -156,6 +218,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
         <SearchBar
           onQueryChange={setQuery}
           onSubmit={submitSearch}
+          onKeyNav={handleNavKey}
           contentType={contentType}
           onContentTypeChange={setContentType}
           categories={categories}
@@ -176,6 +239,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
               onPlayChannel={playChannel}
               onOpenMovie={openMovie}
               onOpenSeries={openSeries}
+              active={activeResult}
             />
           )}
         </div>

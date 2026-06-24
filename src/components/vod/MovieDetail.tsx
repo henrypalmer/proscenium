@@ -2,11 +2,16 @@ import { useEffect, useState } from "react";
 import * as api from "../../lib/tauri";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
-import { formatDuration } from "../../lib/utils";
+import { useProgressStore, useWatchProgress } from "../../store/progressStore";
+import { formatDuration, formatTimestamp } from "../../lib/utils";
 import AddToListMenu from "../lists/AddToListMenu";
 import HeroBackdrop from "./HeroBackdrop";
 import { Poster } from "./PosterGrid";
+import WatchProgressOverlay from "./WatchProgressOverlay";
 import type { Movie, MovieDetail as MovieDetailData } from "../../types";
+
+/** Minimum saved position worth offering a resume for (mirrors playerStore). */
+const MIN_RESUME_SECONDS = 5;
 
 interface MovieDetailProps {
   providerId: string;
@@ -28,6 +33,16 @@ export default function MovieDetail({
   const notify = useCatalogStore((s) => s.notify);
   const [detail, setDetail] = useState<MovieDetailData | null>(null);
   const [addTo, setAddTo] = useState<{ x: number; y: number } | null>(null);
+
+  // Watch progress (spec §5.9 / Milestone 26): surface resume state on the page
+  // itself, not only as a modal after clicking Play. Pull the latest in case it
+  // changed since the section was last bulk-loaded.
+  const progress = useWatchProgress(providerId, "movie", movie.id);
+  useEffect(() => {
+    void useProgressStore.getState().syncOne(providerId, "movie", movie.id);
+  }, [providerId, movie.id]);
+  const inProgress =
+    !!progress && !progress.completed && progress.positionSeconds >= MIN_RESUME_SECONDS;
 
   useEffect(() => {
     let cancelled = false;
@@ -53,13 +68,16 @@ export default function MovieDetail({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const play = () =>
-    void usePlayerStore.getState().openContent({
-      providerId,
-      contentType: "movie",
-      contentId: movie.id,
-      title: movie.name,
-    });
+  const playArgs = {
+    providerId,
+    contentType: "movie" as const,
+    contentId: movie.id,
+    title: movie.name,
+  };
+  const play = () => void usePlayerStore.getState().openContent(playArgs);
+  const resume = () =>
+    void usePlayerStore.getState().playDirect(playArgs, progress!.positionSeconds);
+  const startOver = () => void usePlayerStore.getState().playDirect(playArgs, 0);
 
   const openExternal = async () => {
     try {
@@ -92,7 +110,12 @@ export default function MovieDetail({
         </button>
         <div className="flex items-end gap-6 pt-[140px]">
           <div className="w-40 shrink-0 drop-shadow-2xl sm:w-52">
-            <Poster url={movie.posterUrl} title={movie.name} vtName="vt-poster" />
+            <Poster
+              url={movie.posterUrl}
+              title={movie.name}
+              vtName="vt-poster"
+              overlay={<WatchProgressOverlay progress={progress} showCheck={false} />}
+            />
           </div>
           <div className="min-w-0 flex-1 pb-1">
             <h1 className="text-3xl font-bold text-white drop-shadow-md">
@@ -114,13 +137,32 @@ export default function MovieDetail({
               ))}
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                onClick={play}
-                data-testid="detail-play"
-                className="rounded-md bg-zinc-100 px-5 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
-              >
-                ▶ Play
-              </button>
+              {inProgress ? (
+                <>
+                  <button
+                    onClick={resume}
+                    data-testid="detail-resume"
+                    className="rounded-md bg-zinc-100 px-5 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+                  >
+                    ▶ Resume from {formatTimestamp(progress.positionSeconds)}
+                  </button>
+                  <button
+                    onClick={startOver}
+                    data-testid="detail-start-over"
+                    className="rounded-md border border-zinc-600 bg-zinc-950/40 px-5 py-2 text-sm font-medium text-zinc-100 backdrop-blur-sm hover:bg-zinc-900"
+                  >
+                    Start over
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={play}
+                  data-testid="detail-play"
+                  className="rounded-md bg-zinc-100 px-5 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+                >
+                  ▶ Play
+                </button>
+              )}
               <button
                 onClick={() => void openExternal()}
                 data-testid="detail-external"

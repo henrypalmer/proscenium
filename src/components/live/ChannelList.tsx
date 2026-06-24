@@ -2,11 +2,14 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef } from "react";
 import { usePagedLiveChannels } from "../../hooks/useCatalog";
 import { useCatalogStore } from "../../store/catalogStore";
+import { useDensity } from "../../lib/useDensity";
 import SkeletonCard from "../common/SkeletonCard";
 import ChannelCard from "./ChannelCard";
 import type { LiveChannel } from "../../types";
 
-const ROW_HEIGHT = 56; // h-14 — must match ChannelCard/SkeletonCard
+// Row heights per density (Milestone 24) — must match ChannelCard/SkeletonCard.
+const ROW_HEIGHT_COMFORTABLE = 56; // h-14
+const ROW_HEIGHT_COMPACT = 44; // h-11
 const INITIAL_SKELETON_ROWS = 14;
 
 interface ChannelListProps {
@@ -43,16 +46,24 @@ export default function ChannelList({
   const refreshing = useCatalogStore((s) => s.refreshing);
   const refresh = useCatalogStore((s) => s.refresh);
 
+  const compact = useDensity() === "compact";
+  const rowHeight = compact ? ROW_HEIGHT_COMPACT : ROW_HEIGHT_COMFORTABLE;
+
   // While the first page loads, render a fixed batch of skeleton rows.
   const count = total ?? INITIAL_SKELETON_ROWS;
 
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 10,
   });
   const virtualItems = virtualizer.getVirtualItems();
+
+  // Re-measure when the density (row height) changes.
+  useEffect(() => {
+    virtualizer.measure();
+  }, [virtualizer, rowHeight]);
 
   // Fetch the pages backing the currently visible range.
   useEffect(() => {
@@ -134,9 +145,10 @@ export default function ChannelList({
                   showCategory={showCategory}
                   onActivate={onActivate}
                   onContextMenu={onContextMenu}
+                  compact={compact}
                 />
               ) : (
-                <SkeletonCard />
+                <SkeletonCard compact={compact} />
               )}
             </div>
           );

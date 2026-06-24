@@ -51,6 +51,35 @@ export function cleanEpisodeTitle(
   return s.length > 0 ? s : fallback;
 }
 
+/**
+ * Composed, de-duplicated player title for an episode (spec §5.4, Milestone 25):
+ * `Series · S2:E1 — Clean Title`. Providers routinely stuff the series name and
+ * `SxxEyy` into the episode title, so the raw `{series} — {episode.title}`
+ * concatenation reads "Black Mirror — Black Mirror - S02E01 - Be Right Back";
+ * running the episode title through `cleanEpisodeTitle` and composing from the
+ * structured season/episode fields removes the duplication. Display-only.
+ */
+export function episodeLabel(
+  seriesName: string,
+  season: number,
+  episodeNum: number,
+  title: string,
+): string {
+  const clean = cleanEpisodeTitle(seriesName, episodeNum, title);
+  const tag = `S${season}:E${episodeNum}`;
+  const name = seriesName.trim();
+  return name ? `${name} · ${tag} — ${clean}` : `${tag} — ${clean}`;
+}
+
+/**
+ * Display name for a live channel (spec §5.3, Milestone 25). Some providers ship
+ * channels with a blank/whitespace name; fall back so a row is never an empty,
+ * unidentifiable strip. Display-only — the stored name is not mutated.
+ */
+export function displayChannelName(name: string): string {
+  return name.trim() || "Untitled channel";
+}
+
 /** Clock-style position: 95 → "1:35"; 3725 → "1:02:05". */
 export function formatTimestamp(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));

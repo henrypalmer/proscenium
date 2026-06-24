@@ -340,6 +340,14 @@ impl MpvPlayer {
         self.set_property("mute", if muted { "yes" } else { "no" })
     }
 
+    /// Set the hardware-decode mode (spec §11 / Settings "Hardware decode"). mpv
+    /// applies `hwdec` when the next file's decoder initializes, so setting it
+    /// just before `load_url` makes the Settings toggle take effect on the next
+    /// stream even though the player instance is reused across streams.
+    pub fn set_hwdec(&self, enabled: bool) -> Result<(), String> {
+        self.set_property("hwdec", if enabled { "auto-safe" } else { "no" })
+    }
+
     /// Track ids come from the track list; a negative id disables the track.
     pub fn set_audio_track(&self, track_id: i64) -> Result<(), String> {
         let value = if track_id < 0 { "no".into() } else { track_id.to_string() };

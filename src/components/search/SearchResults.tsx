@@ -9,6 +9,12 @@ import type {
   Series,
 } from "../../types";
 
+/** The keyboard-highlighted result across all groups (Milestone 23). */
+export interface ActiveResult {
+  kind: "live" | "movie" | "series";
+  id: string;
+}
+
 interface SearchResultsProps {
   providerId: string;
   query: string;
@@ -17,6 +23,7 @@ interface SearchResultsProps {
   onPlayChannel: (channel: LiveChannel) => void;
   onOpenMovie: (movie: Movie) => void;
   onOpenSeries: (series: Series) => void;
+  active?: ActiveResult | null;
 }
 
 const noop = () => undefined;
@@ -31,6 +38,7 @@ export default function SearchResults({
   onPlayChannel,
   onOpenMovie,
   onOpenSeries,
+  active,
 }: SearchResultsProps) {
   if (query === "") {
     return (
@@ -72,6 +80,7 @@ export default function SearchResults({
         items={results.liveChannels}
         layout="list"
         testId="search-group-live"
+        activeId={active?.kind === "live" ? active.id : undefined}
         getKey={(c) => c.id}
         renderItem={(channel) => (
           <ChannelCard
@@ -87,6 +96,7 @@ export default function SearchResults({
         items={results.movies}
         layout="grid"
         testId="search-group-movies"
+        activeId={active?.kind === "movie" ? active.id : undefined}
         getKey={(m) => m.id}
         renderItem={(movie) => (
           <MovieCard
@@ -102,6 +112,7 @@ export default function SearchResults({
         items={results.series}
         layout="grid"
         testId="search-group-series"
+        activeId={active?.kind === "series" ? active.id : undefined}
         getKey={(s) => s.id}
         renderItem={(series) => (
           <SeriesCard series={series} onActivate={onOpenSeries} />

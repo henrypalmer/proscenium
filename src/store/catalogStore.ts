@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { inTauri } from "../lib/tauri";
+import { useProviderStore } from "./providerStore";
 import type {
   CatalogSummary,
   Provider,
@@ -30,6 +31,8 @@ interface CatalogState {
   init: (providers: Provider[]) => Promise<void>;
   setActive: (providerId: string) => Promise<void>;
   refresh: () => Promise<void>;
+  /** Post-refresh fan-out: reload counts + the active provider's timestamp. */
+  refreshSucceeded: () => Promise<void>;
   loadSummary: () => Promise<void>;
   handleProviderDeleted: (providerId: string) => Promise<void>;
   /** Re-probe the active provider (banner Retry button). */
@@ -65,8 +68,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
       await listen<RefreshComplete>("catalog:refresh_complete", (event) => {
         set({ refreshing: false, stage: null, progress: 0 });
         if (event.payload.success) {
-          set({ refreshTick: get().refreshTick + 1 });
-          void get().loadSummary();
+          void get().refreshSucceeded();
         } else {
           // Spec §5.2: non-blocking toast; the stale cache stays usable.
           set({
@@ -108,11 +110,26 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     set({ refreshing: true, stage: "Starting…", progress: 0 });
     try {
       await api.refreshCatalog(provider.id);
+      // The browser dev mock emits no Tauri events, so drive the completion
+      // (timestamp + toast) inline; in Tauri the `refresh_complete` event does it.
+      if (!inTauri) await get().refreshSucceeded();
     } catch {
       // The refresh_complete event already surfaced the error as a toast.
     } finally {
       set({ refreshing: false, stage: null });
     }
+  },
+
+  // Milestone 24: after a successful refresh, bump the reload tick, refresh the
+  // catalog counts, and re-read the active provider so its "Last refreshed"
+  // timestamp updates on the Settings card; finish with a confirmation toast.
+  refreshSucceeded: async () => {
+    set({ refreshTick: get().refreshTick + 1 });
+    await get().loadSummary();
+    const active = await api.getActiveProvider();
+    if (active) set({ activeProvider: active });
+    await useProviderStore.getState().load();
+    get().notify("Catalog updated.");
   },
 
   loadSummary: async () => {

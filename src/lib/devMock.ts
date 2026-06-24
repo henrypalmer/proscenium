@@ -85,9 +85,14 @@ function allChannels(): LiveChannel[] {
       // via onError), one third no logo at all.
       const logoUrl =
         i % 3 === 0 ? svgLogo(i) : i % 3 === 1 ? `http://invalid.local/logo-${i}.png` : null;
+      // A few channels ship with blank names (as some real providers do), so the
+      // M25 "Untitled channel" fallback is representable in browser dev.
+      const blankName = i % 137 === 4;
       return {
         id: `live-${i}`,
-        name: `${FIRST[i % FIRST.length]} ${SECOND[i % SECOND.length]} ${String(i % 997).padStart(3, "0")}`,
+        name: blankName
+          ? ""
+          : `${FIRST[i % FIRST.length]} ${SECOND[i % SECOND.length]} ${String(i % 997).padStart(3, "0")}`,
         categoryId: category,
         categoryName: category,
         logoUrl,
@@ -532,7 +537,10 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
     case "get_active_provider":
       return provider as T;
     case "set_active_provider":
+      return undefined as T;
     case "refresh_catalog":
+      // Stamp a fresh "Last refreshed" time so the timestamp update is demoable.
+      provider.lastRefreshed = Math.floor(Date.now() / 1000);
       return undefined as T;
     case "get_catalog_summary":
       return {

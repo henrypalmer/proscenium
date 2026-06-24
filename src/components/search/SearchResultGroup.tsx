@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 /** Spec §5.5: each group shows at most 5 results inline. */
-const INLINE_LIMIT = 5;
+export const INLINE_LIMIT = 5;
 
 interface SearchResultGroupProps<T> {
   title: string;
@@ -11,6 +11,8 @@ interface SearchResultGroupProps<T> {
   testId: string;
   getKey: (item: T) => string;
   renderItem: (item: T) => ReactNode;
+  /** Key of the keyboard-highlighted item in this group, if any (Milestone 23). */
+  activeId?: string;
 }
 
 /** One content-type result group: header with count, up to 5 inline items,
@@ -22,13 +24,23 @@ export default function SearchResultGroup<T>({
   testId,
   getKey,
   renderItem,
+  activeId,
 }: SearchResultGroupProps<T>) {
   const [expanded, setExpanded] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // A new query (new items array) collapses the group again.
   useEffect(() => {
     setExpanded(false);
   }, [items]);
+
+  // Keep the keyboard-highlighted item in view as the user arrows through.
+  useEffect(() => {
+    if (activeId == null) return;
+    containerRef.current
+      ?.querySelector('[data-active="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeId]);
 
   if (items.length === 0) return null;
   const visible = expanded ? items : items.slice(0, INLINE_LIMIT);
@@ -42,15 +54,27 @@ export default function SearchResultGroup<T>({
         </span>
       </h3>
       <div
+        ref={containerRef}
         className={
           layout === "grid"
             ? "grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-4"
             : "overflow-hidden rounded-lg border border-zinc-900"
         }
       >
-        {visible.map((item) => (
-          <div key={getKey(item)}>{renderItem(item)}</div>
-        ))}
+        {visible.map((item) => {
+          const isActive = activeId === getKey(item);
+          return (
+            <div
+              key={getKey(item)}
+              data-active={isActive ? "true" : undefined}
+              className={
+                isActive ? "rounded-lg ring-2 ring-zinc-200" : undefined
+              }
+            >
+              {renderItem(item)}
+            </div>
+          );
+        })}
       </div>
       {items.length > INLINE_LIMIT && (
         <button

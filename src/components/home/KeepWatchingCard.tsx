@@ -1,5 +1,6 @@
 import { Poster } from "../vod/PosterGrid";
 import WatchProgressOverlay from "../vod/WatchProgressOverlay";
+import { cleanEpisodeTitle } from "../../lib/utils";
 import type { ContinueWatchingItem } from "../../types";
 
 interface KeepWatchingCardProps {
@@ -24,9 +25,12 @@ function describe(item: ContinueWatchingItem) {
   }
   const { episode, series } = item;
   const tag = `S${episode.season}·E${episode.episode}`;
+  // Strip the redundant series-name / SxxEyy the provider embeds in the episode
+  // title so the card doesn't read "Black Mirror" / "S2·E1 · Black Mirror S02E01…".
+  const cleanTitle = cleanEpisodeTitle(series?.name ?? "", episode.episode, episode.title);
   return {
-    title: series?.name ?? episode.title,
-    subtitle: series ? `${tag} · ${episode.title}` : tag,
+    title: series?.name ?? cleanTitle,
+    subtitle: series ? `${tag} · ${cleanTitle}` : tag,
     poster: series?.posterUrl ?? episode.posterUrl ?? null,
   };
 }

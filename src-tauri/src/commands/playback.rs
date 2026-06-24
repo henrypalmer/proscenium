@@ -489,6 +489,15 @@ pub async fn mpv_load_url(
     start_seconds: Option<f64>,
 ) -> Result<(), String> {
     let player = ensure_player(&app).await?;
+    // Apply the current Hardware-decode setting before loading so the toggle
+    // takes effect on the next stream (the player instance is reused, so reading
+    // it only at creation would freeze the setting until restart).
+    let pool = app.state::<Db>().0.clone();
+    let hwdec = !matches!(
+        db::settings::get(&pool, "hw_decode_enabled").await,
+        Ok(Some(v)) if v == "false"
+    );
+    let _ = player.set_hwdec(hwdec);
     player.load_url(&url, start_seconds)
 }
 

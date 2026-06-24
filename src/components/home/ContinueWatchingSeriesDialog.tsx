@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useWindowKeydown } from "../../lib/keyboard";
 import { formatTimestamp } from "../../lib/utils";
 import type { Episode, Series } from "../../types";
 
@@ -26,8 +26,9 @@ export default function ContinueWatchingSeriesDialog({
   onGoToSeries,
   onClose,
 }: ContinueWatchingSeriesDialogProps) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+  // Esc dismisses, Enter resumes the last in-progress episode (Milestone 23).
+  useWindowKeydown(
+    (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
@@ -35,10 +36,9 @@ export default function ContinueWatchingSeriesDialog({
         e.preventDefault();
         onResume();
       }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, onResume]);
+    },
+    [onClose, onResume],
+  );
 
   const epLabel = `S${episode.season}E${episode.episode}`;
 

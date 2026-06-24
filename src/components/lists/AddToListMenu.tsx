@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as api from "../../lib/tauri";
+import { useWindowKeydown } from "../../lib/keyboard";
+import { useCatalogStore } from "../../store/catalogStore";
 import { useListsStore } from "../../store/listsStore";
 import type { ListContentType } from "../../types";
 import ListEditorDialog from "./ListEditorDialog";
@@ -59,18 +61,21 @@ export default function AddToListMenu({
     const onDown = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose();
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
     // Defer so the opening click doesn't immediately dismiss it.
     const t = setTimeout(() => window.addEventListener("mousedown", onDown), 0);
-    window.addEventListener("keydown", onKey);
     return () => {
       clearTimeout(t);
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
+
+  // Esc dismisses the picker (Milestone 23).
+  useWindowKeydown(
+    (e) => {
+      if (e.key === "Escape") onClose();
+    },
+    [onClose],
+  );
 
   const toggle = async (listId: string) => {
     const next = new Set(member);
@@ -82,6 +87,10 @@ export default function AddToListMenu({
       next.add(listId);
       setMember(next);
       await addItem(listId, contentType, contentId);
+      // Milestone 24: confirm the add with a toast (the checkbox alone is easy
+      // to miss inside the still-open picker).
+      const name = lists.find((l) => l.id === listId)?.name ?? "list";
+      useCatalogStore.getState().notify(`Added to ${name}.`);
     }
   };
 
@@ -91,6 +100,7 @@ export default function AddToListMenu({
     if (created) {
       setMember((m) => new Set(m).add(created.id));
       await addItem(created.id, contentType, contentId);
+      useCatalogStore.getState().notify(`Added to ${created.name}.`);
     }
     onClose();
   };

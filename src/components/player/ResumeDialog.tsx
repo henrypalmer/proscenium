@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import { usePlayerStore } from "../../store/playerStore";
+import { useWindowKeydown } from "../../lib/keyboard";
 import { formatTimestamp } from "../../lib/utils";
 
 /**
@@ -13,9 +13,9 @@ export default function ResumeDialog() {
   const startOver = usePlayerStore((s) => s.startOver);
   const cancelResume = usePlayerStore((s) => s.cancelResume);
 
-  useEffect(() => {
-    if (!pending) return;
-    const onKey = (e: KeyboardEvent) => {
+  // Esc cancels, Enter resumes (spec §5.9 / Milestone 23), only while shown.
+  useWindowKeydown(
+    (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
         cancelResume();
@@ -23,10 +23,10 @@ export default function ResumeDialog() {
         e.preventDefault();
         void resumePlayback();
       }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [pending, cancelResume, resumePlayback]);
+    },
+    [cancelResume, resumePlayback],
+    { enabled: Boolean(pending) },
+  );
 
   if (!pending) return null;
 
@@ -59,6 +59,13 @@ export default function ResumeDialog() {
             className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-800"
           >
             Start from beginning
+          </button>
+          <button
+            onClick={cancelResume}
+            data-testid="resume-cancel"
+            className="mt-1 self-center text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            Cancel
           </button>
         </div>
       </div>

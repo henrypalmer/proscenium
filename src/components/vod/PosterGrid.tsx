@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useCatalogStore } from "../../store/catalogStore";
+import { useDensity } from "../../lib/useDensity";
 import Placeholder from "../common/Placeholder";
 
 /**
@@ -48,10 +49,6 @@ export function Poster({
   );
 }
 
-/** Gap between cells and the grid's outer padding (px). */
-const GAP = 16;
-/** Target cell width; the column count adapts to the container. */
-const TARGET_CELL_WIDTH = 176;
 /** Caption block under the 2:3 poster (title + year lines). */
 const CAPTION_HEIGHT = 52;
 const INITIAL_SKELETON_ROWS = 6;
@@ -88,6 +85,13 @@ export default function PosterGrid<T>({
   const [width, setWidth] = useState(0);
   const refreshing = useCatalogStore((s) => s.refreshing);
   const refresh = useCatalogStore((s) => s.refresh);
+
+  // Density (Milestone 24): compact packs more, smaller posters per row with a
+  // tighter gap; comfortable is the roomier default. Changing it re-derives the
+  // geometry below and the virtualizer re-measures (rowHeight/columns change).
+  const compact = useDensity() === "compact";
+  const GAP = compact ? 12 : 16;
+  const TARGET_CELL_WIDTH = compact ? 132 : 176;
 
   // First-paint entrance (spec §9 / Milestone 17): the initial top rows of a
   // freshly-loaded dataset fade in with a capped stagger. Gated so it fires only

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
+import ConfirmDialog from "../components/common/ConfirmDialog";
 import ContextMenu from "../components/common/ContextMenu";
 import Placeholder from "../components/common/Placeholder";
 import ListEditorDialog from "../components/lists/ListEditorDialog";
@@ -9,6 +10,7 @@ import MovieDetail from "../components/vod/MovieDetail";
 import SeriesCard from "../components/vod/SeriesCard";
 import SeriesDetail from "../components/vod/SeriesDetail";
 import * as api from "../lib/tauri";
+import { displayChannelName } from "../lib/utils";
 import { startViewTransition } from "../lib/viewTransition";
 import { useCatalogStore } from "../store/catalogStore";
 import { useListsStore } from "../store/listsStore";
@@ -37,15 +39,16 @@ function ChannelTile({
   channel: LiveChannel;
   onPlay: () => void;
 }) {
+  const name = displayChannelName(channel.name);
   return (
     <button
       onClick={onPlay}
       data-testid="list-channel-tile"
-      title={channel.name}
+      title={name}
       className="group block w-full text-left"
     >
       <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-zinc-900">
-        <Placeholder label={channel.name} />
+        <Placeholder label={name} />
         {channel.logoUrl && (
           <img
             src={channel.logoUrl}
@@ -60,7 +63,7 @@ function ChannelTile({
         )}
       </div>
       <p className="mt-2 truncate text-sm text-zinc-200 group-hover:text-white">
-        {channel.name}
+        {name}
       </p>
       <p className="mt-0.5 h-4 truncate text-xs text-zinc-500">Live TV</p>
     </button>
@@ -81,6 +84,7 @@ export default function ListDetail() {
 
   const [items, setItems] = useState<UserListItem[]>([]);
   const [renaming, setRenaming] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [menu, setMenu] = useState<{ item: UserListItem; x: number; y: number } | null>(
     null,
   );
@@ -190,10 +194,7 @@ export default function ListDetail() {
               Rename
             </button>
             <button
-              onClick={() => {
-                void removeList(listId);
-                navigate(-1);
-              }}
+              onClick={() => setConfirmingDelete(true)}
               data-testid="delete-list"
               className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-rose-300 hover:bg-rose-950/40"
             >
@@ -298,6 +299,27 @@ export default function ListDetail() {
             void renameList(listId, name);
           }}
           onClose={() => setRenaming(false)}
+        />
+      )}
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={`Delete "${list?.name ?? "this list"}"?`}
+          message={
+            items.length > 0
+              ? `This permanently removes the list and its ${items.length} ${
+                  items.length === 1 ? "item" : "items"
+                }. Your watch history is not affected.`
+              : "This permanently removes the list."
+          }
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => {
+            setConfirmingDelete(false);
+            void removeList(listId);
+            navigate(-1);
+          }}
+          onCancel={() => setConfirmingDelete(false)}
         />
       )}
     </div>

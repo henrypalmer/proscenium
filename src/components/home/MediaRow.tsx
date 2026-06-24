@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import ScrollRow from "../common/ScrollRow";
 
 interface MediaRowProps<T> {
   title: string;
@@ -29,10 +30,9 @@ export default function MediaRow<T>({
           {items.length}
         </span>
       </h2>
-      {/* Negative margin + padding gives hovered/scaled cards vertical and
-          horizontal breathing room: overflow-x:auto forces overflow-y to auto,
-          which would otherwise clip a scaled card (spec §9 Motion). */}
-      <div className="-mx-2 flex gap-4 overflow-x-auto px-2 py-2">
+      {/* ScrollRow keeps the negative-margin/padding breathing room so
+          hovered/scaled cards aren't clipped, and adds hover scroll chevrons. */}
+      <ScrollRow>
         {items.map((item, i) => (
           <div
             key={getKey(item)}
@@ -42,7 +42,7 @@ export default function MediaRow<T>({
             {renderItem(item)}
           </div>
         ))}
-      </div>
+      </ScrollRow>
     </section>
   );
 }

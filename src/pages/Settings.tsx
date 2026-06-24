@@ -154,8 +154,15 @@ function AppearanceSettings() {
           label="Theme"
           description="Light theme is planned for a future release."
         >
-          <span className="rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-500">
+          {/* A status label, not a control — Dark is currently the only theme
+              (Milestone 24), so it must not look clickable like the Density buttons. */}
+          <span
+            data-testid="theme-status"
+            className="inline-flex items-center gap-2 text-sm text-zinc-300"
+          >
+            <span className="h-2.5 w-2.5 rounded-full bg-zinc-100" aria-hidden />
             Dark
+            <span className="text-xs text-zinc-600">· only theme</span>
           </span>
         </Row>
       </div>
@@ -172,19 +179,24 @@ function Toggle({
   onChange: (value: boolean) => void;
   testId?: string;
 }) {
+  // Flex-centered knob (Headless-UI pattern): `items-center` handles the
+  // vertical centering and `translate-x` the horizontal slide, so the knob stays
+  // contained with symmetric 2px margins. (The previous `absolute` knob had no
+  // `left`, so its horizontal position relied on the static position and
+  // rendered off-track.)
   return (
     <button
       role="switch"
       aria-checked={checked}
       data-testid={testId}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 rounded-full transition-colors ${
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
         checked ? "bg-emerald-600" : "bg-zinc-700"
       }`}
     >
       <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-          checked ? "translate-x-5" : "translate-x-0.5"
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+          checked ? "translate-x-[22px]" : "translate-x-0.5"
         }`}
       />
     </button>

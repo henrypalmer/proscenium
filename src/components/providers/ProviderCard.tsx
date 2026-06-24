@@ -2,6 +2,7 @@ import { useState } from "react";
 import { testProviderConnection } from "../../lib/tauri";
 import { formatUnixDate } from "../../lib/utils";
 import { useProviderStore } from "../../store/providerStore";
+import ConfirmDialog from "../common/ConfirmDialog";
 import type { ConnectionTestResult, Provider } from "../../types";
 
 interface ProviderCardProps {
@@ -14,6 +15,7 @@ export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
   const [status, setStatus] = useState<ConnectionTestResult | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const endpoint =
     provider.serverUrl ?? provider.playlistUrl ?? provider.localFilePath ?? "";
@@ -42,13 +44,7 @@ export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
   }
 
   async function handleDelete() {
-    if (
-      !window.confirm(
-        `Delete provider "${provider.name}"? All of its cached catalog data will be removed.`,
-      )
-    ) {
-      return;
-    }
+    setConfirmingDelete(false);
     try {
       await remove(provider.id);
     } catch (e) {
@@ -92,7 +88,8 @@ export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
             Edit
           </button>
           <button
-            onClick={() => void handleDelete()}
+            onClick={() => setConfirmingDelete(true)}
+            data-testid="delete-provider"
             className="rounded-md border border-red-900/60 px-2.5 py-1 text-xs text-red-400 hover:bg-red-950/40"
           >
             Delete
@@ -139,6 +136,17 @@ export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
         <p className="mt-3 rounded-md border border-red-900 bg-red-950/40 px-3 py-2 text-xs text-red-300">
           {error}
         </p>
+      )}
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={`Delete provider "${provider.name}"?`}
+          message="All of its cached catalog data, lists, and watch history will be removed. This cannot be undone."
+          confirmLabel="Delete provider"
+          danger
+          onConfirm={() => void handleDelete()}
+          onCancel={() => setConfirmingDelete(false)}
+        />
       )}
     </div>
   );

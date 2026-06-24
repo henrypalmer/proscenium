@@ -62,6 +62,12 @@ interface PlayerStoreState {
   /** Resume-vs-restart prompt awaiting the user (spec §5.9). */
   pendingResume: PendingResume | null;
   openContent: (args: OpenArgs) => Promise<void>;
+  /**
+   * Start playback immediately at `startAt` seconds, bypassing the resume
+   * prompt — used by the detail-page "Resume from MM:SS" / "Start over" CTAs
+   * (spec §5.9 / Milestone 26), where the user has already made the choice.
+   */
+  playDirect: (args: OpenArgs, startAt: number) => Promise<void>;
   /** Proceed from a pending resume prompt. */
   resumePlayback: () => Promise<void>;
   startOver: () => Promise<void>;
@@ -163,6 +169,10 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => ({
       }
     }
     await startPlayback(set, get, { providerId, contentType, contentId, title }, 0);
+  },
+
+  playDirect: async (args, startAt) => {
+    await startPlayback(set, get, args, startAt);
   },
 
   resumePlayback: async () => {

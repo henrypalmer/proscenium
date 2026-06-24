@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useListsStore } from "../../store/listsStore";
+import ConfirmDialog from "../common/ConfirmDialog";
 import ContextMenu from "../common/ContextMenu";
+import ScrollRow from "../common/ScrollRow";
 import ListEditorDialog from "../lists/ListEditorDialog";
 import ListCoverCard from "./ListCoverCard";
 import type { ListSummary } from "../../types";
@@ -30,6 +32,7 @@ export default function MyListsRow({ onOpenList }: MyListsRowProps) {
   const [menu, setMenu] = useState<{ list: ListSummary; x: number; y: number } | null>(
     null,
   );
+  const [deleting, setDeleting] = useState<ListSummary | null>(null);
 
   return (
     <section data-testid="home-my-lists">
@@ -39,7 +42,7 @@ export default function MyListsRow({ onOpenList }: MyListsRowProps) {
           <span className="ml-2 text-sm font-normal text-zinc-600">{lists.length}</span>
         )}
       </h2>
-      <div className="-mx-2 flex gap-4 overflow-x-auto px-2 py-2">
+      <ScrollRow>
         <button
           onClick={() => setEditor({ mode: "create" })}
           data-testid="new-list-card"
@@ -61,7 +64,7 @@ export default function MyListsRow({ onOpenList }: MyListsRowProps) {
             />
           </div>
         ))}
-      </div>
+      </ScrollRow>
 
       {menu && (
         <ContextMenu
@@ -71,8 +74,29 @@ export default function MyListsRow({ onOpenList }: MyListsRowProps) {
           items={[
             { label: "Open", onSelect: () => onOpenList(menu.list.id) },
             { label: "Rename…", onSelect: () => setEditor({ mode: "rename", list: menu.list }) },
-            { label: "Delete", onSelect: () => void remove(menu.list.id) },
+            { label: "Delete", onSelect: () => setDeleting(menu.list) },
           ]}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title={`Delete "${deleting.name}"?`}
+          message={
+            deleting.itemCount > 0
+              ? `This permanently removes the list and its ${deleting.itemCount} ${
+                  deleting.itemCount === 1 ? "item" : "items"
+                }.`
+              : "This permanently removes the list."
+          }
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => {
+            const id = deleting.id;
+            setDeleting(null);
+            void remove(id);
+          }}
+          onCancel={() => setDeleting(null)}
         />
       )}
 

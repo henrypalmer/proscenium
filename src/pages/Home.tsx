@@ -12,6 +12,7 @@ import MovieDetail from "../components/vod/MovieDetail";
 import SeriesCard from "../components/vod/SeriesCard";
 import SeriesDetail from "../components/vod/SeriesDetail";
 import * as api from "../lib/tauri";
+import { episodeLabel } from "../lib/utils";
 import { startViewTransition } from "../lib/viewTransition";
 import { useCatalogStore } from "../store/catalogStore";
 import { useListsStore } from "../store/listsStore";
@@ -207,14 +208,16 @@ export default function Home() {
       });
     } else {
       const { episode, series } = item;
-      const title = series
-        ? `${series.name} · S${episode.season}E${episode.episode}`
-        : episode.title;
       void usePlayerStore.getState().openContent({
         providerId: pid,
         contentType: "episode",
         contentId: episode.id,
-        title,
+        title: episodeLabel(
+          series?.name ?? "",
+          episode.season,
+          episode.episode,
+          episode.title,
+        ),
       });
     }
   };

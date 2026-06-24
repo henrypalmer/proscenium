@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../../lib/tauri";
+import { episodeLabel } from "../../lib/utils";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { useProgressStore } from "../../store/progressStore";
@@ -82,7 +83,7 @@ export default function SeriesDetail({
       providerId,
       contentType: "episode",
       contentId: episode.id,
-      title: `${series.name} — ${episode.title}`,
+      title: episodeLabel(series.name, episode.season, episode.episode, episode.title),
     });
 
   const openExternal = async (episode: Episode) => {
@@ -104,6 +105,45 @@ export default function SeriesDetail({
       : Object.keys(episodes)
           .map(Number)
           .sort((a, b) => a - b);
+
+  // Top-level Play/Resume CTA (spec §5.4 / Milestone 26): resume the most-recent
+  // in-progress episode, else play the first episode — without scrolling to the
+  // list. Reuses the §5.9 progress cache loaded above for the episode rows.
+  const progressEntries = useProgressStore((s) => s.entries);
+  const ctaTarget = useMemo(() => {
+    if (!episodes) return null;
+    const all = Object.values(episodes).flat();
+    if (all.length === 0) return null;
+    let resume: Episode | null = null;
+    let resumeAt = -1;
+    for (const ep of all) {
+      const p = progressEntries[`${providerId}|episode|${ep.id}`];
+      if (p && !p.completed && p.positionSeconds >= 5 && p.updatedAt > resumeAt) {
+        resume = ep;
+        resumeAt = p.updatedAt;
+      }
+    }
+    if (resume) return { episode: resume, isResume: true };
+    const first = [...all].sort((a, b) => a.season - b.season || a.episode - b.episode)[0];
+    return { episode: first, isResume: false };
+  }, [episodes, progressEntries, providerId]);
+
+  const playCta = () => {
+    if (!ctaTarget) return;
+    const { episode, isResume } = ctaTarget;
+    const args = {
+      providerId,
+      contentType: "episode" as const,
+      contentId: episode.id,
+      title: episodeLabel(series.name, episode.season, episode.episode, episode.title),
+    };
+    if (isResume) {
+      const p = progressEntries[`${providerId}|episode|${episode.id}`];
+      void usePlayerStore.getState().playDirect(args, p?.positionSeconds ?? 0);
+    } else {
+      void usePlayerStore.getState().openContent(args);
+    }
+  };
 
   return (
     <div
@@ -141,7 +181,17 @@ export default function SeriesDetail({
                 </span>
               ))}
             </div>
-            <div className="mt-6">
+            <div className="mt-6 flex flex-wrap gap-3">
+              {ctaTarget && (
+                <button
+                  onClick={playCta}
+                  data-testid="series-cta"
+                  className="rounded-md bg-zinc-100 px-5 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+                >
+                  ▶ {ctaTarget.isResume ? "Resume" : "Play"} S{ctaTarget.episode.season}:E
+                  {ctaTarget.episode.episode}
+                </button>
+              )}
               <button
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();

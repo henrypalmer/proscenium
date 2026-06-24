@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import ScrollRow from "../common/ScrollRow";
 import type { Category } from "../../types";
 
 /** Card width — matches the Home rows for a consistent feel. */
@@ -126,9 +127,9 @@ function GenreRow<T>({
           See all ›
         </span>
       </button>
-      {/* Negative margin + padding mirrors the Home rows so hovered/scaled
-          cards keep their shape under overflow-x:auto (spec §9). */}
-      <div className="-mx-2 flex gap-4 overflow-x-auto px-2 py-2">
+      {/* ScrollRow mirrors the Home rows: breathing room for scaled cards plus
+          hover scroll chevrons (spec §9 / Milestone 26). */}
+      <ScrollRow>
         {items === null ? (
           // Hold off on any visible content until the row is hydrated — no grey
           // skeleton cards. An invisible spacer reserves the row's height so the
@@ -148,7 +149,7 @@ function GenreRow<T>({
             </div>
           ))
         )}
-      </div>
+      </ScrollRow>
     </section>
   );
 }
