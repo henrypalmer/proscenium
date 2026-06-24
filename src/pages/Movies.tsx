@@ -35,7 +35,9 @@ export default function Movies() {
   // change (Milestone 17).
   const navMovie = (location.state as { openMovie?: Movie } | null)?.openMovie ?? null;
 
-  const [categories, setCategories] = useState<Category[]>([]);
+  // `null` = categories not loaded yet (render nothing — avoids a grey
+  // skeleton-grid flash before GenreRows takes over); `[]` = loaded-but-empty.
+  const [categories, setCategories] = useState<Category[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Movie | null>(navMovie);
   /** Card whose poster morphs in/out of the detail view (View Transitions). */
@@ -164,41 +166,42 @@ export default function Movies() {
       <CategoryPanel
         title="Genres"
         allLabel="All Movies"
-        categories={categories}
+        categories={categories ?? []}
         selectedId={selected}
         onSelect={setSelected}
       />
       <div className="min-w-0 flex-1">
-        {/* "All Movies" → per-genre row stack (M19); a selected genre → the
-            existing full virtualized grid. Falls back to the grid when the
-            provider exposes no genres. */}
-        {selected === null && categories.length > 0 ? (
-          <GenreRows<Movie>
-            categories={categories}
-            resetKey={`${activeProvider.id}:${refreshTick}`}
-            fetchPage={fetchMoviePage}
-            getKey={(m) => m.id}
-            onSelectGenre={setSelected}
-            renderCard={(movie) => (
-              <MovieCard
-                movie={movie}
-                providerId={activeProvider.id}
-                onActivate={openDetail}
-                onContextMenu={(m, x, y) => setMenu({ movie: m, x, y })}
-                morphActive={morphId === movie.id}
-              />
-            )}
-          />
-        ) : (
-          <MovieGrid
-            providerId={activeProvider.id}
-            categoryId={selected}
-            version={refreshTick}
-            onActivate={openDetail}
-            onContextMenu={(movie, x, y) => setMenu({ movie, x, y })}
-            morphId={morphId}
-          />
-        )}
+        {/* While categories load, render nothing (no grey skeleton flash). Then:
+            "All Movies" → per-genre row stack (M19); a selected genre → the full
+            virtualized grid; no genres → the grid's all-movies fallback. */}
+        {categories !== null &&
+          (selected === null && categories.length > 0 ? (
+            <GenreRows<Movie>
+              categories={categories}
+              resetKey={`${activeProvider.id}:${refreshTick}`}
+              fetchPage={fetchMoviePage}
+              getKey={(m) => m.id}
+              onSelectGenre={setSelected}
+              renderCard={(movie) => (
+                <MovieCard
+                  movie={movie}
+                  providerId={activeProvider.id}
+                  onActivate={openDetail}
+                  onContextMenu={(m, x, y) => setMenu({ movie: m, x, y })}
+                  morphActive={morphId === movie.id}
+                />
+              )}
+            />
+          ) : (
+            <MovieGrid
+              providerId={activeProvider.id}
+              categoryId={selected}
+              version={refreshTick}
+              onActivate={openDetail}
+              onContextMenu={(movie, x, y) => setMenu({ movie, x, y })}
+              morphId={morphId}
+            />
+          ))}
       </div>
       {detail && (
         <MovieDetail

@@ -129,21 +129,25 @@ function GenreRow<T>({
       {/* Negative margin + padding mirrors the Home rows so hovered/scaled
           cards keep their shape under overflow-x:auto (spec §9). */}
       <div className="-mx-2 flex gap-4 overflow-x-auto px-2 py-2">
-        {items === null
-          ? Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className={`${CARD_W} shrink-0`}>
-                <div className="aspect-[2/3] w-full animate-pulse rounded-lg bg-zinc-800" />
-              </div>
-            ))
-          : items.map((item, i) => (
-              <div
-                key={getKey(item)}
-                className={`prosc-enter ${CARD_W} shrink-0`}
-                style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
-              >
-                {renderCard(item)}
-              </div>
-            ))}
+        {items === null ? (
+          // Hold off on any visible content until the row is hydrated — no grey
+          // skeleton cards. An invisible spacer reserves the row's height so the
+          // lazy-load IntersectionObserver geometry is preserved and the cards
+          // fade into stable space once loaded, instead of popping in (§9).
+          <div aria-hidden className={`${CARD_W} invisible shrink-0`}>
+            <div className="aspect-[2/3] w-full" />
+          </div>
+        ) : (
+          items.map((item, i) => (
+            <div
+              key={getKey(item)}
+              className={`prosc-enter ${CARD_W} shrink-0`}
+              style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
+            >
+              {renderCard(item)}
+            </div>
+          ))
+        )}
       </div>
     </section>
   );

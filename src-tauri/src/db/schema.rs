@@ -1,6 +1,6 @@
 //! Schema definitions (spec §15). Applied idempotently on every launch.
 
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 
 const SCHEMA: &str = r#"
 -- Providers
@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS episodes (
   container_ext    TEXT NOT NULL,
   duration_seconds INTEGER,
   poster_url       TEXT,
+  overview         TEXT,
   PRIMARY KEY (id, provider_id),
   FOREIGN KEY (series_id, provider_id) REFERENCES series(id, provider_id) ON DELETE CASCADE
 );
@@ -191,5 +192,30 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_series USING fts5(
 
 pub async fn apply(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(SCHEMA).execute(pool).await?;
+    // Columns added after the initial release need an idempotent backfill for
+    // existing databases — `CREATE TABLE IF NOT EXISTS` above only covers fresh
+    // installs, and SQLite's `ALTER TABLE ADD COLUMN` has no `IF NOT EXISTS`.
+    add_column_if_missing(pool, "episodes", "overview", "TEXT").await?; // M20 §5.4
+    Ok(())
+}
+
+/// Add `column` to `table` only when it is absent, so the migration is safe to
+/// re-run on every launch (and on databases created before the column existed).
+async fn add_column_if_missing(
+    pool: &SqlitePool,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> Result<(), sqlx::Error> {
+    let present = sqlx::query(&format!("PRAGMA table_info({table})"))
+        .fetch_all(pool)
+        .await?
+        .iter()
+        .any(|row| row.get::<String, _>("name") == column);
+    if !present {
+        sqlx::query(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }

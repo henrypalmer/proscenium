@@ -61,6 +61,7 @@ fn episode(id: &str, series_id: &str, season: i64, ep: i64) -> EpisodeItem {
         container_ext: "mkv".into(),
         duration_seconds: Some(1500),
         poster_url: None, // forces series-poster fallback in the UI
+        overview: None,
     }
 }
 

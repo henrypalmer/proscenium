@@ -102,6 +102,7 @@ fn episode(id: &str, series_id: &str, season: i64, ep: i64) -> EpisodeItem {
         container_ext: "mp4".into(),
         duration_seconds: None,
         poster_url: None,
+        overview: None,
     }
 }
 
@@ -614,7 +615,10 @@ async fn series_detail_enriches_and_persists_episodes() {
         let body = r#"{
             "info": {"name":"Breaking Code","plot":"A coder breaks bad.","genre":"Crime"},
             "episodes": {
-                "1": [{"id":"5001","episode_num":1,"title":"Pilot","container_extension":"mkv","season":1,"info":{}}]
+                "1": [
+                    {"id":"5001","episode_num":1,"title":"Pilot","container_extension":"mkv","season":1,"info":{"plot":"He cooks."}},
+                    {"id":"5002","episode_num":2,"title":"Cat's in the Bag","container_extension":"mkv","season":1,"info":{"overview":"Cleanup duty."}}
+                ]
             }
         }"#;
         Some(("application/json", body.as_bytes().to_vec()))
@@ -645,7 +649,11 @@ async fn series_detail_enriches_and_persists_episodes() {
     // The detail fetch persisted the episodes: get_episodes is served from
     // SQLite and the session cache absorbs a repeat detail open.
     let grouped = get_episodes_impl(&pool, &provider.id, "301").await.expect("episodes");
-    assert_eq!(grouped[&1].len(), 1);
+    assert_eq!(grouped[&1].len(), 2);
+    // Episode synopsis (M20 §5.4) is parsed and persisted: `plot` is preferred,
+    // `overview` is the fallback when `plot` is absent.
+    assert_eq!(grouped[&1][0].overview.as_deref(), Some("He cooks."));
+    assert_eq!(grouped[&1][1].overview.as_deref(), Some("Cleanup duty."));
     let _ = get_series_detail_impl(&pool, &cache, &provider.id, "301")
         .await
         .expect("again");

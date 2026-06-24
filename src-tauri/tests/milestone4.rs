@@ -257,6 +257,7 @@ async fn resolve_stream_url_finds_each_content_type() {
             container_ext: "mp4".into(),
             duration_seconds: None,
             poster_url: None,
+            overview: None,
         }],
     };
     db::catalog::replace_catalog(&pool, &provider.id, &data, 1).await.unwrap();

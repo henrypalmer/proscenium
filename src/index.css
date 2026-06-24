@@ -64,12 +64,6 @@ body.player-open {
   animation-duration: 260ms;
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
-/* The active top-nav pill is a shared element, so changing sections morphs it
-   from the old item to the new one — a sliding indicator (Milestone 17). */
-::view-transition-group(nav-active) {
-  animation-duration: 240ms;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-}
 
 /* Content entrance (Milestone 17): a brief fade + lift used for Home rows and a
    grid's first data paint. `both` keeps staggered items hidden until their

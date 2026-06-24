@@ -217,17 +217,28 @@ function episodesFor(seriesId: string): EpisodesBySeason {
   const grouped: EpisodesBySeason = {};
   for (let s = 1; s <= seasons; s++) {
     const count = 6 + ((n + s) % 7);
-    grouped[s] = Array.from({ length: count }, (_, e): Episode => ({
-      id: `ep-${n}-${s}-${e + 1}`,
-      seriesId,
-      season: s,
-      episode: e + 1,
-      title: `S${String(s).padStart(2, "0")}E${String(e + 1).padStart(2, "0")} — ${TITLE_B[(n + s + e) % TITLE_B.length]}`,
-      streamUrl: `http://mock.local/series/${n}/${s}/${e + 1}.mp4`,
-      containerExt: "mp4",
-      durationSeconds: 1260 + ((n + e) % 5) * 300,
-      posterUrl: null,
-    }));
+    grouped[s] = Array.from({ length: count }, (_, e): Episode => {
+      const name = TITLE_B[(n + s + e) % TITLE_B.length];
+      return {
+        id: `ep-${n}-${s}-${e + 1}`,
+        seriesId,
+        season: s,
+        episode: e + 1,
+        // Provider-style redundant title (series/SxxEyy embedded) so the
+        // frontend's cleanEpisodeTitle normalization is exercised in dev.
+        title: `S${String(s).padStart(2, "0")}E${String(e + 1).padStart(2, "0")} — ${name}`,
+        streamUrl: `http://mock.local/series/${n}/${s}/${e + 1}.mp4`,
+        containerExt: "mp4",
+        durationSeconds: 1260 + ((n + e) % 5) * 300,
+        // Mix of real (SVG), broken, and missing art so the thumbnail's
+        // loaded/error/placeholder states are all reachable in dev.
+        posterUrl: posterFor(n * 13 + s * 7 + e, name),
+        overview:
+          (n + s + e) % 5 === 0
+            ? null // some episodes have no synopsis
+            : `${name} forces a reckoning: alliances shift, a secret surfaces, and no one walks away unchanged.`,
+      };
+    });
   }
   return grouped;
 }

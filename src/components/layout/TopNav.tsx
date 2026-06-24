@@ -1,6 +1,5 @@
-import type { MouseEvent } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
-import { startViewTransition } from "../../lib/viewTransition";
+import { useLayoutEffect, useRef, useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useCatalogStore } from "../../store/catalogStore";
 import { useProviderStore } from "../../store/providerStore";
 import { useSearchStore } from "../../store/searchStore";
@@ -87,27 +86,50 @@ export default function TopNav() {
 
   const provider = activeProvider ?? providers[0] ?? null;
 
-  const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-      isActive
-        ? "bg-zinc-100 text-zinc-900"
-        : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
-    }`;
+  // The white selection pill is a single floating element that physically
+  // slides between items (CSS transition on its measured geometry). It is
+  // painted *over* the labels with `mix-blend-mode: difference`, so the labels
+  // never move and stay visible — each one only inverts (reads dark) where the
+  // white pill actually covers it, continuously as the pill slides past.
+  const location = useLocation();
+  const navRef = useRef<HTMLElement>(null);
+  const linkRefs = useRef<Array<HTMLAnchorElement | null>>([]);
+  const [pill, setPill] = useState<
+    { left: number; top: number; width: number; height: number } | null
+  >(null);
 
-  // The active pill is a shared element, so a route change morphs it from the
-  // old item to the new one — a sliding indicator (Milestone 17).
-  const linkStyle = ({ isActive }: { isActive: boolean }) =>
-    isActive ? { viewTransitionName: "nav-active" } : undefined;
+  const activeIndex = NAV_ITEMS.findIndex((item) =>
+    item.end
+      ? location.pathname === item.to
+      : location.pathname === item.to ||
+        location.pathname.startsWith(`${item.to}/`),
+  );
 
-  // Cross-fade the content area when switching sections (Milestone 17). Lets
-  // normal modified clicks through; degrades to an instant nav when the View
-  // Transitions API is unavailable or reduced-motion is set.
-  const go = (e: MouseEvent, to: string) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)
-      return;
-    e.preventDefault();
-    startViewTransition(() => navigate(to));
-  };
+  // Measure the active item and position the pill over it (re-measuring on
+  // resize / font load). Runs before paint so the pill never flashes in.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const link = linkRefs.current[activeIndex];
+      if (!link) {
+        setPill(null);
+        return;
+      }
+      setPill({
+        left: link.offsetLeft,
+        top: link.offsetTop,
+        width: link.offsetWidth,
+        height: link.offsetHeight,
+      });
+    };
+    measure();
+    const nav = navRef.current;
+    const ro = nav ? new ResizeObserver(measure) : null;
+    if (nav && ro) ro.observe(nav);
+    return () => ro?.disconnect();
+  }, [activeIndex]);
+
+  const linkClass =
+    "relative flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800";
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex items-center justify-center gap-2 px-4">
@@ -133,23 +155,36 @@ export default function TopNav() {
         </button>
       )}
       <nav
+        ref={navRef}
         data-testid="top-nav"
-        className="pointer-events-auto flex shrink-0 items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/90 p-1 shadow-xl backdrop-blur"
+        className="pointer-events-auto relative isolate flex shrink-0 items-center gap-1 rounded-full border border-zinc-800 bg-zinc-900/90 p-1 shadow-xl backdrop-blur"
       >
-        {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS.map((item, i) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.end}
-            onClick={(e) => go(e, item.to)}
+            ref={(el) => {
+              linkRefs.current[i] = el;
+            }}
             data-testid={`nav-${item.label.replace(/\s+/g, "-").toLowerCase()}`}
             className={linkClass}
-            style={linkStyle}
           >
             {item.icon}
             <span>{item.label}</span>
           </NavLink>
         ))}
+        {/* Floating selection pill: painted over the labels with a difference
+            blend so the label under it reads dark while every other label stays
+            light and in place. Slides between items via the geometry transition. */}
+        {pill && (
+          <span
+            aria-hidden
+            data-testid="nav-pill"
+            className="pointer-events-none absolute rounded-full bg-white mix-blend-difference transition-[left,top,width,height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+            style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }}
+          />
+        )}
       </nav>
 
       {/* Search + Refresh: directly beside the pill, each its own bubble (icons only). */}

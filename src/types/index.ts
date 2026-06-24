@@ -86,6 +86,8 @@ export interface Episode {
   containerExt: string;
   durationSeconds: number | null;
   posterUrl: string | null;
+  /** Short episode synopsis (Xtream info.plot/overview; spec §5.4, M20). */
+  overview: string | null;
 }
 
 /** Movie row plus on-demand metadata (Xtream vod_info; session-cached). */

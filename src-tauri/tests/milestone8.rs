@@ -5,7 +5,9 @@
 use proscenium_lib::commands::providers::{delete_provider_impl, upsert_provider_impl};
 use proscenium_lib::commands::watch::{mark_watched_impl, set_watch_progress_impl};
 use proscenium_lib::db;
-use proscenium_lib::models::{Provider, ProviderInput, ProviderType};
+use proscenium_lib::models::{
+    CatalogData, Category, EpisodeItem, Provider, ProviderInput, ProviderType, SeriesItem,
+};
 use sqlx::{Row, SqlitePool};
 use std::path::PathBuf;
 
@@ -193,6 +195,85 @@ async fn live_tv_is_never_tracked() {
 
     let result = set_watch_progress_impl(&pool, &provider.id, "live", "c1", 30.0, None).await;
     assert!(result.is_err(), "live TV must be rejected for tracking");
+
+    delete_provider_impl(&pool, &provider.id).await.unwrap();
+    pool.close().await;
+    cleanup_db(&path);
+}
+
+#[tokio::test]
+async fn refresh_preserves_in_progress_episode() {
+    // A full catalog refresh re-fetches series but not their (on-demand)
+    // episodes; deleting the series rows cascade-wipes `episodes`. The
+    // in-progress episode backing a Keep Watching item (and its resumable
+    // stream_url) must survive that refresh as long as its series still exists.
+    let path = temp_path("refresh-keep");
+    let pool = db::init(&path).await.expect("init");
+    let provider = make_provider(&pool).await;
+
+    let cat = Category { id: "30".into(), name: "Crime".into(), sort_order: 0 };
+    let ser = SeriesItem {
+        id: "s1".into(),
+        name: "Night Watch".into(),
+        category_id: "30".into(),
+        category_name: "Crime".into(),
+        poster_url: None,
+        release_year: Some(2019),
+    };
+    let ep = EpisodeItem {
+        id: "e1".into(),
+        series_id: "s1".into(),
+        season: 1,
+        episode: 1,
+        title: "Pilot".into(),
+        stream_url: "http://stream.local/series/e1.mp4".into(),
+        container_ext: "mp4".into(),
+        duration_seconds: Some(1500),
+        poster_url: None,
+        overview: None,
+    };
+
+    // Initial catalog with the series + its episode cached (as if its detail was
+    // opened once), then mark that episode in progress.
+    let initial = CatalogData {
+        series_categories: vec![cat.clone()],
+        series: vec![ser.clone()],
+        episodes: vec![ep],
+        ..Default::default()
+    };
+    db::catalog::replace_catalog(&pool, &provider.id, &initial, 1).await.unwrap();
+    set_watch_progress_impl(&pool, &provider.id, "episode", "e1", 300.0, Some(1500.0))
+        .await
+        .unwrap();
+
+    // A full Xtream-style refresh: series re-fetched, episodes empty (on-demand).
+    let refreshed = CatalogData {
+        series_categories: vec![cat.clone()],
+        series: vec![ser.clone()],
+        episodes: vec![],
+        ..Default::default()
+    };
+    db::catalog::replace_catalog(&pool, &provider.id, &refreshed, 2).await.unwrap();
+
+    // Still in Keep Watching, and the stream_url is intact for resume.
+    let kw = db::watch::continue_watching(&pool, &provider.id, 20).await.unwrap();
+    assert_eq!(kw.len(), 1, "in-progress episode must survive a refresh");
+    let stream: Option<String> = sqlx::query_scalar(
+        "SELECT stream_url FROM episodes WHERE provider_id = ? AND id = 'e1'",
+    )
+    .bind(&provider.id)
+    .fetch_optional(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stream.as_deref(), Some("http://stream.local/series/e1.mp4"));
+
+    // Orphan-tolerance: if the series itself is dropped by a refresh, its
+    // episode is not preserved and falls out of Keep Watching.
+    db::catalog::replace_catalog(&pool, &provider.id, &CatalogData::default(), 3)
+        .await
+        .unwrap();
+    let kw2 = db::watch::continue_watching(&pool, &provider.id, 20).await.unwrap();
+    assert!(kw2.is_empty(), "episode whose series vanished is not preserved");
 
     delete_provider_impl(&pool, &provider.id).await.unwrap();
     pool.close().await;

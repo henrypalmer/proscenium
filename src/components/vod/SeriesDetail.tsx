@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "../../lib/tauri";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
@@ -7,6 +7,7 @@ import AddToListMenu from "../lists/AddToListMenu";
 import EpisodeList from "./EpisodeList";
 import HeroBackdrop from "./HeroBackdrop";
 import { Poster } from "./PosterGrid";
+import SeasonSelect from "./SeasonSelect";
 import type {
   Episode,
   EpisodesBySeason,
@@ -37,6 +38,7 @@ export default function SeriesDetail({
   const [episodesError, setEpisodesError] = useState<string | null>(null);
   const [season, setSeason] = useState<number | null>(null);
   const [addTo, setAddTo] = useState<{ x: number; y: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +107,7 @@ export default function SeriesDetail({
 
   return (
     <div
+      ref={scrollRef}
       data-testid="series-detail"
       className="absolute inset-0 z-20 overflow-y-auto bg-zinc-950"
     >
@@ -177,30 +180,18 @@ export default function SeriesDetail({
             </p>
           ) : (
             <div className="prosc-enter">
-              <div
-                data-testid="season-selector"
-                className="flex flex-wrap gap-1.5"
-              >
-                {seasons.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setSeason(s)}
-                    data-testid="season-tab"
-                    className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                      season === s
-                        ? "bg-zinc-100 font-semibold text-zinc-900"
-                        : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                    }`}
-                  >
-                    Season {s}
-                  </button>
-                ))}
-              </div>
+              <SeasonSelect
+                seasons={seasons}
+                value={season ?? seasons[0]}
+                onChange={setSeason}
+              />
               {season !== null && episodes[season] && (
                 <div className="mt-4">
                   <EpisodeList
                     providerId={providerId}
+                    seriesName={series.name}
                     episodes={episodes[season]}
+                    scrollRef={scrollRef}
                     onPlay={play}
                     onOpenExternal={(e) => void openExternal(e)}
                   />

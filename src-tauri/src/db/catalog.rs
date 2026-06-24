@@ -24,6 +24,32 @@ pub async fn replace_catalog(
 ) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
+    // Preserve the episode rows that back an in-progress "Keep Watching" item
+    // (spec §5.9/§5.10). A full refresh re-fetches series but *not* their
+    // episodes (those are fetched on demand per series), and deleting the series
+    // rows below cascade-wipes `episodes` — which would drop the in-progress
+    // episode from Keep Watching and break resume (its `stream_url` lives in
+    // that row). Snapshot the watch-progress-referenced episodes whose series
+    // still exists in the incoming catalog, then re-insert them after the series
+    // rows are restored. Fresh `data.episodes` (M3U) overwrites these on insert.
+    let new_series_ids: std::collections::HashSet<&str> =
+        data.series.iter().map(|s| s.id.as_str()).collect();
+    let preserved_episodes: Vec<EpisodeItem> = sqlx::query(
+        "SELECT e.* FROM episodes e
+         JOIN watch_progress wp
+           ON wp.provider_id = e.provider_id
+          AND wp.content_type = 'episode'
+          AND wp.content_id = e.id
+         WHERE e.provider_id = ?",
+    )
+    .bind(provider_id)
+    .fetch_all(&mut *tx)
+    .await?
+    .iter()
+    .map(row_to_episode)
+    .filter(|e| new_series_ids.contains(e.series_id.as_str()))
+    .collect();
+
     for table in [
         "episodes",
         "series",
@@ -104,25 +130,11 @@ pub async fn replace_catalog(
         qb.build().execute(&mut *tx).await?;
     }
 
-    for chunk in data.episodes.chunks(CHUNK) {
-        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
-            "INSERT OR REPLACE INTO episodes
-             (id, provider_id, series_id, season, episode, title, stream_url, container_ext, duration_seconds, poster_url) ",
-        );
-        qb.push_values(chunk, |mut b, e| {
-            b.push_bind(&e.id)
-                .push_bind(provider_id)
-                .push_bind(&e.series_id)
-                .push_bind(e.season)
-                .push_bind(e.episode)
-                .push_bind(&e.title)
-                .push_bind(&e.stream_url)
-                .push_bind(&e.container_ext)
-                .push_bind(e.duration_seconds)
-                .push_bind(&e.poster_url);
-        });
-        qb.build().execute(&mut *tx).await?;
-    }
+    // Restore the preserved in-progress episodes first, then the fresh catalog
+    // episodes (M3U supplies these inline; Xtream's are on-demand so the slice
+    // is empty) so a fresh row always wins on an id conflict.
+    insert_episodes(&mut tx, provider_id, &preserved_episodes).await?;
+    insert_episodes(&mut tx, provider_id, &data.episodes).await?;
 
     // Re-index FTS from the content tables (spec: FTS5 populated on refresh).
     for fts in ["fts_live_channels", "fts_movies", "fts_series"] {
@@ -138,6 +150,37 @@ pub async fn replace_catalog(
         .await?;
 
     tx.commit().await
+}
+
+/// Bulk-insert episode rows in chunks. Shared by full-catalog replacement and
+/// per-series replacement. `INSERT OR REPLACE` means a later call overwrites
+/// earlier rows that share an `(id, provider_id)`.
+async fn insert_episodes(
+    tx: &mut Transaction<'_, Sqlite>,
+    provider_id: &str,
+    episodes: &[EpisodeItem],
+) -> Result<(), sqlx::Error> {
+    for chunk in episodes.chunks(CHUNK) {
+        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
+            "INSERT OR REPLACE INTO episodes
+             (id, provider_id, series_id, season, episode, title, stream_url, container_ext, duration_seconds, poster_url, overview) ",
+        );
+        qb.push_values(chunk, |mut b, e| {
+            b.push_bind(&e.id)
+                .push_bind(provider_id)
+                .push_bind(&e.series_id)
+                .push_bind(e.season)
+                .push_bind(e.episode)
+                .push_bind(&e.title)
+                .push_bind(&e.stream_url)
+                .push_bind(&e.container_ext)
+                .push_bind(e.duration_seconds)
+                .push_bind(&e.poster_url)
+                .push_bind(&e.overview);
+        });
+        qb.build().execute(&mut **tx).await?;
+    }
+    Ok(())
 }
 
 async fn insert_categories(
@@ -314,6 +357,7 @@ pub(crate) fn row_to_episode(row: &SqliteRow) -> EpisodeItem {
         container_ext: row.get("container_ext"),
         duration_seconds: row.get("duration_seconds"),
         poster_url: row.get("poster_url"),
+        overview: row.get("overview"),
     }
 }
 
@@ -474,25 +518,7 @@ pub async fn replace_series_episodes(
         .bind(series_id)
         .execute(&mut *tx)
         .await?;
-    for chunk in episodes.chunks(CHUNK) {
-        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
-            "INSERT OR REPLACE INTO episodes
-             (id, provider_id, series_id, season, episode, title, stream_url, container_ext, duration_seconds, poster_url) ",
-        );
-        qb.push_values(chunk, |mut b, e| {
-            b.push_bind(&e.id)
-                .push_bind(provider_id)
-                .push_bind(&e.series_id)
-                .push_bind(e.season)
-                .push_bind(e.episode)
-                .push_bind(&e.title)
-                .push_bind(&e.stream_url)
-                .push_bind(&e.container_ext)
-                .push_bind(e.duration_seconds)
-                .push_bind(&e.poster_url);
-        });
-        qb.build().execute(&mut *tx).await?;
-    }
+    insert_episodes(&mut tx, provider_id, episodes).await?;
     tx.commit().await
 }
 

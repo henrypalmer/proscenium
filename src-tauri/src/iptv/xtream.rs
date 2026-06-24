@@ -249,6 +249,14 @@ fn description_from(info: &Value) -> Option<String> {
         .find_map(|k| value_to_string(&info[*k]).filter(|s| !s.is_empty()))
 }
 
+/// Per-episode synopsis (spec §5.4, M20). Episode `info` objects most often
+/// carry `plot`; some panels use `overview` or `description`.
+fn episode_overview_from(info: &Value) -> Option<String> {
+    ["plot", "overview", "description"]
+        .iter()
+        .find_map(|k| value_to_string(&info[*k]).filter(|s| !s.is_empty()))
+}
+
 /// Pick a wide backdrop image URL from an Xtream `info` object (spec §5.4 hero,
 /// Milestone 18). `backdrop_path` is usually an array of URLs; some panels
 /// expose it as a single string. Fall back to the provided single-URL keys
@@ -349,6 +357,7 @@ pub async fn fetch_series_info(
                 container_ext: ext,
                 duration_seconds: value_to_i64(&item["info"]["duration_secs"]),
                 poster_url: value_to_string(&item["info"]["movie_image"]).filter(|s| !s.is_empty()),
+                overview: episode_overview_from(&item["info"]),
             });
         }
     }

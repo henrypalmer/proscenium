@@ -116,6 +116,8 @@ pub struct EpisodeItem {
     pub container_ext: String,
     pub duration_seconds: Option<i64>,
     pub poster_url: Option<String>,
+    /// Short episode synopsis (Xtream `info.plot`/`overview`; spec §5.4, M20).
+    pub overview: Option<String>,
 }
 
 /// Movie row enriched with on-demand metadata (Xtream `get_vod_info`).

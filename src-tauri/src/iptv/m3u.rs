@@ -464,6 +464,7 @@ impl CatalogBuilder {
                     container_ext: ext_from_url(url).unwrap_or_else(|| "mp4".into()),
                     duration_seconds: None,
                     poster_url: logo,
+                    overview: None,
                 });
             }
         }

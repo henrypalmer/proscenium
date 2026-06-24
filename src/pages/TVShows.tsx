@@ -25,7 +25,9 @@ export default function TVShows() {
   const navSeries =
     (location.state as { openSeries?: Series } | null)?.openSeries ?? null;
 
-  const [categories, setCategories] = useState<Category[]>([]);
+  // `null` = categories not loaded yet (render nothing — avoids a grey
+  // skeleton-grid flash before GenreRows takes over); `[]` = loaded-but-empty.
+  const [categories, setCategories] = useState<Category[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Series | null>(navSeries);
   /** Card whose poster morphs in/out of the detail view (View Transitions). */
@@ -131,40 +133,41 @@ export default function TVShows() {
       <CategoryPanel
         title="Genres"
         allLabel="All Series"
-        categories={categories}
+        categories={categories ?? []}
         selectedId={selected}
         onSelect={setSelected}
       />
       <div className="min-w-0 flex-1">
-        {/* "All Series" → per-genre row stack (M19); a selected genre → the
-            existing full virtualized grid. Falls back to the grid when the
-            provider exposes no genres. */}
-        {selected === null && categories.length > 0 ? (
-          <GenreRows<Series>
-            categories={categories}
-            resetKey={`${activeProvider.id}:${refreshTick}`}
-            fetchPage={fetchSeriesPage}
-            getKey={(s) => s.id}
-            onSelectGenre={setSelected}
-            renderCard={(series) => (
-              <SeriesCard
-                series={series}
-                onActivate={openDetail}
-                onContextMenu={(s, x, y) => setMenu({ series: s, x, y })}
-                morphActive={morphId === series.id}
-              />
-            )}
-          />
-        ) : (
-          <SeriesGrid
-            providerId={activeProvider.id}
-            categoryId={selected}
-            version={refreshTick}
-            onActivate={openDetail}
-            onContextMenu={(series, x, y) => setMenu({ series, x, y })}
-            morphId={morphId}
-          />
-        )}
+        {/* While categories load, render nothing (no grey skeleton flash). Then:
+            "All Series" → per-genre row stack (M19); a selected genre → the full
+            virtualized grid; no genres → the grid's all-series fallback. */}
+        {categories !== null &&
+          (selected === null && categories.length > 0 ? (
+            <GenreRows<Series>
+              categories={categories}
+              resetKey={`${activeProvider.id}:${refreshTick}`}
+              fetchPage={fetchSeriesPage}
+              getKey={(s) => s.id}
+              onSelectGenre={setSelected}
+              renderCard={(series) => (
+                <SeriesCard
+                  series={series}
+                  onActivate={openDetail}
+                  onContextMenu={(s, x, y) => setMenu({ series: s, x, y })}
+                  morphActive={morphId === series.id}
+                />
+              )}
+            />
+          ) : (
+            <SeriesGrid
+              providerId={activeProvider.id}
+              categoryId={selected}
+              version={refreshTick}
+              onActivate={openDetail}
+              onContextMenu={(series, x, y) => setMenu({ series, x, y })}
+              morphId={morphId}
+            />
+          ))}
       </div>
       {detail && (
         <SeriesDetail
