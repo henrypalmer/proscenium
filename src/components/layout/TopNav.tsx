@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useCatalogStore } from "../../store/catalogStore";
 import { useProviderStore } from "../../store/providerStore";
 import { useSearchStore } from "../../store/searchStore";
+import ContextMenu from "../common/ContextMenu";
 
 /** Primary navigation (spec §9): a floating, horizontally-centered pill pinned
  * to the top of the content area — Home · Live TV · Movies · Series ·
@@ -82,9 +83,23 @@ export default function TopNav() {
   const stage = useCatalogStore((s) => s.stage);
   const progress = useCatalogStore((s) => s.progress);
   const refresh = useCatalogStore((s) => s.refresh);
+  const setActive = useCatalogStore((s) => s.setActive);
   const openSearch = useSearchStore((s) => s.setOpen);
 
   const provider = activeProvider ?? providers[0] ?? null;
+
+  // Provider switcher (Milestone 36): a dropdown anchored under the provider
+  // pill listing all saved providers, the active one marked. Selecting another
+  // switches the active provider and lands on Home for a clean state swap.
+  const [switcherAt, setSwitcherAt] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const switchTo = (id: string) => {
+    if (id !== activeProvider?.id) {
+      void setActive(id);
+      navigate("/");
+    }
+  };
 
   // The white selection pill is a single floating element that physically
   // slides between items (CSS transition on its measured geometry). It is
@@ -132,12 +147,17 @@ export default function TopNav() {
     "relative flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800";
 
   return (
+    <>
     <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex items-center justify-center gap-2 px-4">
       {provider && (
         <button
-          onClick={() => navigate("/settings")}
-          title={`Provider: ${provider.name} — manage in Settings`}
-          aria-label={`Provider: ${provider.name}. Manage in Settings`}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setSwitcherAt({ x: r.left, y: r.bottom + 6 });
+          }}
+          title={`Provider: ${provider.name} — switch provider`}
+          aria-label={`Provider: ${provider.name}. Switch provider`}
+          aria-haspopup="menu"
           data-testid="provider-pill"
           className={PROVIDER_BUBBLE_CLASS}
         >
@@ -152,6 +172,16 @@ export default function TopNav() {
             <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
           </svg>
           <span className="truncate">{provider.name}</span>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden
+            className="h-3.5 w-3.5 shrink-0 text-zinc-500"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
         </button>
       )}
       <nav
@@ -258,5 +288,21 @@ export default function TopNav() {
         </div>
       </div>
     </div>
+    {/* Rendered outside the pointer-events-none container so it's clickable. */}
+    {switcherAt && (
+      <ContextMenu
+        x={switcherAt.x}
+        y={switcherAt.y}
+        onClose={() => setSwitcherAt(null)}
+        items={[
+          ...providers.map((p) => ({
+            label: `${p.id === activeProvider?.id ? "✓ " : ""}${p.name}`,
+            onSelect: () => switchTo(p.id),
+          })),
+          { label: "Manage in Settings…", onSelect: () => navigate("/settings") },
+        ]}
+      />
+    )}
+    </>
   );
 }

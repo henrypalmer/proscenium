@@ -67,6 +67,22 @@ const provider: Provider = {
   createdAt: Math.floor(Date.now() / 1000) - 86400,
 };
 
+// A second profile so the provider switcher (Milestone 36) is demoable in dev.
+const provider2: Provider = {
+  id: "mock-provider-2",
+  name: "Second Provider (Xtream)",
+  type: "xtream",
+  serverUrl: "http://second.example:8080",
+  username: "demo",
+  playlistUrl: null,
+  localFilePath: null,
+  lastRefreshed: Math.floor(Date.now() / 1000) - 7200,
+  createdAt: Math.floor(Date.now() / 1000) - 43200,
+};
+
+const mockProviders: Provider[] = [provider, provider2];
+let mockActiveProviderId = provider.id;
+
 function svgLogo(seed: number): string {
   const hue = (seed * 47) % 360;
   const svg =
@@ -543,15 +559,18 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
   const a = (args ?? {}) as Args;
   switch (cmd) {
     case "list_providers":
-      return [provider] as T;
+      return mockProviders as T;
     case "get_active_provider":
-      return provider as T;
+      return (mockProviders.find((p) => p.id === mockActiveProviderId) ?? null) as T;
     case "set_active_provider":
+      mockActiveProviderId = a.providerId as string;
       return undefined as T;
-    case "refresh_catalog":
+    case "refresh_catalog": {
       // Stamp a fresh "Last refreshed" time so the timestamp update is demoable.
-      provider.lastRefreshed = Math.floor(Date.now() / 1000);
+      const active = mockProviders.find((p) => p.id === mockActiveProviderId);
+      if (active) active.lastRefreshed = Math.floor(Date.now() / 1000);
       return undefined as T;
+    }
     case "get_catalog_summary":
       return {
         liveChannels: CHANNEL_COUNT,

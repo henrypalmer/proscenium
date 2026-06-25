@@ -99,6 +99,18 @@ export default function Home() {
     y: number;
   } | null>(null);
 
+  // Switching the active provider (Milestone 36) must not leave a previous
+  // provider's detail/menu overlay open over the new provider's Home.
+  useEffect(() => {
+    setDetail(null);
+    setMorph(null);
+    setMenu(null);
+    setSeriesMenu(null);
+    setSeriesChoice(null);
+    setKwMenu(null);
+    setAddTo(null);
+  }, [providerId]);
+
   useEffect(() => {
     if (!providerId) {
       setPopularMovies([]);

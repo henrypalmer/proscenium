@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { testProviderConnection } from "../../lib/tauri";
 import { formatUnixDate } from "../../lib/utils";
+import { useCatalogStore } from "../../store/catalogStore";
 import { useProviderStore } from "../../store/providerStore";
 import ConfirmDialog from "../common/ConfirmDialog";
 import type { ConnectionTestResult, Provider } from "../../types";
@@ -12,6 +13,9 @@ interface ProviderCardProps {
 
 export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
   const remove = useProviderStore((s) => s.remove);
+  const activeProviderId = useCatalogStore((s) => s.activeProvider?.id ?? null);
+  const setActive = useCatalogStore((s) => s.setActive);
+  const isActive = activeProviderId === provider.id;
   const [status, setStatus] = useState<ConnectionTestResult | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +69,14 @@ export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
             <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
               {provider.type === "xtream" ? "Xtream" : "M3U"}
             </span>
+            {isActive && (
+              <span
+                data-testid="provider-active-badge"
+                className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400"
+              >
+                Active
+              </span>
+            )}
           </div>
           <p className="mt-1 truncate text-xs text-zinc-500" title={endpoint}>
             {endpoint}
@@ -74,6 +86,15 @@ export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
           </p>
         </div>
         <div className="flex shrink-0 gap-1">
+          {!isActive && (
+            <button
+              onClick={() => void setActive(provider.id)}
+              data-testid="make-active"
+              className="rounded-md border border-emerald-900/60 px-2.5 py-1 text-xs text-emerald-400 hover:bg-emerald-950/40"
+            >
+              Make active
+            </button>
+          )}
           <button
             onClick={() => void handleCheckStatus()}
             disabled={checking}
