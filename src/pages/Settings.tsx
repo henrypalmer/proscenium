@@ -8,6 +8,7 @@ const SECTIONS = [
   { key: "providers", label: "Providers" },
   { key: "playback", label: "Playback" },
   { key: "appearance", label: "Appearance" },
+  { key: "storage", label: "Storage" },
 ] as const;
 
 type SectionKey = (typeof SECTIONS)[number]["key"];
@@ -37,6 +38,7 @@ export default function Settings() {
           {section === "providers" && <ProviderList />}
           {section === "playback" && <PlaybackSettings />}
           {section === "appearance" && <AppearanceSettings />}
+          {section === "storage" && <ImageCacheSettings />}
         </div>
       </div>
     </div>
@@ -167,14 +169,13 @@ function AppearanceSettings() {
           </span>
         </Row>
       </div>
-
-      <ImageCacheSettings />
     </div>
   );
 }
 
 /** Storage controls for the on-disk cover-art cache (spec §5.7, Milestone 27):
- * the configurable size cap, the current cache size, and a clear button. */
+ * the configurable size cap, the current cache size, and a clear button. Its
+ * own Settings section (not buried under Appearance). */
 function ImageCacheSettings() {
   const settings = useSettingsStore((s) => s.settings);
   const update = useSettingsStore((s) => s.update);
@@ -191,7 +192,7 @@ function ImageCacheSettings() {
   const formatMb = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
   return (
-    <div className="mt-8">
+    <div>
       <h3 className="mb-2 text-sm font-semibold text-zinc-200">Storage</h3>
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-5">
         <Row
