@@ -42,6 +42,26 @@ pub fn run() {
                 images_dir,
                 iptv::http_client().map_err(|e| e.to_string())?,
             ));
+            // Spike D POC: localhost stream proxy for MSE <video> playback.
+            // Bind synchronously to learn the port, then run the accept loop.
+            let proxy_listener = tauri::async_runtime::block_on(
+                tokio::net::TcpListener::bind("127.0.0.1:0"),
+            )
+            .map_err(|e| e.to_string())?;
+            let proxy_port = proxy_listener
+                .local_addr()
+                .map_err(|e| e.to_string())?
+                .port();
+            app.manage(commands::poc::PocProxy(proxy_port));
+            {
+                let pool = app.state::<db::Db>().0.clone();
+                let client = iptv::http_client().map_err(|e| e.to_string())?;
+                tauri::async_runtime::spawn(commands::poc::accept_loop(
+                    proxy_listener,
+                    pool,
+                    client,
+                ));
+            }
             app.manage(commands::catalog::RefreshGuard::default());
             app.manage(commands::catalog::DetailCache::default());
             app.manage(commands::playback::PlayerHandle::default());
@@ -72,6 +92,7 @@ pub fn run() {
             commands::images::cache_image,
             commands::images::image_cache_size,
             commands::images::clear_image_cache,
+            commands::poc::poc_proxy_base,
             commands::catalog::get_active_provider,
             commands::catalog::set_active_provider,
             commands::catalog::refresh_catalog,

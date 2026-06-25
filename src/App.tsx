@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import {
   BrowserRouter,
+  Link,
   Navigate,
   Route,
   Routes,
@@ -15,6 +16,7 @@ import SearchOverlay from "./components/search/SearchOverlay";
 import SearchResultsPage from "./components/search/SearchResultsPage";
 import Home from "./pages/Home";
 import LiveTV from "./pages/LiveTV";
+import MseMultiViewPoc from "./poc/mse/MseMultiViewPoc";
 import ListDetail from "./pages/ListDetail";
 import Movies from "./pages/Movies";
 import Settings from "./pages/Settings";
@@ -69,12 +71,21 @@ function Shell() {
               <Route path="/list/:listId" element={<ListDetail />} />
               <Route path="/search" element={<SearchResultsPage />} />
               <Route path="/settings" element={<Settings />} />
+              {/* Spike D POC (POC branch only). */}
+              <Route path="/poc/mse" element={<MseMultiViewPoc />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
         </main>
       </div>
       <SearchOverlay />
+      {/* Spike D POC entry point (POC branch only — remove with the spike). */}
+      <Link
+        to="/poc/mse"
+        className="fixed bottom-3 right-3 z-50 rounded-full border border-amber-700/60 bg-amber-950/70 px-3 py-1.5 text-xs font-medium text-amber-300 shadow-lg backdrop-blur hover:bg-amber-900/70"
+      >
+        🧪 MSE POC
+      </Link>
     </div>
   );
 }
