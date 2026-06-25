@@ -90,15 +90,14 @@ export default function TopNav() {
 
   // Provider switcher (Milestone 36): a dropdown anchored under the provider
   // pill listing all saved providers, the active one marked. Selecting another
-  // switches the active provider and lands on Home for a clean state swap.
+  // switches the active provider; the user stays on the current section (the
+  // page remounts via the provider key in App.tsx, closing any detail overlay
+  // and resetting to that section's main screen).
   const [switcherAt, setSwitcherAt] = useState<{ x: number; y: number } | null>(
     null,
   );
   const switchTo = (id: string) => {
-    if (id !== activeProvider?.id) {
-      void setActive(id);
-      navigate("/");
-    }
+    if (id !== activeProvider?.id) void setActive(id);
   };
 
   // The white selection pill is a single floating element that physically

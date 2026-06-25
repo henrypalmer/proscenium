@@ -77,6 +77,8 @@ export default function ListDetail() {
   const providerId = activeProvider?.id ?? null;
 
   const lists = useListsStore((s) => s.lists);
+  const listsLoaded = useListsStore((s) => s.loaded);
+  const listsProviderId = useListsStore((s) => s.providerId);
   const loadLists = useListsStore((s) => s.load);
   const renameList = useListsStore((s) => s.rename);
   const removeList = useListsStore((s) => s.remove);
@@ -123,6 +125,15 @@ export default function ListDetail() {
       cancelled = true;
     };
   }, [listId, providerId]);
+
+  // Lists are provider-scoped, so after switching providers (Milestone 36) — or
+  // if the list was deleted — the current list won't exist. Once this provider's
+  // lists are loaded and it's confirmed absent, back out to Home.
+  useEffect(() => {
+    if (listId && listsLoaded && listsProviderId === providerId && !list) {
+      navigate("/", { replace: true });
+    }
+  }, [listId, listsLoaded, listsProviderId, providerId, list, navigate]);
 
   if (!activeProvider) {
     return (
