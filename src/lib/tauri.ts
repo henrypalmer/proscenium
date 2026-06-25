@@ -18,6 +18,7 @@ import type {
   Provider,
   ProviderInput,
   ProviderStatus,
+  RelatedResults,
   SearchContentType,
   SearchResults,
   Series,
@@ -173,6 +174,17 @@ export function getSeriesDetail(
   seriesId: string,
 ): Promise<SeriesDetail> {
   return invoke("get_series_detail", { providerId, seriesId });
+}
+
+/** "More like this" related titles (spec §5.4, Milestone 28). Local-only —
+ * same-category items of the same content type, excluding the title itself. */
+export function getRelated(
+  providerId: string,
+  contentType: "movie" | "series",
+  contentId: string,
+  limit?: number,
+): Promise<RelatedResults> {
+  return invoke("get_related", { providerId, contentType, contentId, limit });
 }
 
 export function search(

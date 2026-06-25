@@ -489,6 +489,82 @@ pub async fn series_by_id(
     Ok(row.as_ref().map(row_to_series))
 }
 
+/// Up to `limit` *other* items sharing `content_id`'s category in `table` —
+/// the "More like this" set (spec §5.4, Milestone 28). Provider-scoped, excludes
+/// the item itself, ordered by `order_by` (a trusted literal). Empty when the
+/// item or its category is unknown. `order_by` is interpolated, so it must never
+/// be caller/user input.
+async fn related_in_category<T>(
+    pool: &SqlitePool,
+    table: &str,
+    provider_id: &str,
+    content_id: &str,
+    order_by: &str,
+    limit: i64,
+    map: fn(&SqliteRow) -> T,
+) -> Result<Vec<T>, sqlx::Error> {
+    let limit = limit.clamp(1, MAX_PAGE_SIZE);
+    let category_id: Option<String> = sqlx::query_scalar(&format!(
+        "SELECT category_id FROM {table} WHERE provider_id = ? AND id = ?"
+    ))
+    .bind(provider_id)
+    .bind(content_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(category_id) = category_id else {
+        return Ok(Vec::new());
+    };
+    let sql = format!(
+        "SELECT * FROM {table}
+         WHERE provider_id = ? AND category_id = ? AND id <> ?
+         ORDER BY {order_by} LIMIT ?"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(provider_id)
+        .bind(&category_id)
+        .bind(content_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.iter().map(map).collect())
+}
+
+pub async fn related_movies(
+    pool: &SqlitePool,
+    provider_id: &str,
+    movie_id: &str,
+    limit: i64,
+) -> Result<Vec<MovieItem>, sqlx::Error> {
+    related_in_category(
+        pool,
+        "movies",
+        provider_id,
+        movie_id,
+        "added_at DESC, name COLLATE NOCASE, id",
+        limit,
+        row_to_movie,
+    )
+    .await
+}
+
+pub async fn related_series(
+    pool: &SqlitePool,
+    provider_id: &str,
+    series_id: &str,
+    limit: i64,
+) -> Result<Vec<SeriesItem>, sqlx::Error> {
+    related_in_category(
+        pool,
+        "series",
+        provider_id,
+        series_id,
+        "release_year DESC, name COLLATE NOCASE, id",
+        limit,
+        row_to_series,
+    )
+    .await
+}
+
 pub async fn episodes_for_series(
     pool: &SqlitePool,
     provider_id: &str,

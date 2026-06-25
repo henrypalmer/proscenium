@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "../../lib/tauri";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { useProgressStore, useWatchProgress } from "../../store/progressStore";
 import { formatDuration, formatTimestamp } from "../../lib/utils";
+import { startViewTransition } from "../../lib/viewTransition";
 import AddToListMenu from "../lists/AddToListMenu";
 import HeroBackdrop from "./HeroBackdrop";
+import MoreLikeThis from "./MoreLikeThis";
 import { Poster } from "./PosterGrid";
 import WatchProgressOverlay from "./WatchProgressOverlay";
 import type { Movie, MovieDetail as MovieDetailData } from "../../types";
@@ -27,12 +29,28 @@ interface MovieDetailProps {
  */
 export default function MovieDetail({
   providerId,
-  movie,
+  movie: initialMovie,
   onClose,
 }: MovieDetailProps) {
   const notify = useCatalogStore((s) => s.notify);
+  // The movie currently shown. Initialized from the prop, but swappable in place
+  // when the user clicks a "More like this" card (spec §5.4, Milestone 28), so
+  // the detail navigates without the parent re-mounting it.
+  const [movie, setMovie] = useState<Movie>(initialMovie);
+  useEffect(() => setMovie(initialMovie), [initialMovie]);
   const [detail, setDetail] = useState<MovieDetailData | null>(null);
-  const [addTo, setAddTo] = useState<{ x: number; y: number } | null>(null);
+  const [addTo, setAddTo] = useState<{
+    contentId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Open a related movie in place: cross-fade to it, reset scroll, refetch.
+  const openRelated = (related: Movie) => {
+    scrollRef.current?.scrollTo({ top: 0 });
+    startViewTransition(() => setMovie(related));
+  };
 
   // Watch progress (spec §5.9 / Milestone 26): surface resume state on the page
   // itself, not only as a modal after clicking Play. Pull the latest in case it
@@ -46,6 +64,7 @@ export default function MovieDetail({
 
   useEffect(() => {
     let cancelled = false;
+    setDetail(null); // show the synopsis skeleton again when the movie swaps
     void api.getMovieDetail(providerId, movie.id).then(
       (d) => {
         if (!cancelled) setDetail(d);
@@ -96,6 +115,7 @@ export default function MovieDetail({
 
   return (
     <div
+      ref={scrollRef}
       data-testid="movie-detail"
       className="absolute inset-0 z-20 overflow-y-auto bg-zinc-950"
     >
@@ -173,7 +193,7 @@ export default function MovieDetail({
               <button
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
-                  setAddTo({ x: r.left, y: r.bottom });
+                  setAddTo({ contentId: movie.id, x: r.left, y: r.bottom });
                 }}
                 data-testid="detail-add-to-list"
                 className="rounded-md border border-zinc-600 bg-zinc-950/40 px-5 py-2 text-sm font-medium text-zinc-100 backdrop-blur-sm hover:bg-zinc-900"
@@ -201,12 +221,25 @@ export default function MovieDetail({
             <p className="text-sm text-zinc-500">No synopsis is available.</p>
           )}
         </div>
+
+        {/* "More like this" — same-genre movies, local-only (spec §5.4, M28). */}
+        <div className="mt-10">
+          <MoreLikeThis
+            providerId={providerId}
+            contentType="movie"
+            contentId={movie.id}
+            onOpenMovie={openRelated}
+            onOpenSeries={() => {}}
+            onContextMenuMovie={(m, x, y) => setAddTo({ contentId: m.id, x, y })}
+            onContextMenuSeries={() => {}}
+          />
+        </div>
       </div>
       {addTo && (
         <AddToListMenu
           providerId={providerId}
           contentType="movie"
-          contentId={movie.id}
+          contentId={addTo.contentId}
           x={addTo.x}
           y={addTo.y}
           onClose={() => setAddTo(null)}

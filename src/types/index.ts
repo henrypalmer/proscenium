@@ -106,6 +106,13 @@ export interface SeriesDetail extends Series {
 /** Keyed by season number (JSON object keys arrive as strings). */
 export type EpisodesBySeason = Record<number, Episode[]>;
 
+/** "More like this" related titles (spec §5.4, Milestone 28). Only the list
+ * matching the requested content type is populated. */
+export interface RelatedResults {
+  movies: Movie[];
+  series: Series[];
+}
+
 export interface PaginatedResult<T> {
   items: T[];
   total: number;

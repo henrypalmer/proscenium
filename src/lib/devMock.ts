@@ -635,6 +635,30 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       }
       return undefined as T;
     }
+    case "get_related": {
+      const ct = a.contentType as string;
+      const id = a.contentId as string;
+      const limit = (a.limit as number) ?? 20;
+      if (ct === "movie") {
+        const self = allMovies().find((m) => m.id === id);
+        const movies = self
+          ? allMovies()
+              .filter((m) => m.categoryId === self.categoryId && m.id !== id)
+              .slice(0, limit)
+          : [];
+        return { movies, series: [] } as T;
+      }
+      if (ct === "series") {
+        const self = allSeries().find((s) => s.id === id);
+        const series = self
+          ? allSeries()
+              .filter((s) => s.categoryId === self.categoryId && s.id !== id)
+              .slice(0, limit)
+          : [];
+        return { movies: [], series } as T;
+      }
+      return { movies: [], series: [] } as T;
+    }
     case "resolve_cached_image":
       // No on-disk cache in the browser — always a miss (use the remote URL).
       return null as T;

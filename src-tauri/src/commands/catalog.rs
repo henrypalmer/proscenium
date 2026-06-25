@@ -6,7 +6,8 @@ use crate::iptv::{m3u, xtream};
 use crate::keychain;
 use crate::models::{
     CatalogSummary, Category, EpisodeItem, LiveChannel, MovieDetail, MovieItem, PaginatedResult,
-    Provider, ProviderType, RefreshComplete, RefreshProgress, SeriesDetail, SeriesItem,
+    Provider, ProviderType, RefreshComplete, RefreshProgress, RelatedResults, SeriesDetail,
+    SeriesItem,
 };
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -484,6 +485,45 @@ pub async fn get_series_detail(
     series_id: String,
 ) -> Result<SeriesDetail, String> {
     get_series_detail_impl(&state.0, &cache, &provider_id, &series_id).await
+}
+
+/// "More like this" related titles (spec §5.4, Milestone 28): up to `limit`
+/// other catalog items sharing the title's category, same content type,
+/// provider-scoped, excluding the title itself. Local read — no provider request.
+pub async fn get_related_impl(
+    pool: &SqlitePool,
+    provider_id: &str,
+    content_type: &str,
+    content_id: &str,
+    limit: Option<i64>,
+) -> Result<RelatedResults, String> {
+    let limit = limit.unwrap_or(20);
+    let mut out = RelatedResults::default();
+    match content_type {
+        "movie" => {
+            out.movies = db::catalog::related_movies(pool, provider_id, content_id, limit)
+                .await
+                .map_err(|e| format!("Failed to read related movies: {e}"))?;
+        }
+        "series" => {
+            out.series = db::catalog::related_series(pool, provider_id, content_id, limit)
+                .await
+                .map_err(|e| format!("Failed to read related series: {e}"))?;
+        }
+        other => return Err(format!("Unsupported content type for related: {other}")),
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn get_related(
+    state: State<'_, Db>,
+    provider_id: String,
+    content_type: String,
+    content_id: String,
+    limit: Option<i64>,
+) -> Result<RelatedResults, String> {
+    get_related_impl(&state.0, &provider_id, &content_type, &content_id, limit).await
 }
 
 #[tauri::command]

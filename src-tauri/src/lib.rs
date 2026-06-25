@@ -85,6 +85,7 @@ pub fn run() {
             commands::catalog::get_episodes,
             commands::catalog::get_movie_detail,
             commands::catalog::get_series_detail,
+            commands::catalog::get_related,
             commands::search::search,
             commands::playback::resolve_stream_url,
             commands::playback::open_in_external_player,

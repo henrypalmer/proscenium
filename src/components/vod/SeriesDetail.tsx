@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../../lib/tauri";
 import { episodeLabel } from "../../lib/utils";
+import { startViewTransition } from "../../lib/viewTransition";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { useProgressStore } from "../../store/progressStore";
 import AddToListMenu from "../lists/AddToListMenu";
 import EpisodeList from "./EpisodeList";
 import HeroBackdrop from "./HeroBackdrop";
+import MoreLikeThis from "./MoreLikeThis";
 import { Poster } from "./PosterGrid";
 import SeasonSelect from "./SeasonSelect";
 import type {
@@ -30,19 +32,38 @@ interface SeriesDetailProps {
  */
 export default function SeriesDetail({
   providerId,
-  series,
+  series: initialSeries,
   onClose,
 }: SeriesDetailProps) {
   const notify = useCatalogStore((s) => s.notify);
+  // The series currently shown — swappable in place from a "More like this"
+  // card (spec §5.4, Milestone 28) without the parent re-mounting the view.
+  const [series, setSeries] = useState<Series>(initialSeries);
+  useEffect(() => setSeries(initialSeries), [initialSeries]);
   const [detail, setDetail] = useState<SeriesDetailData | null>(null);
   const [episodes, setEpisodes] = useState<EpisodesBySeason | null>(null);
   const [episodesError, setEpisodesError] = useState<string | null>(null);
   const [season, setSeason] = useState<number | null>(null);
-  const [addTo, setAddTo] = useState<{ x: number; y: number } | null>(null);
+  const [addTo, setAddTo] = useState<{
+    contentId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Open a related series in place: cross-fade to it, reset scroll, refetch.
+  const openRelated = (related: Series) => {
+    scrollRef.current?.scrollTo({ top: 0 });
+    startViewTransition(() => setSeries(related));
+  };
 
   useEffect(() => {
     let cancelled = false;
+    // Reset to the loading state so a swap doesn't flash the previous series.
+    setDetail(null);
+    setEpisodes(null);
+    setEpisodesError(null);
+    setSeason(null);
     void (async () => {
       try {
         const d = await api.getSeriesDetail(providerId, series.id);
@@ -195,7 +216,7 @@ export default function SeriesDetail({
               <button
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
-                  setAddTo({ x: r.left, y: r.bottom });
+                  setAddTo({ contentId: series.id, x: r.left, y: r.bottom });
                 }}
                 data-testid="detail-add-to-list"
                 className="rounded-md border border-zinc-600 bg-zinc-950/40 px-5 py-2 text-sm font-medium text-zinc-100 backdrop-blur-sm hover:bg-zinc-900"
@@ -250,12 +271,25 @@ export default function SeriesDetail({
             </div>
           )}
         </div>
+
+        {/* "More like this" — same-genre series, local-only (spec §5.4, M28). */}
+        <div className="mt-10">
+          <MoreLikeThis
+            providerId={providerId}
+            contentType="series"
+            contentId={series.id}
+            onOpenMovie={() => {}}
+            onOpenSeries={openRelated}
+            onContextMenuMovie={() => {}}
+            onContextMenuSeries={(s, x, y) => setAddTo({ contentId: s.id, x, y })}
+          />
+        </div>
       </div>
       {addTo && (
         <AddToListMenu
           providerId={providerId}
           contentType="series"
-          contentId={series.id}
+          contentId={addTo.contentId}
           x={addTo.x}
           y={addTo.y}
           onClose={() => setAddTo(null)}

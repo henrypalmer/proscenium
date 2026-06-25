@@ -269,6 +269,16 @@ pub struct SearchResults {
     pub series: Vec<SeriesItem>,
 }
 
+/// Related-titles for the "More like this" detail row (spec §5.4 / §16,
+/// Milestone 28). Only the list matching the requested content type is filled;
+/// the other stays empty. Resolved locally from the cached catalog.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedResults {
+    pub movies: Vec<MovieItem>,
+    pub series: Vec<SeriesItem>,
+}
+
 /// Payload for the `catalog:refresh_progress` event (spec §16).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
