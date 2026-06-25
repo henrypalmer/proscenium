@@ -4,6 +4,7 @@ import AddToListMenu from "../components/lists/AddToListMenu";
 import CategoryPanel from "../components/layout/CategoryPanel";
 import ChannelFilterBar from "../components/live/ChannelFilterBar";
 import ChannelList from "../components/live/ChannelList";
+import RecentChannelsRow from "../components/live/RecentChannelsRow";
 import * as api from "../lib/tauri";
 import { useCatalogStore } from "../store/catalogStore";
 import { usePlayerStore } from "../store/playerStore";
@@ -97,9 +98,36 @@ export default function LiveTV() {
         categories={categories}
         selectedId={selected}
         onSelect={setSelected}
+        providerId={activeProvider.id}
+        section="live"
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <ChannelFilterBar key={providerId} onQueryChange={setFilter} />
+        {/* "Recently watched" strip on the landing (All Channels, no active
+            filter) — spec §13, Milestone 29. */}
+        {selected === null && filter === "" && (
+          <RecentChannelsRow
+            providerId={activeProvider.id}
+            refreshKey={refreshTick}
+            onActivate={play}
+          />
+        )}
+        {/* Global-scope hint (spec §13, QA §2): the filter is scoped to the
+            selected category, so offer a one-click jump to search every channel
+            without first picking "All Channels". The filter text is preserved. */}
+        {selected !== null && filter !== "" && (
+          <button
+            onClick={() => setSelected(null)}
+            data-testid="search-all-channels"
+            className="flex items-center gap-1.5 border-b border-zinc-900 px-4 py-1.5 text-left text-xs text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+          >
+            Filtering within{" "}
+            <span className="font-medium text-zinc-300">
+              {categories.find((c) => c.id === selected)?.name ?? "this category"}
+            </span>
+            . Search all channels →
+          </button>
+        )}
         <div className="min-h-0 flex-1">
           <ChannelList
             providerId={activeProvider.id}

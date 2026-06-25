@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import * as api from "../../lib/tauri";
 import type { Category } from "../../types";
 
 interface CategoryPanelProps {
@@ -7,14 +8,19 @@ interface CategoryPanelProps {
   categories: Category[];
   selectedId: string | null; // null = "All"
   onSelect: (id: string | null) => void;
+  /** Active provider id — scopes the custom order (spec §13, Milestone 29). */
+  providerId: string;
+  /** "live" | "movie" | "series" — scopes the custom order per section. */
+  section: string;
 }
 
 type SortMode = "alpha" | "provider";
 
 /**
  * Secondary sidebar listing categories/genres (spec §5.3): alphabetical by
- * default with provider-defined ordering as the alternative, and the
- * special "All" entry pinned on top.
+ * default with provider-defined ordering as the alternative, and the special
+ * "All" entry pinned on top. In provider order the list is drag-reorderable and
+ * the custom order is persisted per provider+section (spec §13, Milestone 29).
  */
 export default function CategoryPanel({
   title,
@@ -22,18 +28,61 @@ export default function CategoryPanel({
   categories,
   selectedId,
   onSelect,
+  providerId,
+  section,
 }: CategoryPanelProps) {
   const [sort, setSort] = useState<SortMode>("alpha");
   // Defaults to expanded; collapsing is transient — the panel remounts per
   // section so it always reopens expanded (spec §5.3, Milestone 19).
   const [collapsed, setCollapsed] = useState(false);
+  // User's custom category order (ids), applied in provider mode (Milestone 29).
+  const [customOrder, setCustomOrder] = useState<string[]>([]);
+  const [dragId, setDragId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.getCategoryOrder(providerId, section).then(
+      (ids) => {
+        if (!cancelled) setCustomOrder(ids);
+      },
+      () => {
+        if (!cancelled) setCustomOrder([]);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [providerId, section]);
 
   const sorted = useMemo(() => {
-    if (sort === "provider") return categories; // backend order = sort_order
-    return [...categories].sort((a, b) =>
-      a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+    if (sort === "alpha") {
+      return [...categories].sort((a, b) =>
+        a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+      );
+    }
+    // Provider order, overlaid with the user's custom order where present.
+    // Categories not in the custom order keep their backend position (stable
+    // sort tail), so newly-added genres appear after the curated ones.
+    if (customOrder.length === 0) return categories;
+    const pos = new Map(customOrder.map((id, i) => [id, i]));
+    return [...categories].sort(
+      (a, b) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity),
     );
-  }, [categories, sort]);
+  }, [categories, sort, customOrder]);
+
+  const reorderable = sort === "provider";
+
+  const reorder = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const ids = sorted.map((c) => c.id);
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from < 0 || to < 0) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, fromId);
+    setCustomOrder(ids);
+    void api.setCategoryOrder(providerId, section, ids);
+  };
 
   const itemClass = (active: boolean) =>
     `block w-full truncate rounded-md px-3 py-1.5 text-left text-sm transition-colors ${
@@ -77,8 +126,8 @@ export default function CategoryPanel({
             onClick={() => setSort(sort === "alpha" ? "provider" : "alpha")}
             title={
               sort === "alpha"
-                ? "Sorted A–Z — switch to provider order"
-                : "Provider order — switch to A–Z"
+                ? "Sorted A–Z — switch to provider order (drag to reorder)"
+                : "Provider order — drag genres to reorder; switch to A–Z"
             }
             className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"
           >
@@ -105,11 +154,33 @@ export default function CategoryPanel({
         {sorted.map((category) => (
           <button
             key={category.id}
-            className={itemClass(selectedId === category.id)}
+            className={`group flex items-center gap-1.5 ${itemClass(
+              selectedId === category.id,
+            )} ${dragId === category.id ? "opacity-50" : ""}`}
             onClick={() => onSelect(category.id)}
-            title={category.name}
+            title={reorderable ? "Drag to reorder" : category.name}
+            draggable={reorderable}
+            onDragStart={reorderable ? () => setDragId(category.id) : undefined}
+            onDragOver={reorderable ? (e) => e.preventDefault() : undefined}
+            onDrop={
+              reorderable
+                ? () => {
+                    if (dragId) reorder(dragId, category.id);
+                    setDragId(null);
+                  }
+                : undefined
+            }
+            onDragEnd={reorderable ? () => setDragId(null) : undefined}
           >
-            {category.name}
+            {reorderable && (
+              <span
+                aria-hidden
+                className="shrink-0 cursor-grab text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                ⠿
+              </span>
+            )}
+            <span className="truncate">{category.name}</span>
           </button>
         ))}
       </div>

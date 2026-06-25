@@ -23,7 +23,8 @@ export default function WatchProgressOverlay({
     return (
       <div
         data-testid="watched-check"
-        title="Watched"
+        title="Watched — you've finished this"
+        aria-label="Watched"
         className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[11px] font-bold text-white shadow"
       >
         ✓

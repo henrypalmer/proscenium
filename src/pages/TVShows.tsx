@@ -136,6 +136,8 @@ export default function TVShows() {
         categories={categories ?? []}
         selectedId={selected}
         onSelect={setSelected}
+        providerId={activeProvider.id}
+        section="series"
       />
       <div className="min-w-0 flex-1">
         {/* While categories load, render nothing (no grey skeleton flash). Then:

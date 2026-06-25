@@ -160,6 +160,27 @@ CREATE TABLE IF NOT EXISTS user_list_items (
   PRIMARY KEY (list_id, content_type, content_id)
 );
 
+-- Recently-watched live channels (spec §13, Milestone 29). Local-only,
+-- most-recent first; cascade-deletes with the provider. One row per channel
+-- (re-watching bumps `watched_at`).
+CREATE TABLE IF NOT EXISTS recent_channels (
+  provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  channel_id  TEXT NOT NULL,
+  watched_at  INTEGER NOT NULL,        -- Unix timestamp of the last watch
+  PRIMARY KEY (provider_id, channel_id)
+);
+
+-- User-defined category ordering per provider + section (spec §13, Milestone
+-- 29 "custom M3U group ordering"). Absent → the default provider/sort order is
+-- used. Cascade-deletes with the provider.
+CREATE TABLE IF NOT EXISTS category_order (
+  provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  section     TEXT NOT NULL CHECK (section IN ('live', 'movie', 'series')),
+  category_id TEXT NOT NULL,
+  position    INTEGER NOT NULL,
+  PRIMARY KEY (provider_id, section, category_id)
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_live_channels_provider    ON live_channels(provider_id);
 CREATE INDEX IF NOT EXISTS idx_live_channels_category    ON live_channels(provider_id, category_id);
@@ -171,6 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_episodes_series           ON episodes(series_id, 
 CREATE INDEX IF NOT EXISTS idx_watch_progress_section    ON watch_progress(provider_id, content_type);
 CREATE INDEX IF NOT EXISTS idx_user_lists_provider       ON user_lists(provider_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_user_list_items_list      ON user_list_items(list_id, position);
+CREATE INDEX IF NOT EXISTS idx_recent_channels_recency   ON recent_channels(provider_id, watched_at DESC);
 
 -- Supplementary to §15: alphabetical paging over large catalogs (§10) needs
 -- an ordered index or every page query re-sorts the full table.

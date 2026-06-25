@@ -910,7 +910,7 @@ Items explicitly planned but deferred beyond v1.0:
 | External subtitle file loading | Low | Drop `.srt` onto player to load |
 | Chromecast / AirPlay | Low | Cast streams to TV |
 | Picture-in-Picture (all platforms) | Low | Windows PiP support is limited |
-| Dark/light theme toggle | Low | Dark is default; light theme option. **Scheduled in Milestone 29** (polish bundle). |
+| Dark/light theme toggle | Low | Dark is default; light theme option. **Scheduled as Milestone 35** (split out of the M29 polish bundle — a correct light theme needs a full CSS-variable theming pass, not a polish slice). |
 | Custom M3U group ordering | Low | User-defined category sort. **Scheduled in Milestone 29** (polish bundle). |
 | Recently-watched channels row | Low | Live-TV "Recently watched" channels row and a "now playing / last watched" indicator on the channel you just viewed. Idea from the 2026-06-24 QA pass (`QA_NOTES.md` §2). **Scheduled in Milestone 29** (polish bundle). |
 | Friendlier track-menu labels | Low | Subtitle/audio menus expose codec names ("eng · dvd_subtitle", "eng · ac3"); show friendly labels ("English", "English (SRT)", "English 5.1") and de-duplicate identical entries. QA idea (`QA_NOTES.md` §7); the track-selection *fix* is Milestone 22. |
@@ -2258,25 +2258,26 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 
 ### Milestone 29 — Polish Bundle (QA-idea Sweep)
 
-**Goal:** Ship, in one pass, the batch of low-effort, **local** UX refinements parked in §13 from QA pass #1: a recently-watched channels surface, a watched/in-list badge legend, LIVE-badge timer clarity, a global Live-TV filter affordance, a light-theme toggle, and custom M3U group ordering.
+**Goal:** Ship, in one pass, the batch of low-effort, **local** UX refinements parked in §13 from QA pass #1: a recently-watched channels surface, a watched/in-list badge legend, LIVE-badge timer clarity, a global Live-TV filter affordance, and custom M3U group ordering.
+
+> **Scope change (2026-06-25):** the **light-theme toggle** was split out to its **own milestone (Milestone 35)** — the app has no CSS-variable theming layer (`index.css` and every component hardcode `zinc-*` colors), so a *correct* light theme (the AC demanded "both themes render correctly: scrollbars, cards, hero, player chrome") is a full app-wide theming refactor, not a polish slice. This is exactly the graduation the scope note below pre-authorized. The other five slices ship here.
 
 **Scope:**
 - **Recently-watched channels (§13):** track recently-played live channels locally (a small recents store/table) and surface a "Recently watched" row (Home or the Live TV landing), plus a "last watched" marker on the channel just viewed.
 - **Watched / in-list badge legend (§13):** a tooltip/legend explaining the green "✓" badge (watched / in a list).
 - **LIVE-badge timer (§13):** clarify or hide the ambiguous running timer for pure-live streams.
 - **Global Live-TV filter scope (§13):** a hint or toggle to search across all channels without first selecting "All Channels".
-- **Light-theme toggle (§13):** implement the deferred light theme (the Milestone 12 scrollbar/CSS were kept theme-aware) and wire the Appearance theme control (made a status span in Milestone 24) back into a real, persisted toggle. *(Heaviest item in the bundle — if it proves larger than a polish slice it should graduate to its own milestone.)*
 - **Custom M3U group ordering (§13):** user-defined category sort, persisted per provider.
+- ~~**Light-theme toggle (§13)**~~ — **graduated to Milestone 35** (see scope change above).
 - All local; honor `prefers-reduced-motion`; stay within the §10 performance budget.
 
 **Acceptance Criteria:**
-- [ ] A "Recently watched" channels affordance shows recently-played live channels, updated as the user watches; entirely local.
-- [ ] The watched/in-list badge has a discoverable explanation (tooltip/legend).
-- [ ] The LIVE-badge timer is clarified or hidden for pure-live streams so it is no longer ambiguous.
-- [ ] The Live-TV filter offers a way to search across all channels without first selecting "All Channels".
-- [ ] A **light theme** can be selected and **persists**; both themes render correctly (scrollbars, cards, hero, player chrome).
-- [ ] M3U category order can be customized and persists per provider.
-- [ ] `npm run build` and any touched backend tests pass clean.
+- [x] A "Recently watched" channels affordance shows recently-played live channels, updated as the user watches; entirely local. *(new `recent_channels` table + `record_recent_channel`/`get_recent_channels` commands (local SQLite, joined back to the catalog so orphaned entries drop, most-recent first, capped). `playerStore` records a channel on live playback; `RecentChannelsRow` shows the chips on the Live TV landing (All Channels, no active filter) and re-fetches when the player closes. **Browser-preview verified:** playing a channel made the "Recently watched" row appear with that channel's chip. Backend test `recent_channels_order_by_recency_bump_drop_orphans_and_cap`.)*
+- [x] The watched/in-list badge has a discoverable explanation (tooltip/legend). *(the only "✓" badge is the §5.9 watched check; `WatchProgressOverlay` gives it an explicit `title="Watched — you've finished this"` tooltip + `aria-label="Watched"`. There is no separate "in a list" badge — the QA guess was a misread.)*
+- [x] The LIVE-badge timer is clarified or hidden for pure-live streams so it is no longer ambiguous. *(`PlayerControls` no longer renders the ambiguous session-elapsed counter for live (or still-loading VOD) — only a seekable VOD shows `pos / dur`; the "● Live" badge alone conveys the live state.)*
+- [x] The Live-TV filter offers a way to search across all channels without first selecting "All Channels". *(when a specific category is selected and the filter is non-empty, `LiveTV` shows a "Filtering within {category}. Search all channels →" affordance that switches to All Channels, preserving the filter text. **Browser-preview verified:** with "Auto" selected and "news" typed, the hint appeared; clicking it set All Channels active with "news" preserved.)*
+- [x] M3U category order can be customized and persists per provider. *(new `category_order` table + `get_category_order`/`set_category_order` commands, provider+section-scoped. `CategoryPanel` (Live TV/Movies/TV Shows) is drag-reorderable in Provider mode, applying and persisting the custom order. **Browser-preview verified:** dragging "News" to the 3rd slot reordered the list to `[Sports, Movies HD, News, …]`. Backend test `category_order_set_get_replace_and_scope` covers set/get/replace + provider/section scoping.)*
+- [x] `npm run build` and any touched backend tests pass clean. *(`cargo test --tests` — all suites green incl. the new `milestone29` (2 tests); `npm run build` (tsc + vite) type-checks clean; no console errors across the preview pass.)*
 
 ### Milestone 30 — EPG (Electronic Program Guide)
 
@@ -2376,3 +2377,25 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [ ] Ratings are matched via OMDb, **cached** against the stream id, and refreshed **at most once per 7 days** per title.
 - [ ] With **no API key or disabled**, no rating UI appears and the app behaves as today; enrichment is **background/rate-limited** (reusing Milestone 33's substrate).
 - [ ] A backend test covers the match + 7-day TTL + fallback; `cargo test --tests` and `npm run build` pass clean.
+
+### Milestone 35 — Light Theme
+
+**Goal:** Add a working, persisted **Dark/Light theme toggle** with both themes rendering correctly across the whole app (§13). Graduated out of Milestone 29 because the app has **no theming layer** today — `index.css` and every component hardcode Tailwind `zinc-*` colors and the scrollbar CSS uses literal hex — so a correct light theme is a full app-wide theming pass, not a polish slice.
+
+**Design decisions (to confirm in the M35 planning pass):**
+- **Theme mechanism:** introduce a semantic **CSS-variable** layer (e.g. `--bg`, `--surface`, `--text`, `--text-muted`, `--border`, `--accent`, scrollbar thumb/track) defined for a `dark` (default) and `light` palette, switched by a root `data-theme` / class. Map them through Tailwind theme tokens (or utility aliases) so components reference semantic colors instead of raw `zinc-*`.
+- **Migration:** convert the hardcoded `zinc-*` (and the `index.css` scrollbar/`body` colors, the player chrome, hero scrims, and the View-Transition surfaces) to the semantic tokens. This is the bulk of the work and must be done carefully so dark is pixel-unchanged.
+- **Persistence:** reuse the existing `ui_theme` setting (already in `AppSettings`, defaulted to `dark`); wire the Appearance control (a status span since Milestone 24) back into a real toggle that applies the root attribute on load and persists.
+
+**Scope:**
+- The CSS-variable palette + Tailwind wiring; the `dark`/`light` value sets.
+- A `useTheme` hook (mirroring `useDensity`) that reads `ui_theme` and applies the root attribute; apply on startup before first paint to avoid a flash.
+- Convert components/`index.css` to semantic tokens; verify the dark theme is unchanged and the light theme is legible everywhere (cards, grids, hero, detail, player chrome, scrollbars, menus, dialogs, settings).
+- Settings → Appearance: replace the "Dark · only theme" status with a Dark/Light control (persisted via `ui_theme`).
+- Honor `prefers-reduced-motion`; no performance regression.
+
+**Acceptance Criteria:**
+- [ ] A **Light theme** can be selected from Settings → Appearance and **persists** across navigation and restart (applied on startup with no flash of the wrong theme).
+- [ ] **Both themes render correctly** across the app — scrollbars, cards/grids, the detail hero + scrims, the player control chrome, menus/dialogs, and Settings — with legible contrast and no hardcoded-color bleed-through.
+- [ ] The **dark theme is visually unchanged** from before the refactor (the default path is a pure token rename).
+- [ ] Theme switching honors `prefers-reduced-motion`, adds no measurable regression, and `npm run build` type-checks clean.

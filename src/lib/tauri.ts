@@ -133,6 +133,38 @@ export function getVodCategories(providerId: string): Promise<Category[]> {
   return invoke("get_vod_categories", { providerId });
 }
 
+// --- Recently-watched channels & custom category order (spec §13, M29) ---
+
+export function recordRecentChannel(
+  providerId: string,
+  channelId: string,
+): Promise<void> {
+  return invoke("record_recent_channel", { providerId, channelId });
+}
+
+export function getRecentChannels(
+  providerId: string,
+  limit?: number,
+): Promise<LiveChannel[]> {
+  return invoke("get_recent_channels", { providerId, limit });
+}
+
+/** `section` is "live" | "movie" | "series". */
+export function getCategoryOrder(
+  providerId: string,
+  section: string,
+): Promise<string[]> {
+  return invoke("get_category_order", { providerId, section });
+}
+
+export function setCategoryOrder(
+  providerId: string,
+  section: string,
+  orderedIds: string[],
+): Promise<void> {
+  return invoke("set_category_order", { providerId, section, orderedIds });
+}
+
 export function getMovies(
   providerId: string,
   categoryId: string | undefined,

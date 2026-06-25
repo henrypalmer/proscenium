@@ -535,3 +535,52 @@ pub async fn get_catalog_summary(
         .await
         .map_err(|e| format!("Failed to read the catalog: {e}"))
 }
+
+/// Record a live channel as just-watched (spec §13, Milestone 29). Local-only.
+#[tauri::command]
+pub async fn record_recent_channel(
+    state: State<'_, Db>,
+    provider_id: String,
+    channel_id: String,
+) -> Result<(), String> {
+    db::catalog::record_recent_channel(&state.0, &provider_id, &channel_id, now_unix())
+        .await
+        .map_err(|e| format!("Failed to record the recent channel: {e}"))
+}
+
+/// The provider's recently-watched channels, most-recent first (spec §13, M29).
+#[tauri::command]
+pub async fn get_recent_channels(
+    state: State<'_, Db>,
+    provider_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<LiveChannel>, String> {
+    db::catalog::recent_channels(&state.0, &provider_id, limit.unwrap_or(15))
+        .await
+        .map_err(|e| format!("Failed to read recent channels: {e}"))
+}
+
+/// The user's custom category order for a provider+section (spec §13, M29).
+#[tauri::command]
+pub async fn get_category_order(
+    state: State<'_, Db>,
+    provider_id: String,
+    section: String,
+) -> Result<Vec<String>, String> {
+    db::catalog::category_order(&state.0, &provider_id, &section)
+        .await
+        .map_err(|e| format!("Failed to read the category order: {e}"))
+}
+
+/// Persist the user's custom category order for a provider+section (spec §13, M29).
+#[tauri::command]
+pub async fn set_category_order(
+    state: State<'_, Db>,
+    provider_id: String,
+    section: String,
+    ordered_ids: Vec<String>,
+) -> Result<(), String> {
+    db::catalog::set_category_order(&state.0, &provider_id, &section, &ordered_ids)
+        .await
+        .map_err(|e| format!("Failed to save the category order: {e}"))
+}

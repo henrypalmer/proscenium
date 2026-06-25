@@ -124,6 +124,11 @@ const mockSettings: AppSettings = {
 // "Storage" controls are exercisable (Clear drops it to zero).
 let mockImageCacheBytes = 42 * 1024 * 1024;
 
+// Recently-watched channel ids (most-recent first) and custom category order
+// (keyed by `${providerId}|${section}`) for Milestone 29.
+const mockRecentChannelIds: string[] = [];
+const mockCategoryOrder: Record<string, string[]> = {};
+
 // --- Mock VOD catalog (Milestone 5) ---
 
 const MOVIE_GENRES = [
@@ -561,6 +566,28 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       })) satisfies Category[] as T;
     case "get_live_channels":
       return paginateByName(allChannels(), a) satisfies PaginatedResult<LiveChannel> as T;
+    case "record_recent_channel": {
+      const id = a.channelId as string;
+      const idx = mockRecentChannelIds.indexOf(id);
+      if (idx >= 0) mockRecentChannelIds.splice(idx, 1);
+      mockRecentChannelIds.unshift(id);
+      return undefined as T;
+    }
+    case "get_recent_channels": {
+      const limit = (a.limit as number) ?? 15;
+      const byId = new Map(allChannels().map((c) => [c.id, c]));
+      const items = mockRecentChannelIds
+        .map((id) => byId.get(id))
+        .filter((c): c is LiveChannel => !!c)
+        .slice(0, limit);
+      return items as T;
+    }
+    case "get_category_order":
+      return (mockCategoryOrder[`${a.providerId}|${a.section}`] ?? []) as T;
+    case "set_category_order":
+      mockCategoryOrder[`${a.providerId}|${a.section}`] =
+        (a.orderedIds as string[]) ?? [];
+      return undefined as T;
     case "get_vod_categories":
       return MOVIE_GENRES.map((name, i) => ({
         id: name,

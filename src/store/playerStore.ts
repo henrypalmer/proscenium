@@ -333,6 +333,11 @@ async function startPlayback(
       bufferingSince: Date.now(),
       everPlayed: false,
     });
+    // Record a live channel as recently-watched (spec §13, Milestone 29).
+    // Best-effort and local; never blocks playback.
+    if (args.contentType === "live") {
+      void api.recordRecentChannel(args.providerId, args.contentId).catch(() => {});
+    }
     await api.mpv.loadUrl(streamUrl, startAt > 0 ? startAt : undefined);
   } catch (e) {
     set({

@@ -169,6 +169,8 @@ export default function Movies() {
         categories={categories ?? []}
         selectedId={selected}
         onSelect={setSelected}
+        providerId={activeProvider.id}
+        section="movie"
       />
       <div className="min-w-0 flex-1">
         {/* While categories load, render nothing (no grey skeleton flash). Then:

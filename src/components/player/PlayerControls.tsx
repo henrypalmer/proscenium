@@ -32,7 +32,6 @@ export default function PlayerControls({
   // stream, or a VOD whose duration isn't known yet (loading or failed) — the
   // last must NOT masquerade as "● LIVE / 0:00".
   const seekable = !isLive && state.duration !== null;
-  const loadingVod = !isLive && state.duration === null;
 
   return (
     <div
@@ -90,9 +89,10 @@ export default function PlayerControls({
         <span className="text-xs tabular-nums text-zinc-300">
           {seekable
             ? `${formatTime(state.position)} / ${formatTime(state.duration ?? 0)}`
-            : loadingVod
-              ? "" // unknown duration yet — don't show a misleading 0:00
-              : formatTime(state.position)}
+            : ""}
+          {/* Live and still-loading VOD show no counter: a running session-elapsed
+              timer next to "● LIVE" was ambiguous (spec §13, QA §2). The "Live"
+              badge alone conveys the live state. */}
         </span>
 
         <span className="min-w-0 flex-1 truncate text-center text-sm text-zinc-200">

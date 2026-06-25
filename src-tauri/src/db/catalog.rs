@@ -230,6 +230,97 @@ pub async fn live_categories(
         .collect())
 }
 
+/// Record a live channel as just-watched (spec §13, Milestone 29): upsert the
+/// recency timestamp so re-watching bumps it to the top.
+pub async fn record_recent_channel(
+    pool: &SqlitePool,
+    provider_id: &str,
+    channel_id: &str,
+    watched_at: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO recent_channels (provider_id, channel_id, watched_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(provider_id, channel_id) DO UPDATE SET watched_at = excluded.watched_at",
+    )
+    .bind(provider_id)
+    .bind(channel_id)
+    .bind(watched_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// The provider's recently-watched channels, most-recent first, joined back to
+/// the catalog (channels dropped on refresh are skipped) and capped at `limit`.
+pub async fn recent_channels(
+    pool: &SqlitePool,
+    provider_id: &str,
+    limit: i64,
+) -> Result<Vec<LiveChannel>, sqlx::Error> {
+    let limit = limit.clamp(1, MAX_PAGE_SIZE);
+    let rows = sqlx::query(
+        "SELECT ch.* FROM recent_channels r
+         JOIN live_channels ch
+           ON ch.provider_id = r.provider_id AND ch.id = r.channel_id
+         WHERE r.provider_id = ?
+         ORDER BY r.watched_at DESC
+         LIMIT ?",
+    )
+    .bind(provider_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.iter().map(row_to_live_channel).collect())
+}
+
+/// The user's custom category order for a provider+section, as an ordered list
+/// of category ids (empty when the user hasn't set one). Spec §13, Milestone 29.
+pub async fn category_order(
+    pool: &SqlitePool,
+    provider_id: &str,
+    section: &str,
+) -> Result<Vec<String>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT category_id FROM category_order
+         WHERE provider_id = ? AND section = ? ORDER BY position",
+    )
+    .bind(provider_id)
+    .bind(section)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.iter().map(|r| r.get("category_id")).collect())
+}
+
+/// Replace the custom category order for a provider+section with `ordered_ids`.
+pub async fn set_category_order(
+    pool: &SqlitePool,
+    provider_id: &str,
+    section: &str,
+    ordered_ids: &[String],
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM category_order WHERE provider_id = ? AND section = ?")
+        .bind(provider_id)
+        .bind(section)
+        .execute(&mut *tx)
+        .await?;
+    for (position, category_id) in ordered_ids.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO category_order (provider_id, section, category_id, position)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(provider_id)
+        .bind(section)
+        .bind(category_id)
+        .bind(position as i64)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub(crate) fn row_to_live_channel(row: &SqliteRow) -> LiveChannel {
     LiveChannel {
         id: row.get("id"),
