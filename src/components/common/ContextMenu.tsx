@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 export interface ContextMenuItem {
   label: string;
   onSelect: () => void;
+  /** Highlight this item as the current selection (a subtle emerald tint). */
+  active?: boolean;
 }
 
 interface ContextMenuProps {
@@ -62,7 +64,11 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
             item.onSelect();
             onClose();
           }}
-          className="block w-full px-3 py-1.5 text-left text-sm text-zinc-200 hover:bg-zinc-800"
+          className={`block w-full px-3 py-1.5 text-left text-sm transition-colors ${
+            item.active
+              ? "bg-emerald-500/10 font-medium text-emerald-300 hover:bg-emerald-500/15"
+              : "text-zinc-200 hover:bg-zinc-800"
+          }`}
         >
           {item.label}
         </button>

@@ -296,7 +296,8 @@ export default function TopNav() {
         onClose={() => setSwitcherAt(null)}
         items={[
           ...providers.map((p) => ({
-            label: `${p.id === activeProvider?.id ? "✓ " : ""}${p.name}`,
+            label: p.name,
+            active: p.id === activeProvider?.id,
             onSelect: () => switchTo(p.id),
           })),
           { label: "Manage in Settings…", onSelect: () => navigate("/settings") },
