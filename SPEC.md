@@ -904,6 +904,7 @@ Items explicitly planned but deferred beyond v1.0:
 | Favorites / Watch Later | Medium | Largely subsumed by **Custom Lists (§5.11)** — a user can keep a "Watch Later" list. A dedicated one-tap favorite toggle could still layer on top later. |
 | ~~Continue Watching~~ | — | **Promoted into scope — see §5.9 and Milestone 8.** Tracks playback position in SQLite for resume, progress bars, and watched markers. |
 | Skip Intro (TV series) | Low | Exploratory — see §14, Q5. No provider metadata exists for intro markers; only a limited hybrid (container chapters + learned-per-series + manual) is feasible, not Netflix-style auto-detection. |
+| Live TV multi-view | High | Watch up to 4 live channels at once in a grid (2×2) — for households following multiple games. Generalizes the single native-window player to N concurrent mpv instances/windows; capped by the provider's `max_connections`; one audio at a time; Even-grid + Focus (1+N) layouts; Windows-first. **Scheduled as Milestone 37** (next in line). |
 | Multiple active providers | Medium | Switch between providers without re-auth. **Scheduled as Milestone 36** (seamless *switching* of the single active provider — a nav switcher + state-clean swap; the backend already caches per provider and skips re-fetch/re-auth). Simultaneous multi-provider streaming remains a §2 non-goal. |
 | Time-shift / Pause Live TV | Medium | Requires provider support |
 | Parental controls / PIN lock | Medium | Per-category locking |
@@ -2425,3 +2426,41 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [x] After a switch, **all per-provider UI state** (category/genre selection, channel filter, search, scroll, Home rows, custom lists, recent channels, custom category order, watch-progress markers) reflects the newly-active provider with **no bleed-through** from the previous one. *(the switch **keeps the user on the current section** but remounts its page — the routed content is keyed on the active provider id (`App.tsx` `Shell`) — so all per-provider local state (selected genre/category, filters, scroll) resets and any open detail overlay closes, landing on the section's main screen without navigating away. Provider-scoped data re-fetches because each view's effects key on `providerId`. `ListDetail` is the exception: a list is provider-scoped, so on a switch it backs out to Home. **Browser-preview verified:** switching from a genre grid stayed on `/movies` and swapped the catalog; switching with a movie detail open closed the detail and stayed on `/movies`; switching while viewing a custom list redirected to Home.)*
 - [x] Switching **never prompts for credentials**; the §12 provider-status banner is re-evaluated for the new provider without blocking the UI. *(`setActive` clears `providerStatus` on switch and the new provider's startup/Retry probe runs without gating the UI; no credential entry is involved — the keychain holds the Xtream secret. **Browser-preview verified:** no dialog appeared on any switch.)*
 - [x] `npm run build` and any touched backend tests pass clean. *(frontend-only milestone — no Rust changed, so the backend suite is unaffected (last green at Milestone 29). `npm run build` (tsc + vite) type-checks clean; no console errors across the preview pass.)*
+
+### Milestone 37 — Live TV Multi-View
+
+> **Execution order:** scheduled **next** (ahead of the still-unstarted M30–M35), like M36 was. The number is just an identifier.
+
+**Goal:** Let a user watch **multiple live channels at once** in a neatly arranged grid — so a household with fans of different teams can follow several games simultaneously. Generalizes the single built-in player into multiple concurrent native video windows. **Windows-first** (macOS is a follow-up). All tiles stream from the **active provider** (consistent with the one-active-provider model, §2) — multi-view is multiple *channels*, not multiple providers.
+
+**Design decisions (resolved during the M37 planning pass):**
+- **Stream cap = `min(4, provider max_connections)`.** A **2×2 quad (4 tiles)** is the first-class target. The provider's **`max_connections` is a hard ceiling** — IPTV providers cap simultaneous connections (the QA provider was `0 / 3`) and the app cannot exceed it — so the effective cap is the smaller of 4 and the provider's reported limit (falling back to 4 when unknown, e.g. M3U). It is surfaced as a connection budget; **+ Add** disables at the cap with a clear reason. Larger grids (3×3) are explicitly deferred.
+- **Live TV only.** Multi-view is for concurrent live events; VOD/movies/episodes are out of scope (a grid has no resume/seek semantics).
+- **Two layout modes:** **Even grid** (auto-arranged by count: 1 = full, 2 = 1×2, 3 = 2×2 with the empty 4th cell an "+ Add", 4 = 2×2) and **Focus (1+N)** (one large primary tile + a strip of smaller secondaries; clicking a secondary promotes it to primary). Tiles are 16:9, letterboxed within their cell.
+- **One audio at a time.** Exactly one tile is "active" (audio on, accent border); the rest are muted but keep playing. Clicking a tile (or its speaker) moves audio focus there and the volume control routes to the active tile; the first/promoted tile is active by default.
+- **Architecture:** generalize the singleton player to **N `MpvPlayer` instances, each in its own native video window** (libmpv supports multiple `mpv_create`), each glued behind the WebView and fitted to its **grid-cell rectangle** rather than the full content area. The WebView paints transparent over each tile's video region with opaque chrome around it — the §5.6 / CLAUDE.md "sandwich", per cell.
+
+**Scope:**
+- **Backend — multi-instance player (`commands/playback.rs`, `mpv/`):** replace the singleton `PlayerHandle` / `VideoHost` with a **registry keyed by tile id** (each entry an `MpvPlayer` + its native window handle). The `mpv_*` control commands take a `tileId`; each tile composes + loads its own stream URL (§5.1 keychain compose) and emits per-tile `mpv:state_changed` (payload carries the tile id). Creating a tile past the effective cap is rejected; closing a tile stops its instance and frees the provider connection.
+- **Backend — per-cell window fitting (`mpv/video_host`, `lib.rs` `on_window_event`):** position/size each native window to its **cell rect** (not the full parent); the frontend reports each tile's screen rectangle (`getBoundingClientRect` + the window's content offset); the move/resize/fullscreen re-fit loop iterates **all** tiles, and the per-window z-order self-heal generalizes.
+- **Audio focus:** exactly one instance unmuted at any time; switching focus mutes the previous and unmutes the new; the volume/mute UI controls the active tile.
+- **Connection budget:** read the active provider's `max_connections` (Xtream `user_info`; unknown for M3U → assume the configured max); compute the effective cap; surface "N of M connections in use"; gate **+ Add**; a per-tile "max connections reached" / 4xx failure shows that tile's error state (reusing the §12 / M22 classifier) **without** disrupting the other tiles.
+- **Frontend — `MultiView` overlay:** extend/replace `PlayerOverlay` with a CSS grid of tiles that auto-arranges by count, a **layout toggle (Grid / Focus)**, and per-tile chrome on hover (channel label, claim-audio, promote-to-primary, close). Entry points: a **"Multi-view" control in the single-player bar** (the current channel becomes tile 1) and a Live-TV channel context-menu **"Add to Multi-view"**; **+ Add** opens a **channel picker** reusing the Live TV list + filter (live channels only). Exit returns to single view / closes all tiles.
+- **Settings:** a "Max simultaneous streams" control (default 4, hard-capped at 4 this milestone, further gated by provider connections).
+- **Keyboard / reduced-motion:** Esc closes the picker / exits multi-view; tiles are keyboard-focusable; honor `prefers-reduced-motion`.
+
+**Out of scope (deferred):**
+- More than 4 tiles / 3×3 grids.
+- **macOS** multi-window glue — mpv owns its own `NSWindow`s (no `--wid` embedding), so N-window management there is a separate, harder effort; tracked as a follow-up.
+- VOD/episode multi-view; per-tile simultaneous audio mixing; picture-in-picture of a tile; recording.
+
+**Acceptance Criteria:**
+- [ ] From a live stream the user can enter multi-view and **add live channels up to the cap**, each playing concurrently in an auto-arranged grid (1 → full, 2 → 1×2, 3/4 → 2×2).
+- [ ] Both **Grid** and **Focus (1+N)** layouts are available; in Focus, clicking a secondary tile promotes it to the primary.
+- [ ] The stream cap is **enforced and surfaced** and **respects the provider's `max_connections`** (the app never opens more connections than the provider allows); **+ Add** disables at the cap with a clear reason.
+- [ ] **Exactly one tile has audio** at any time; clicking a tile (or its speaker) moves audio focus and the volume control affects the active tile; the others stay muted but playing.
+- [ ] Per-tile controls work: **close** a tile (frees its connection and reflows the grid), **promote to primary**, and **claim audio**.
+- [ ] The native video windows stay correctly **positioned in their cells** on window move/resize/fullscreen, with the transparency sandwich intact (no video bleeding outside its tile).
+- [ ] A **failed/forbidden tile** (provider connection limit, HTTP 4xx) shows that tile's error state **without** disrupting the others.
+- [ ] **Closing multi-view stops all instances** and frees all provider connections; returning to single view behaves as today.
+- [ ] `cargo test --tests` and `npm run build` pass clean; reduced-motion honored. *(Windows-only; macOS deferred.)*
