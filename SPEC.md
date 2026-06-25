@@ -895,12 +895,12 @@ Items explicitly planned but deferred beyond v1.0:
 
 | Feature | Priority | Notes |
 |---------|----------|-------|
-| Cover art propagation (TMDB) | High | See §5.7 |
-| On-disk cover-art / backdrop cache | Medium | The §5.7 download-to-disk pipeline (download → app-data dir → `image_cache` upsert → serve via Tauri asset protocol) for **all** art (posters + backdrops). The `image_cache` table + 30-day eviction exist but are an unused stub (`image_cache::upsert` has no callers); all art currently loads directly from provider URLs. Deferred out of Milestone 18 — caching one image type in isolation is low value. |
-| "More like this" (related titles) | Medium | A row of related titles (same genre/category) on the movie/series detail view so it doubles as a discovery surface. Needs a local `get_related` command (§16 IPC pattern, no provider request). Deferred follow-up to the Milestone 18 detail redesign. |
-| IMDB ratings integration | High | See §5.8 |
-| EPG (Electronic Program Guide) | High | Requires XMLTV or Xtream EPG endpoint; target v1.1 |
-| Linux platform support | High | Deferred from v1.0; target v1.1 or v2.0 |
+| Cover art propagation (TMDB) | High | See §5.7. **Scheduled as Milestone 33** (external — needs a TMDB API key). |
+| On-disk cover-art / backdrop cache | Medium | The §5.7 download-to-disk pipeline (download → app-data dir → `image_cache` `put` → serve via Tauri asset protocol) for **all** art (posters + backdrops). The `image_cache` table + 30-day eviction exist but are an unused stub (`image_cache::put` has no download callers and no read path); all art currently loads directly from provider URLs. Deferred out of Milestone 18 — caching one image type in isolation is low value. **Scheduled as Milestone 27** (local; adds an LRU size cap + "Clear image cache" control on top of the existing TTL). |
+| "More like this" (related titles) | Medium | A row of related titles (same genre/category) on the movie/series detail view so it doubles as a discovery surface. Needs a local `get_related` command (§16 IPC pattern, no provider request). Deferred follow-up to the Milestone 18 detail redesign. **Scheduled as Milestone 28** (local). |
+| IMDB ratings integration | High | See §5.8. **Scheduled as Milestone 34** (external — needs an OMDb API key; reuses the Milestone 33 enrichment substrate). |
+| EPG (Electronic Program Guide) | High | Requires XMLTV or Xtream EPG endpoint; target v1.1. **Scheduled as Milestone 30.** |
+| Linux platform support | High | Deferred from v1.0; target v1.1 or v2.0. **Scheduled as Milestone 31.** |
 | Favorites / Watch Later | Medium | Largely subsumed by **Custom Lists (§5.11)** — a user can keep a "Watch Later" list. A dedicated one-tap favorite toggle could still layer on top later. |
 | ~~Continue Watching~~ | — | **Promoted into scope — see §5.9 and Milestone 8.** Tracks playback position in SQLite for resume, progress bars, and watched markers. |
 | Skip Intro (TV series) | Low | Exploratory — see §14, Q5. No provider metadata exists for intro markers; only a limited hybrid (container chapters + learned-per-series + manual) is feasible, not Netflix-style auto-detection. |
@@ -910,13 +910,13 @@ Items explicitly planned but deferred beyond v1.0:
 | External subtitle file loading | Low | Drop `.srt` onto player to load |
 | Chromecast / AirPlay | Low | Cast streams to TV |
 | Picture-in-Picture (all platforms) | Low | Windows PiP support is limited |
-| Dark/light theme toggle | Low | Dark is default; light theme option |
-| Custom M3U group ordering | Low | User-defined category sort |
-| Recently-watched channels row | Low | Live-TV "Recently watched" channels row and a "now playing / last watched" indicator on the channel you just viewed. Idea from the 2026-06-24 QA pass (`QA_NOTES.md` §2). |
+| Dark/light theme toggle | Low | Dark is default; light theme option. **Scheduled in Milestone 29** (polish bundle). |
+| Custom M3U group ordering | Low | User-defined category sort. **Scheduled in Milestone 29** (polish bundle). |
+| Recently-watched channels row | Low | Live-TV "Recently watched" channels row and a "now playing / last watched" indicator on the channel you just viewed. Idea from the 2026-06-24 QA pass (`QA_NOTES.md` §2). **Scheduled in Milestone 29** (polish bundle). |
 | Friendlier track-menu labels | Low | Subtitle/audio menus expose codec names ("eng · dvd_subtitle", "eng · ac3"); show friendly labels ("English", "English (SRT)", "English 5.1") and de-duplicate identical entries. QA idea (`QA_NOTES.md` §7); the track-selection *fix* is Milestone 22. |
-| Watched / in-list badge legend | Low | The green "✓" badge on some cards (watched / in a list) is unlabeled; add a tooltip or legend. QA idea (`QA_NOTES.md` §1). |
-| Global Live-TV filter scope | Low | The Live-TV filter box is scoped to the selected category; offer a hint or a toggle to search all channels without first selecting "All Channels". QA idea (`QA_NOTES.md` §2). |
-| Clarify LIVE-badge timer | Low | The LIVE badge's running timer is ambiguous (session-elapsed vs. buffer/time-shift position); clarify or hide it for pure-live streams. QA idea (`QA_NOTES.md` §2). |
+| Watched / in-list badge legend | Low | The green "✓" badge on some cards (watched / in a list) is unlabeled; add a tooltip or legend. QA idea (`QA_NOTES.md` §1). **Scheduled in Milestone 29** (polish bundle). |
+| Global Live-TV filter scope | Low | The Live-TV filter box is scoped to the selected category; offer a hint or a toggle to search all channels without first selecting "All Channels". QA idea (`QA_NOTES.md` §2). **Scheduled in Milestone 29** (polish bundle). |
+| Clarify LIVE-badge timer | Low | The LIVE badge's running timer is ambiguous (session-elapsed vs. buffer/time-shift position); clarify or hide it for pure-live streams. QA idea (`QA_NOTES.md` §2). **Scheduled in Milestone 29** (polish bundle). |
 
 ---
 
@@ -927,14 +927,14 @@ Items explicitly planned but deferred beyond v1.0:
 | 1 | What is the preferred app name? | Product | Resolved — **Proscenium** |
 | 2 | Should the app support Apple Silicon (ARM64) natively, or is a Rosetta 2 build acceptable for the initial macOS release? | Engineering | Resolved — **Rosetta 2 acceptable for v1; native ARM64 deferred** |
 | 3 | For Dolby Vision on Windows, is hardware DV decode (requiring a DV-capable display and driver) required, or is tone-mapped SDR fallback acceptable? | Engineering | Resolved — **Silent fallback to HDR10/SDR; playback never blocked** |
-| 4 | Should the installer be code-signed for both platforms from day one? (Required to avoid OS security warnings on macOS Gatekeeper and Windows SmartScreen.) | Product | Open |
+| 4 | Should the installer be code-signed for both platforms from day one? (Required to avoid OS security warnings on macOS Gatekeeper and Windows SmartScreen.) | Product | **Yes — scheduled for resolution at Milestone 32** (code-signing & distribution hardening: Apple Developer ID + notarization, Windows code-signing cert). |
 | 5 | "Skip Intro" for TV series — what approach is acceptable? IPTV providers (Xtream/M3U) supply **no** intro markers, so frame-accurate auto-detection is not feasible without a heavy audio-fingerprinting pipeline. The realistic options are a hybrid of: (a) honoring container chapter markers via mpv when present (accurate but rarely available), (b) a "learned per-series" intro length the user confirms once and is reused for later episodes, and (c) a manual fixed-offset skip button during the opening window. | Engineering / Product | Open — exploration only, no committed milestone |
 | 6 | How should the "My Lists" section on Home represent each custom list (§5.10/§5.11), given a list is a collection rather than a single poster? | Product | Resolved — **a horizontally-scrollable row of collection-cover cards** (2×2 poster mosaic + name + count), consistent with the other Home rows, with a leading "+ New list" card; a card opens List Detail. |
 | 7 | Are custom lists **mixed-content** (movies + series + channels in one list) or **one list per content type**? | Product | Resolved — **mixed-content** (§5.11); a list may hold any combination. |
 
 ---
 
-*End of Specification v0.5.0*
+*End of Specification v1.0.0*
 
 ---
 
@@ -2201,3 +2201,178 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [x] The resume modal has an explicit Cancel/close button in addition to Resume / Start from beginning. *(`ResumeDialog` gained a "Cancel" button calling `cancelResume` (Esc-dismiss already landed in Milestone 23). **Browser-preview verified:** the dialog showed `resume-cancel`; clicking it closed the dialog and launched no player.)*
 - [x] Home carousels and the genre rows show consistent hover-reveal scroll chevrons at the row edges; clicking them scrolls the row, and scaled/hovered cards are not clipped. *(new shared `common/ScrollRow` wraps the horizontal strip — keeping the `-mx-2 … py-2` breathing room — and overlays left/right chevrons that appear on hover only when there's overflow in that direction, scrolling ~0.8 viewport per click (instant under reduced motion); adopted by `MediaRow`, `MyListsRow`, and the genre `GenreRow`. **Browser-preview verified:** the Popular Movies row's right chevron scrolled it 0 → 888px and the left chevron then appeared; loaded genre rows showed working chevrons; short rows (My Lists with 3 items) correctly show none.)*
 - [x] `npm run build` type-checks clean. *(tsc + vite pass; frontend-only milestone — no Rust changed. All four feature criteria were exercised in the running browser preview; the only console noise was transient Vite HMR reload warnings from mid-edit states, which the clean production build and correct runtime render confirm are not real errors.)*
+
+---
+
+> **Milestones 27–34 are the post-1.0 roadmap block planned on 2026-06-25**, drawn from the §13 Future Roadmap. They are sequenced **local work first, external integrations last** (per the planning decision to keep all API-key/network-dependent enrichment at the tail of v1): the local **Metadata & Art** slice leads (M27–M28), a **polish bundle** and the two **big rocks** (EPG, Linux) follow (M29–M31), then **distribution hardening** (M32, resolving Open Question #4) and finally the **external integrations** (M33–M34, TMDB + OMDb — the only milestones needing third-party API keys). M27–M28 are specified in full; M29–M34 are at scoped-backbone depth (Goal / Scope / Acceptance Criteria) and should be deepened in a per-milestone planning pass before implementation.
+
+### Milestone 27 — On-Disk Image Cache Pipeline
+
+**Goal:** Turn the unused `image_cache` stub into a real local-first art cache so posters, backdrops, and channel logos load from disk after first view (a performance and offline-browse win), bounded by an LRU size cap so the cache never grows without limit. Delivers the **caching half of §5.7 for all art** (posters + backdrops + logos) — the piece deferred out of Milestone 18 because caching one image type in isolation was low value.
+
+**Design decisions (resolved during the M27 planning pass):**
+- **Caches provider-supplied art only** — no external/TMDB fill (that is Milestone 33). This milestone needs **no API key and no third-party service**; it caches the art URLs the catalog already holds.
+- **Serve mechanism:** enable Tauri's `asset:` protocol **scoped to the app-data `images/` directory** (or a dedicated `prosc-img://` custom protocol handler), and resolve cached files in the WebView via `convertFileSrc`. No asset/custom protocol is configured today (all art loads via remote `<img src>`), so wiring and scoping this is part of the milestone.
+- **Bounding (the storage answer):** caching is **lazy / on-view only** (never a bulk catalog pre-fetch); an **LRU eviction + size cap** (default **500 MB**, configurable) is layered **on top of** the existing 30-day TTL eviction (Milestone 7), so peak disk use is capped even if the user scrolls the entire ~16k-item catalog. The current `image_cache` design is TTL-only and has **no download caller and no read path** (`image_cache::put` exists but is never called; the §13 reference to `image_cache::upsert` is stale — the function is `put`).
+
+**Scope:**
+- **`db/image_cache.rs`:** add a **read-by-URL** lookup and **LRU bookkeeping** — a `last_accessed` column (idempotent `add_column_if_missing` migration, as in Milestones 20/21) and a `size_bytes` column; a `total_size()` and an `evict_lru(target_under_cap)` that deletes least-recently-used rows **and their backing files** until the cache is under budget.
+- **Download path:** a `cache_image(url)` helper/command — on a fresh hit return the local path and bump `last_accessed`; on a miss **download → write to `%APPDATA%\proscenium\images\` (XDG/Library equivalents elsewhere) → `put` the row (size, `cached_at`, `last_accessed`) → return the path**. De-duplicate concurrent in-flight downloads of the same URL.
+- **Serve:** enable + scope the `asset:`/custom protocol; frontend resolves via `convertFileSrc`.
+- **Frontend `<CachedImage>` wrapper:** a single component that requests the cached path and **falls back to the remote URL** on a miss or download error; adopt it in `MovieCard`, `SeriesCard`, `HeroBackdrop`, the episode thumbnails (`EpisodeList`), and the `ChannelCard` logo — so all art goes through cache-or-remote uniformly.
+- **Eviction:** extend the startup eviction (Milestone 7) to enforce the **size cap (LRU)** in addition to the TTL; add `image_cache_size` and `clear_image_cache` commands.
+- **Settings:** an Appearance/Storage control showing the **current cache size** and a **"Clear image cache"** button, plus a configurable cap (`image_cache_max_mb`, default 500).
+- **IPC five-place** for the new commands (`commands/*.rs` → `generate_handler![]` → `models.rs` ↔ `types/index.ts` → `lib/tauri.ts` → `devMock.ts`); the dev mock serves remote URLs directly (no on-disk cache in the browser).
+
+**Out of scope (deferred):**
+- TMDB / external art fill (Milestone 33).
+- Caching anything other than images (no video-segment caching).
+
+**Acceptance Criteria:**
+- [ ] On the **second view** of a movie/series/channel, its art is served from the local `images/` directory with **no provider/network request** (verifiable: the file exists in app-data and the network panel shows no image fetch).
+- [ ] A cache **miss** downloads, stores, and serves the file; a transient download failure **falls back to the remote URL** without breaking the card.
+- [ ] The cache enforces a **size cap** (default 500 MB, configurable) via **LRU eviction** in addition to the 30-day TTL; exceeding the cap evicts least-recently-used entries (row + file) until under budget.
+- [ ] Settings shows the **current cache size** and a **"Clear image cache"** control that empties the `images/` directory and the table; cleared art re-caches on next view.
+- [ ] Caching is **lazy** (on view) — no bulk pre-fetch of the catalog; browsing **offline** shows previously-cached art.
+- [ ] Art URLs carry no secrets; `cargo test --tests` and `npm run build` pass clean.
+
+### Milestone 28 — "More like this" Related Titles
+
+**Goal:** Add a local **"More like this"** row to the movie and series detail heroes (§5.4 / §13) so a detail page doubles as a discovery surface — with **no provider request**. Completes the local Metadata & Art slice and the deferred Milestone 18 follow-up.
+
+**Design decisions (resolved during the M28 planning pass):**
+- **Relatedness is local and simple:** same-genre/category within the **same content type**, **provider-scoped**, excluding the current title; ordered by a local heuristic (shared category, then recency/rating), capped (~20). No external service or ML.
+- **Reuses existing surfaces:** the standard `MovieCard`/`SeriesCard`, the §5.9 watch-progress overlays, the Milestone 16/17 poster morph, and the shared `ScrollRow` chevrons (Milestone 26).
+
+**Scope:**
+- **Backend `get_related` command (`commands/catalog.rs`):** given `(content_type, content_id)`, return up to N catalog items sharing the title's category, excluding itself; **local SQL only**, provider-scoped.
+- **IPC five-place:** handler → `generate_handler![]` → `models.rs` (reuse `Movie`/`Series` or a thin `RelatedItem`) ↔ `types/index.ts` → `lib/tauri.ts` → `devMock.ts`.
+- **Frontend:** a "More like this" strip below the synopsis in `MovieDetail`/`SeriesDetail`, reusing the section's cards (with the §5.9 overlays and the poster morph) inside the shared `ScrollRow`; the row is **omitted when empty**. Lazy-load its items; honor `prefers-reduced-motion`.
+
+**Out of scope (deferred):** cross-type recommendations; any external/ML recommendation engine.
+
+**Acceptance Criteria:**
+- [ ] Movie and series detail pages show a **"More like this"** row of same-genre titles (excluding the current one), using the section's standard cards with the §5.9 overlays and the poster morph; the row is **omitted** when there are no related titles.
+- [ ] `get_related` is **local-only** (no provider request) and **provider-scoped**; a backend test covers same-category selection, self-exclusion, and the cap.
+- [ ] The row uses the shared `ScrollRow` chevrons (Milestone 26) and honors `prefers-reduced-motion`; `cargo test --tests` and `npm run build` pass clean.
+
+### Milestone 29 — Polish Bundle (QA-idea Sweep)
+
+**Goal:** Ship, in one pass, the batch of low-effort, **local** UX refinements parked in §13 from QA pass #1: a recently-watched channels surface, a watched/in-list badge legend, LIVE-badge timer clarity, a global Live-TV filter affordance, a light-theme toggle, and custom M3U group ordering.
+
+**Scope:**
+- **Recently-watched channels (§13):** track recently-played live channels locally (a small recents store/table) and surface a "Recently watched" row (Home or the Live TV landing), plus a "last watched" marker on the channel just viewed.
+- **Watched / in-list badge legend (§13):** a tooltip/legend explaining the green "✓" badge (watched / in a list).
+- **LIVE-badge timer (§13):** clarify or hide the ambiguous running timer for pure-live streams.
+- **Global Live-TV filter scope (§13):** a hint or toggle to search across all channels without first selecting "All Channels".
+- **Light-theme toggle (§13):** implement the deferred light theme (the Milestone 12 scrollbar/CSS were kept theme-aware) and wire the Appearance theme control (made a status span in Milestone 24) back into a real, persisted toggle. *(Heaviest item in the bundle — if it proves larger than a polish slice it should graduate to its own milestone.)*
+- **Custom M3U group ordering (§13):** user-defined category sort, persisted per provider.
+- All local; honor `prefers-reduced-motion`; stay within the §10 performance budget.
+
+**Acceptance Criteria:**
+- [ ] A "Recently watched" channels affordance shows recently-played live channels, updated as the user watches; entirely local.
+- [ ] The watched/in-list badge has a discoverable explanation (tooltip/legend).
+- [ ] The LIVE-badge timer is clarified or hidden for pure-live streams so it is no longer ambiguous.
+- [ ] The Live-TV filter offers a way to search across all channels without first selecting "All Channels".
+- [ ] A **light theme** can be selected and **persists**; both themes render correctly (scrollbars, cards, hero, player chrome).
+- [ ] M3U category order can be customized and persists per provider.
+- [ ] `npm run build` and any touched backend tests pass clean.
+
+### Milestone 30 — EPG (Electronic Program Guide)
+
+**Goal:** Add **now/next** program info to Live TV and a **guide grid**, sourced from the Xtream EPG endpoints and/or a provider XMLTV feed (§13, the deferred v1.1 marquee Live-TV feature). Large, mostly independent of the other milestones.
+
+**Design decisions (to confirm in the M30 planning pass):**
+- **Source:** Xtream `get_short_epg` / `get_simple_data_table` per stream and/or a provider **XMLTV** URL; cached locally and refreshed on its own TTL.
+- **Storage:** new §15 EPG tables (programmes keyed by `epg_channel_id` + time window), **provider-scoped** and cascade-deleted with the provider.
+
+**Scope:**
+- **Backend:** fetch + parse EPG (Xtream short-EPG per channel and/or XMLTV download+parse, **gzip-aware** like the M3U path); persist to the new EPG tables; commands `get_now_next`, `get_channel_epg`, `get_guide` (IPC five-place).
+- **Frontend:** a "now playing" line on `ChannelCard` (the §5.3 placeholder), a channel-level EPG timeline, and a **guide grid** view; **virtualized** for many channels/timeslots (§10).
+- **Refresh:** an EPG staleness check on startup (separate TTL from the catalog) plus manual refresh.
+- **Graceful degrade:** channels without EPG render unchanged (no now/next line).
+
+**Acceptance Criteria:**
+- [ ] Live TV channels show **now/next** program info where the provider supplies EPG; channels without EPG render unchanged.
+- [ ] A **guide grid** lists programs by channel and time and stays smooth (virtualized) over the full channel list.
+- [ ] EPG data is fetched, parsed (Xtream and/or XMLTV incl. gzip), **cached locally**, and refreshed on its own TTL; reads after refresh hit the cache (no per-render network).
+- [ ] EPG is **provider-scoped** and cascade-deleted with the provider; a backend test covers parse + now/next selection at a given timestamp.
+- [ ] `cargo test --tests` and `npm run build` pass clean.
+
+### Milestone 31 — Linux Platform Support
+
+**Goal:** Build, run, and package Proscenium on Linux (lifts the §2 v1 non-goal; §13 High), reusing the cross-platform Tauri/React/Rust core. Large; best sequenced after the feature set is stable so the port happens once.
+
+**Design decisions:**
+- **libmpv** via the same `libloading` runtime path (system `libmpv.so.2`); **keychain via libsecret** (the §5.1 Linux backend); the player window-sandwich model (CLAUDE.md, `mpv/mod.rs`) adapted to X11/Wayland.
+
+**Scope:**
+- **Toolchain/build:** Linux target in the build pipeline; bundle `.deb` / `.AppImage` (and `.rpm` where feasible).
+- **libmpv:** load `libmpv.so.2`; adapt the video-host window glue for X11 (and Wayland where feasible) — the Windows/macOS "separate native window glued behind the transparent main window" model needs a Linux analog and may need per-compositor handling.
+- **Keychain:** libsecret backend in `keychain.rs`.
+- **Paths/protocol/updater:** app-data under `$XDG_DATA_HOME/proscenium`; verify the asset/custom protocol (Milestone 27) and updater on Linux.
+- **Verification + docs:** exercise the milestone flows on Linux; update DEVELOPMENT.md / RELEASE.md.
+
+**Acceptance Criteria:**
+- [ ] The app **builds and launches** on a mainstream Linux distro; provider setup, catalog refresh, browse, search, and playback all work.
+- [ ] libmpv loads **dynamically** (LGPL path) and the built-in player renders correctly under **X11** (and Wayland where feasible) with hardware decode (VA-API/VDPAU).
+- [ ] Credentials store in the OS keychain via **libsecret**; SQLite/app-data live under the **XDG** path.
+- [ ] `.deb` / `.AppImage` (and `.rpm` where feasible) bundles are produced and install/run cleanly.
+- [ ] The backend test suite passes on Linux; cross-platform docs are updated.
+
+### Milestone 32 — Code-Signing & Distribution Hardening
+
+**Goal:** Produce **signed, notarized** installers so end users do not hit Gatekeeper/SmartScreen warnings, and **resolve Open Question #4**. Feature-independent — can be pulled earlier if a public release becomes imminent.
+
+**Scope:**
+- **macOS:** Apple **Developer ID** signing + **notarization** + stapling of the `.dmg`/`.app`; verify a Gatekeeper-clean launch on a clean machine.
+- **Windows:** a **code-signing certificate** (OV/EV) applied to the `.msi` / `-setup.exe` **and** the updater artifacts; verify SmartScreen behavior.
+- **Pipeline:** wire signing into the bundle/updater build (the updater is already minisign-signed — Milestone 7); document cert/key handling (secrets, **never committed**) in RELEASE.md.
+- **§14:** mark Open Question #4 **Resolved** with the chosen approach.
+
+**Acceptance Criteria:**
+- [ ] The macOS bundle is **Developer-ID-signed and notarized** and launches without Gatekeeper warnings on a clean machine (requires Apple hardware + a signing identity).
+- [ ] The Windows installers **and updater artifacts** are **code-signed**; install proceeds without SmartScreen blocking on a clean machine.
+- [ ] Signing is **wired into the build pipeline** with secrets handled out-of-repo; RELEASE.md documents the full signed-release process.
+- [ ] Open Question #4 is marked **Resolved** in §14.
+
+### Milestone 33 — TMDB Cover Art & Metadata Propagation (External)
+
+**Goal:** Fill missing posters/backdrops/overviews for art-less VOD by matching titles against **TMDB**, caching the fetched art via Milestone 27 (§5.7, High). The **first external integration** — it builds the enrichment scaffolding Milestone 34 reuses. **Requires a TMDB API key.**
+
+**Design decisions:**
+- **Match:** normalize `title` + `release_year` → TMDB search → take the top result **above a confidence threshold**; persist the TMDB id against the stream id; **skip low-confidence** matches (never show wrong art).
+- **Keys/network:** TMDB API key stored via settings/keychain; a **rate-limited** client; a **background, non-blocking** enrichment queue; an **opt-out + no-key graceful-degrade** path (the app behaves exactly as today without a key).
+
+**Scope:**
+- **Settings:** TMDB API key entry; an enable/disable toggle.
+- **Backend:** an external-enrichment module — a rate-limited `reqwest` client, the match heuristic, and a background queue that enriches art-less items on demand/idle; persist the match + fetched art URLs; route images through the **Milestone 27** cache. Add any §15 columns/table for the TMDB match idempotently.
+- **Art precedence:** prefer provider-supplied art; **only fill gaps**, never overwrite.
+- **IPC five-place** for model changes; the dev mock supplies sample enriched art.
+
+**Acceptance Criteria:**
+- [ ] An art-less movie/series gains a TMDB poster/backdrop/overview after enrichment; **provider-supplied art is preferred** and not overwritten.
+- [ ] **Low-confidence matches are skipped** (no incorrect art); matches are cached against the stream id and not re-queried needlessly.
+- [ ] Enrichment is **background, rate-limited, and non-blocking**; with **no API key or disabled**, the app behaves exactly as today (graceful degrade).
+- [ ] Fetched art is stored through the **Milestone 27** cache (LRU/TTL apply); a backend test covers the match + confidence + fallback.
+- [ ] `cargo test --tests` and `npm run build` pass clean.
+
+### Milestone 34 — IMDB / OMDb Ratings (External)
+
+**Goal:** Show **IMDB ratings** (★ + vote count) on cards and detail heroes, sourced from **OMDb**, reusing Milestone 33's enrichment scaffolding and filling the currently-empty `imdb_id` / `imdb_rating` columns (§5.8, High). **Requires an OMDb API key.**
+
+**Design decisions:**
+- **Match:** `title` + `year` → OMDb → cache the rating against the VOD stream id; **refresh ≤ once / 7 days** per title.
+- **Keys/substrate:** OMDb API key in settings; reuse the **Milestone 33** rate-limit + background-queue + graceful-degrade substrate.
+
+**Scope:**
+- **Settings:** OMDb API key entry; a toggle.
+- **Backend:** populate `imdb_id` / `imdb_rating` (and the series equivalent — add columns idempotently if missing) via the Milestone 33 enrichment queue; enforce the 7-day per-title refresh cap.
+- **Frontend:** a ★ rating badge on `MovieCard` / `SeriesCard` and the detail heroes (the §5.4 placeholder).
+- **IPC five-place**; the dev mock supplies sample ratings.
+
+**Acceptance Criteria:**
+- [ ] Movie and series cards/detail heroes show an IMDB **★ rating + vote count** where matched; **absent** (not a placeholder) where unmatched.
+- [ ] Ratings are matched via OMDb, **cached** against the stream id, and refreshed **at most once per 7 days** per title.
+- [ ] With **no API key or disabled**, no rating UI appears and the app behaves as today; enrichment is **background/rate-limited** (reusing Milestone 33's substrate).
+- [ ] A backend test covers the match + 7-day TTL + fallback; `cargo test --tests` and `npm run build` pass clean.
