@@ -113,12 +113,15 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
--- Cached cover art (local disk path index)
+-- Cached cover art (local disk path index). `size_bytes` + `last_accessed`
+-- back the Milestone 27 LRU size cap layered on top of the 30-day TTL.
 CREATE TABLE IF NOT EXISTS image_cache (
   url           TEXT PRIMARY KEY,
   local_path    TEXT NOT NULL,
   cached_at     INTEGER NOT NULL,       -- Unix timestamp
-  expires_at    INTEGER NOT NULL        -- Unix timestamp (cached_at + 30 days)
+  expires_at    INTEGER NOT NULL,       -- Unix timestamp (cached_at + 30 days)
+  size_bytes    INTEGER NOT NULL DEFAULT 0,
+  last_accessed INTEGER NOT NULL DEFAULT 0
 );
 
 -- Watch progress (§5.9). Resume position + completion for VOD only; live TV is
@@ -196,6 +199,9 @@ pub async fn apply(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     // existing databases — `CREATE TABLE IF NOT EXISTS` above only covers fresh
     // installs, and SQLite's `ALTER TABLE ADD COLUMN` has no `IF NOT EXISTS`.
     add_column_if_missing(pool, "episodes", "overview", "TEXT").await?; // M20 §5.4
+    // M27 §5.7 — LRU size cap on the image cache; backfill existing DBs.
+    add_column_if_missing(pool, "image_cache", "size_bytes", "INTEGER NOT NULL DEFAULT 0").await?;
+    add_column_if_missing(pool, "image_cache", "last_accessed", "INTEGER NOT NULL DEFAULT 0").await?;
     scrub_xtream_stream_urls(pool).await?; // M21 §5.1 — credential hardening
     Ok(())
 }

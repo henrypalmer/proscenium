@@ -3,7 +3,7 @@ pub mod xtream;
 
 use std::time::Duration;
 
-pub(crate) fn http_client() -> Result<reqwest::Client, String> {
+pub fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .connect_timeout(Duration::from_secs(10))

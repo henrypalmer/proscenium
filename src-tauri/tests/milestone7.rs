@@ -200,6 +200,7 @@ async fn stale_images_are_evicted_on_startup_fresh_ones_kept() {
         &pool,
         "http://art.local/stale.jpg",
         stale_file.to_str().unwrap(),
+        1024,
         now - 40 * 24 * 3600,
     )
     .await
@@ -209,6 +210,7 @@ async fn stale_images_are_evicted_on_startup_fresh_ones_kept() {
         &pool,
         "http://art.local/fresh.jpg",
         fresh_file.to_str().unwrap(),
+        1024,
         now,
     )
     .await

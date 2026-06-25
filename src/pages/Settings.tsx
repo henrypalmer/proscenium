@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ProviderList from "../components/providers/ProviderList";
+import * as api from "../lib/tauri";
 import { useSettingsStore } from "../store/settingsStore";
 import type { ExternalPlayer, UiDensity } from "../types";
 
@@ -164,6 +165,77 @@ function AppearanceSettings() {
             Dark
             <span className="text-xs text-zinc-600">· only theme</span>
           </span>
+        </Row>
+      </div>
+
+      <ImageCacheSettings />
+    </div>
+  );
+}
+
+/** Storage controls for the on-disk cover-art cache (spec §5.7, Milestone 27):
+ * the configurable size cap, the current cache size, and a clear button. */
+function ImageCacheSettings() {
+  const settings = useSettingsStore((s) => s.settings);
+  const update = useSettingsStore((s) => s.update);
+  const [size, setSize] = useState<number | null>(null);
+  const [clearing, setClearing] = useState(false);
+
+  const loadSize = () => {
+    void api.imageCacheSize().then(setSize);
+  };
+  useEffect(loadSize, []);
+
+  if (!settings) return null;
+
+  const formatMb = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+  return (
+    <div className="mt-8">
+      <h3 className="mb-2 text-sm font-semibold text-zinc-200">Storage</h3>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-5">
+        <Row
+          label="Image cache limit"
+          description="Cover art is cached on disk for faster, offline browsing. Oldest art is removed first past this limit."
+        >
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={50}
+              step={50}
+              data-testid="image-cache-cap"
+              value={settings.imageCacheMaxMb}
+              onChange={(e) =>
+                void update("imageCacheMaxMb", Math.max(0, Number(e.target.value)))
+              }
+              className="w-24 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100"
+            />
+            <span className="text-sm text-zinc-500">MB</span>
+          </div>
+        </Row>
+
+        <Row label="Cached art" description="Disk used by cached cover art.">
+          <div className="flex items-center gap-3">
+            <span data-testid="image-cache-size" className="text-sm tabular-nums text-zinc-300">
+              {size === null ? "—" : formatMb(size)}
+            </span>
+            <button
+              data-testid="clear-image-cache"
+              disabled={clearing || size === 0}
+              onClick={async () => {
+                setClearing(true);
+                try {
+                  await api.clearImageCache();
+                  loadSize();
+                } finally {
+                  setClearing(false);
+                }
+              }}
+              className="rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+            >
+              {clearing ? "Clearing…" : "Clear"}
+            </button>
+          </div>
         </Row>
       </div>
     </div>

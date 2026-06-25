@@ -69,6 +69,29 @@ export function setSetting(key: string, value: string): Promise<void> {
   return invoke("set_setting", { key, value });
 }
 
+// --- On-disk image cache (spec §5.7 / Milestone 27) ---
+
+/** Local path of a cached art URL, or null on a miss (no download). */
+export function resolveCachedImagePath(url: string): Promise<string | null> {
+  return invoke("resolve_cached_image", { url });
+}
+
+/** Ensure an art URL is cached (downloads on a miss); resolves to the local
+ * path or null. Used to populate the cache in the background. */
+export function cacheImage(url: string): Promise<string | null> {
+  return invoke("cache_image", { url });
+}
+
+/** Total bytes currently held by the on-disk image cache. */
+export function imageCacheSize(): Promise<number> {
+  return invoke("image_cache_size");
+}
+
+/** Delete every cached art file and empty the index. */
+export function clearImageCache(): Promise<void> {
+  return invoke("clear_image_cache");
+}
+
 export function getActiveProvider(): Promise<Provider | null> {
   return invoke("get_active_provider");
 }

@@ -117,7 +117,12 @@ const mockSettings: AppSettings = {
   uiDensity: "comfortable",
   uiTheme: "dark",
   hwDecodeEnabled: true,
+  imageCacheMaxMb: 500,
 };
+
+// Browser dev has no on-disk cache; expose a demoable size so the Settings
+// "Storage" controls are exercisable (Clear drops it to zero).
+let mockImageCacheBytes = 42 * 1024 * 1024;
 
 // --- Mock VOD catalog (Milestone 5) ---
 
@@ -623,13 +628,23 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
       if (camel === "hwDecodeEnabled") {
         mockSettings.hwDecodeEnabled = value !== "false";
-      } else if (camel === "cacheTtlHours") {
-        mockSettings.cacheTtlHours = Number(value);
+      } else if (camel === "cacheTtlHours" || camel === "imageCacheMaxMb") {
+        (mockSettings as unknown as Record<string, number>)[camel] = Number(value);
       } else {
         (mockSettings as unknown as Record<string, unknown>)[camel] = value;
       }
       return undefined as T;
     }
+    case "resolve_cached_image":
+      // No on-disk cache in the browser — always a miss (use the remote URL).
+      return null as T;
+    case "cache_image":
+      return null as T;
+    case "image_cache_size":
+      return mockImageCacheBytes as T;
+    case "clear_image_cache":
+      mockImageCacheBytes = 0;
+      return undefined as T;
     case "check_provider_status":
       // Browser dev provider is always healthy; the banner is exercised by
       // driving the store directly.

@@ -2,6 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useCatalogStore } from "../../store/catalogStore";
 import { useDensity } from "../../lib/useDensity";
+import CachedImage from "../common/CachedImage";
 import Placeholder from "../common/Placeholder";
 
 /**
@@ -22,28 +23,16 @@ export function Poster({
    * morphs between its grid cell and the detail view (see viewTransition.ts). */
   vtName?: string;
 }) {
-  const [state, setState] = useState<"loading" | "loaded" | "error">(
-    url ? "loading" : "error",
-  );
   return (
     <div
       className="relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-zinc-800"
       style={vtName ? { viewTransitionName: vtName } : undefined}
     >
       <Placeholder label={title} />
-      {url && state !== "error" && (
-        <img
-          src={url}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setState("loaded")}
-          onError={() => setState("error")}
-          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-150 ${
-            state === "loaded" ? "opacity-100" : "opacity-0"
-          }`}
-        />
-      )}
+      <CachedImage
+        url={url}
+        className="absolute inset-0 h-full w-full object-cover"
+      />
       {overlay}
     </div>
   );

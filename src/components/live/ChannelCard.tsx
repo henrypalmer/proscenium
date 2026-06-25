@@ -1,4 +1,4 @@
-import { useState } from "react";
+import CachedImage from "../common/CachedImage";
 import Placeholder from "../common/Placeholder";
 import { displayChannelName } from "../../lib/utils";
 import type { LiveChannel } from "../../types";
@@ -22,9 +22,6 @@ function ChannelLogo({
   name: string;
   compact?: boolean;
 }) {
-  const [state, setState] = useState<"loading" | "loaded" | "error">(
-    url ? "loading" : "error",
-  );
   return (
     <div
       className={`relative shrink-0 overflow-hidden rounded-md bg-zinc-800 ${
@@ -32,19 +29,10 @@ function ChannelLogo({
       }`}
     >
       <Placeholder label={name} />
-      {url && state !== "error" && (
-        <img
-          src={url}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setState("loaded")}
-          onError={() => setState("error")}
-          className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-150 ${
-            state === "loaded" ? "opacity-100" : "opacity-0"
-          }`}
-        />
-      )}
+      <CachedImage
+        url={url}
+        className="absolute inset-0 h-full w-full object-contain"
+      />
     </div>
   );
 }

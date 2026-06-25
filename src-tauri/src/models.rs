@@ -368,6 +368,8 @@ pub struct AppSettings {
     pub ui_density: String,
     pub ui_theme: String,
     pub hw_decode_enabled: bool,
+    /// Image cache ceiling in MB (spec §5.7, Milestone 27); LRU-evicted past this.
+    pub image_cache_max_mb: i64,
 }
 
 impl Default for AppSettings {
@@ -381,6 +383,7 @@ impl Default for AppSettings {
             ui_density: "comfortable".into(),
             ui_theme: "dark".into(),
             hw_decode_enabled: true,
+            image_cache_max_mb: crate::commands::images::DEFAULT_MAX_MB,
         }
     }
 }

@@ -1,4 +1,5 @@
 pub mod catalog;
+pub mod images;
 pub mod lists;
 pub mod playback;
 pub mod providers;

@@ -2,6 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { cleanEpisodeTitle, formatDuration } from "../../lib/utils";
 import { useWatchProgress } from "../../store/progressStore";
+import CachedImage from "../common/CachedImage";
 import ContextMenu, { type ContextMenuItem } from "../common/ContextMenu";
 import Placeholder from "../common/Placeholder";
 import WatchProgressOverlay from "./WatchProgressOverlay";
@@ -237,9 +238,6 @@ function EpisodeThumbnail({
   progress: WatchProgress | undefined;
   onPlay: () => void;
 }) {
-  const [state, setState] = useState<"loading" | "loaded" | "error">(
-    episode.posterUrl ? "loading" : "error",
-  );
   return (
     <button
       type="button"
@@ -249,19 +247,10 @@ function EpisodeThumbnail({
       className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-md bg-zinc-800 sm:w-44"
     >
       <Placeholder label={title} />
-      {episode.posterUrl && state !== "error" && (
-        <img
-          src={episode.posterUrl}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setState("loaded")}
-          onError={() => setState("error")}
-          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-150 ${
-            state === "loaded" ? "opacity-100" : "opacity-0"
-          }`}
-        />
-      )}
+      <CachedImage
+        url={episode.posterUrl}
+        className="absolute inset-0 h-full w-full object-cover"
+      />
       {/* Play affordance on hover. */}
       <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-2xl text-white/0 transition group-hover:bg-black/30 group-hover:text-white/90">
         ▶

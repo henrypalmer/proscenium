@@ -30,6 +30,18 @@ pub fn run() {
             let db_path = data_dir.join("proscenium.db");
             let pool = tauri::async_runtime::block_on(db::init(&db_path))?;
             app.manage(db::Db(pool));
+            // Image cache (spec §5.7, Milestone 27): cached art lives next to the
+            // DB and is served to the WebView via the asset protocol, so the
+            // images directory must be inside the asset scope.
+            let images_dir = data_dir.join("images");
+            std::fs::create_dir_all(&images_dir).ok();
+            app.asset_protocol_scope()
+                .allow_directory(&images_dir, true)
+                .ok();
+            app.manage(commands::images::ImageCache::new(
+                images_dir,
+                iptv::http_client().map_err(|e| e.to_string())?,
+            ));
             app.manage(commands::catalog::RefreshGuard::default());
             app.manage(commands::catalog::DetailCache::default());
             app.manage(commands::playback::PlayerHandle::default());
@@ -56,6 +68,10 @@ pub fn run() {
             commands::providers::check_provider_status,
             commands::settings::get_settings,
             commands::settings::set_setting,
+            commands::images::resolve_cached_image,
+            commands::images::cache_image,
+            commands::images::image_cache_size,
+            commands::images::clear_image_cache,
             commands::catalog::get_active_provider,
             commands::catalog::set_active_provider,
             commands::catalog::refresh_catalog,

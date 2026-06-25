@@ -16,6 +16,7 @@ const WRITABLE_KEYS: &[&str] = &[
     "ui_density",
     "ui_theme",
     "hw_decode_enabled",
+    "image_cache_max_mb",
 ];
 
 fn now_unix() -> i64 {
@@ -54,6 +55,11 @@ pub async fn get_settings_impl(pool: &SqlitePool) -> Result<AppSettings, String>
     if let Some(v) = read("hw_decode_enabled").await? {
         settings.hw_decode_enabled = v != "false";
     }
+    if let Some(v) = read("image_cache_max_mb").await? {
+        if let Ok(n) = v.parse() {
+            settings.image_cache_max_mb = n;
+        }
+    }
     Ok(settings)
 }
 
@@ -82,13 +88,21 @@ pub async fn evict_stale_images(pool: &SqlitePool, now: i64) -> Result<usize, St
     Ok(stale.len())
 }
 
-/// Spawned on launch from `lib.rs` setup.
+/// Spawned on launch from `lib.rs` setup. Evicts TTL-expired entries, then
+/// enforces the LRU size cap (Milestone 27) so a cache that grew past its
+/// ceiling between sessions is trimmed on startup.
 pub async fn startup_image_cache_eviction(app: AppHandle) {
     let pool = app.state::<Db>().0.clone();
     match evict_stale_images(&pool, now_unix()).await {
         Ok(n) if n > 0 => eprintln!("image cache: evicted {n} stale entr(y/ies)"),
         Ok(_) => {}
         Err(e) => eprintln!("image cache eviction failed: {e}"),
+    }
+    let cap = crate::commands::images::cache_cap_bytes(&pool).await;
+    match crate::commands::images::enforce_size_cap(&pool, cap).await {
+        Ok(n) if n > 0 => eprintln!("image cache: evicted {n} entr(y/ies) over the size cap"),
+        Ok(_) => {}
+        Err(e) => eprintln!("image cache cap enforcement failed: {e}"),
     }
 }
 

@@ -161,6 +161,8 @@ export interface AppSettings {
   uiDensity: string;
   uiTheme: string;
   hwDecodeEnabled: boolean;
+  /** Image cache ceiling in MB (spec §5.7, Milestone 27). */
+  imageCacheMaxMb: number;
 }
 
 export type ExternalPlayer = "mpv" | "vlc" | "custom";

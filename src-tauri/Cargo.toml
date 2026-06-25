@@ -27,7 +27,8 @@ tauri-build = { version = "2", features = [] }
 # macos-private-api turns on the transparent-background API, which the macOS
 # video host relies on: mpv renders into a native NSView placed *behind* the
 # WebView, and the page only shows it through where it paints transparent.
-tauri = { version = "2", features = ["macos-private-api"] }
+# protocol-asset: serve cached cover art from disk to the WebView (Milestone 27).
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset"] }
 # Auto-updater (Milestone 7). rustls to match the reqwest TLS stack and avoid
 # pulling in native-tls/OpenSSL on the GNU toolchain.
 tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }
