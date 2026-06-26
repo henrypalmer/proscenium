@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-25
 - **Branch:** `poc/mse-live-tv`
-- **Status:** POC built + verified in Chromium (preview). Real-app / real-provider validation still required (see §5).
+- **Status:** POC built + verified in Chromium (preview). **Real-provider test surfaced a buffering/stability gap vs mpv — see §4a (this is now the deciding question for M37).**
 - **Question (from the embedding spike):** can live TV — and especially multi-view — be played with HTML5 `<video>` + MSE (`mpegts.js` / `hls.js`) **inside the WebView**, eliminating the native-window "sandwich" for that path and making the M37 grid trivial?
 
 ---
@@ -13,7 +13,9 @@
 
 The one non-obvious requirement surfaced and was solved: **provider streams need a local proxy** (built here) because IPTV providers send no CORS headers — and the proxy is a bonus, because it also keeps the keychain password server-side.
 
-**What this de-risks for M37:** if the real WebView2/WKWebView codec check (§5) passes for the provider's live channels, the multi-view milestone collapses from "generalize the native-window player to N windows" (the hard, platform-specific path) to "render N `<video>` in a grid" — a fraction of the risk and effort. mpv stays as the VOD / full-fidelity player.
+**What this de-risks for M37:** *architecturally*, the multi-view milestone could collapse from "generalize the native-window player to N windows" (the hard, platform-specific path) to "render N `<video>` in a grid" — a fraction of the risk and effort, with mpv retained for VOD.
+
+**But — important caveat (§4a):** the real-provider test shows MSE **buffers/freezes noticeably more than mpv** on the same live channels. Part of that was a POC misconfiguration (now fixed — mpegts.js was tuned for latency, not stability; proxy lacked `TCP_NODELAY`), and part is likely fundamental (mpv/ffmpeg tolerates messy IPTV streams far better than browser MSE). **A re-test with the fixes is the deciding factor:** if stability matches mpv, go MSE; if not, M37 should instead use the **libmpv render API** (which keeps mpv's robustness *and* enables multi-view). See §6.
 
 ---
 
@@ -55,6 +57,23 @@ The screenshot in the session shows two tiles playing the Mux test stream, the r
 
 ---
 
+## 4a. Real-provider test — buffering / freezing (the deciding finding)
+
+Testing against the real provider in the Tauri app: **channels play, but buffer much more and sometimes freeze, while the *same* channel in the established mpv player does not buffer at all.** This is the make-or-break result for the MSE approach, and there are two distinct causes:
+
+**(i) A POC misconfiguration — fixed.** The first cut configured mpegts.js for *low latency*, which is exactly wrong for jittery IPTV:
+- `liveBufferLatencyChasing: true` — re-seeks to the live edge whenever the buffer dips, so every network hiccup becomes a stall. (Now `false`.)
+- `enableStashBuffer: false` — removed the IO cushion. (Now `true`, with a larger `stashInitialSize` + `autoCleanupSourceBuffer`.)
+- The localhost proxy lacked **`TCP_NODELAY`**, so Nagle coalesced the small chunked writes and added jitter the MSE buffer had to absorb. (Now set.)
+
+→ **Re-test needed in the real app** to see how much of the gap these close.
+
+**(ii) A likely-fundamental gap — may not close.** mpv/ffmpeg has a deep, mature, jitter-tolerant demuxer cache and handles IPTV's messy reality (timestamp/PCR discontinuities, PAT/PMT changes, variable bitrate, mid-stream hiccups) gracefully. Browser MSE + mpegts.js does its transmuxing in JS with a shallower buffer and is **inherently more sensitive** to exactly those conditions — which is what produces the extra buffering and the freezes. Tuning narrows this; it may not erase it.
+
+**Why this matters:** the whole appeal of the MSE path was a *simpler* multi-view. If the trade is "trivial grid, but a visibly worse/less-stable picture than the player we already ship," that's a bad trade for a product whose §2 goal is smooth playback. So this gap — after the §4a(i) fixes — is the single fact that should decide M37's direction (see §6).
+
+---
+
 ## 5. What still must be validated (real app + real provider)
 
 These are the questions only the Tauri build against the real provider can answer — **run `npm run tauri dev`, click 🧪 MSE POC, "Add channel"**:
@@ -66,11 +85,19 @@ These are the questions only the Tauri build against the real provider can answe
 
 ---
 
-## 6. Recommendation
+## 6. Recommendation (revised after §4a)
 
-**Proceed with the MSE path as the primary plan for M37 (live-TV multi-view), pending the §5 real-app codec/perf check.** It removes the riskiest, most platform-specific work from the milestone. Keep the built-in **mpv player as-is** for single-stream VOD and any codec MSE can't handle.
+The MSE path is **architecturally** a clear win for multi-view (proven in §3). But §4a shows it has a **playback-quality cost** for live IPTV that the established mpv player doesn't. So the decision is now gated on **one re-test**, not on the architecture:
 
-If §5 passes, fold this POC's components into a real `MultiView` feature (replacing the temporary `/poc/mse` route + button), harden the proxy (HLS playlist rewriting, lifecycle, error states), and wire the entry points from the §5.3 Live TV UI per the M37 spec.
+**Decision gate — re-test live channels in the real app with the §4a(i) fixes applied:**
+
+- **If stability now matches mpv** (no meaningful extra buffering/freezing across a range of the provider's channels): **proceed with MSE for M37.** Fold this POC into a real `MultiView` feature (replace the temp `/poc/mse` route + button), harden the proxy (HLS playlist rewriting, lifecycle, per-tile error states, the `max_connections` budget), and wire the §5.3 entry points. Keep mpv as the VOD / full-fidelity player.
+
+- **If it still buffers/freezes** noticeably worse than mpv: **do not ship MSE for the main viewing path. Pivot M37 to the libmpv `render` API** (Option B in the embedding spike, `2026-06-25-player-embedding-architecture.md`). That keeps mpv's robust, jitter-tolerant playback **and** enables multi-view by rendering N mpv instances into N viewports of one composited surface — more implementation work than MSE, but **far** less than today's N-separate-native-windows approach, and with no quality regression. This is the safer bet for a product whose core promise is smooth playback.
+
+A reasonable **hybrid** also exists if MSE is close-but-not-perfect: use MSE only for the *secondary* multi-view tiles (where a little buffering is acceptable while you monitor several games) and keep the *focused/audio* tile on mpv. More complex; only worth it if the simple gate is ambiguous.
+
+**Bottom line:** the POC did its job — it turned "MSE makes multi-view trivial" into a concrete, measured trade-off. The architecture is sound; the open question is purely playback stability, and the §4a(i) re-test answers it.
 
 **Production hardening notes (when promoting out of POC):**
 - The proxy is intentionally minimal: no Range support, no playlist rewriting, no connection accounting. Production needs per-tile error surfacing (reuse the §12/M22 classifier), the `max_connections` budget, and clean teardown.

@@ -64,6 +64,9 @@ async fn write_error(sock: &mut TcpStream, msg: &str) {
 }
 
 async fn handle(mut sock: TcpStream, pool: SqlitePool, client: reqwest::Client) {
+    // Live TS is latency-sensitive; without TCP_NODELAY, Nagle coalesces the
+    // small chunked writes and adds jitter the MSE buffer then has to absorb.
+    let _ = sock.set_nodelay(true);
     let mut buf = vec![0u8; 8192];
     let n = match sock.read(&mut buf).await {
         Ok(n) if n > 0 => n,

@@ -86,7 +86,19 @@ export default function MseTile({
         if (mpegts.getFeatureList().mseLivePlayback) {
           mpegtsPlayer = mpegts.createPlayer(
             { type: "mse", isLive: true, url: src },
-            { enableStashBuffer: false, liveBufferLatencyChasing: true },
+            {
+              // Favor STABILITY over latency for jittery IPTV (the first POC
+              // config did the opposite, which caused the heavy buffering /
+              // freezing): keep the IO stash buffer for a network cushion, and
+              // do NOT chase the live edge — latency-chasing re-seeks to "now"
+              // whenever the buffer dips, which on a hiccup-prone stream turns
+              // into repeated stalls. Auto-clean the source buffer so it can
+              // keep building a cushion without overflowing MSE.
+              enableStashBuffer: true,
+              stashInitialSize: 1024 * 512,
+              liveBufferLatencyChasing: false,
+              autoCleanupSourceBuffer: true,
+            },
           );
           mpegtsPlayer.attachMediaElement(video);
           mpegtsPlayer.on(mpegts.Events.ERROR, (type, detail) => {
