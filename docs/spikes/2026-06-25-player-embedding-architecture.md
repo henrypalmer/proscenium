@@ -3,6 +3,7 @@
 - **Date:** 2026-06-25
 - **Author:** Engineering (Claude Code session)
 - **Status:** Complete — findings + recommendation below
+- **Outcome (2026-06-25):** Option D (MSE) was prototyped in **Spike D** and **rejected** — it freezes on real live IPTV (`2026-06-25-spike-d-mse-multiview-poc.md`). **Option B (libmpv `render` API) is the chosen direction** for both the player and M37 multi-view; next step is **Spike B**, a single-player render-API PoC.
 - **Trigger:** Before generalizing the player to multi-view (Milestone 37), validate whether the way we embed the player is the most seamless / maintainable / architecturally sound option, with **Windows + macOS** as first-class targets. Specifically: is there an SDK or plugin we can adopt instead of hand-rolling window glue and bundling DLLs?
 
 ---
