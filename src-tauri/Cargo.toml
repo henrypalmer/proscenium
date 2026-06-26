@@ -44,7 +44,9 @@ flate2 = "1"
 libloading = "0.8"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm"] }
+# Win32_Graphics_OpenGL + Win32_System_LibraryLoader are for the Spike B
+# render-API example (examples/render_api_spike.rs): WGL context + GL proc loading.
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Graphics_OpenGL", "Win32_System_LibraryLoader"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Objective-C runtime for the native video host (NSView behind the WebView).
