@@ -66,11 +66,20 @@ SPIKE_SECS=8 cargo run --example render_api_spike      # headless: auto-quit + t
 | mpv renders frames into a surface we own | ✅ verified (frames flowing) |
 | Clean teardown (free render ctx → terminate player) | ✅ verified (no hang/crash) |
 | Plays real live IPTV robustly | ✅ verified — "EL: ESPN" from the real provider (SRP Tech App, keychain-composed) rendered 88 frames in 12s via the render API. Same engine as the existing player, so the streams that froze on MSE play here. |
-| **Resize without flicker / black flashes** | ⏳ **human visual check** — run it and drag-resize the window |
+| **Resize smooth (no freeze / no stuck resize)** | ✅ architecture fixed — render on a dedicated thread (see §3a); re-verify visually |
 | **Compositing behind the Tauri WebView** (the "sandwich", but our surface) | ⏳ **Phase 2** — not attempted yet |
 | Multiple render contexts → N viewports (multi-view) | ⏳ Phase 3 / M37 |
 
-The headless logs can't show flicker, so **please run it and resize the window** — that's the one remaining known-risk from the wry experiments ("OpenGL paths flicker when resizing").
+The headless logs can't show flicker, so **please re-run and resize the window** to confirm the §3a fix.
+
+## 3a. Resize finding → render on a dedicated thread
+
+First cut rendered in the main thread's message loop. Testing surfaced two issues, **both Win32 artifacts of that design, not the render API**:
+
+1. **Video froze during a drag-resize (audio kept playing).** A Win32 drag-resize runs a *modal* message loop on the window's thread, starving any rendering done on that thread; mpv's audio runs on its own internal thread, so it continued.
+2. **Resize got "stuck" in some directions** (fullscreen + resize un-stuck it). Same root cause — the single thread was busy rendering / `SwapBuffers`-blocking instead of promptly servicing window messages, so resize hit-testing was starved.
+
+**Fix (and the architecture the real implementation should use): render on a dedicated thread.** The main thread does *only* the window + a blocking `GetMessage` pump; a separate thread owns the GL context and renders continuously. The modal resize loop no longer blocks rendering, and the main thread always services window messages. Teardown stays ordered (render thread frees the render context → main thread destroys the player); auto-quit posts `WM_CLOSE` to wake the pump. Verified headless (renders + clean join). **Visual resize re-check is the remaining human step.**
 
 ---
 

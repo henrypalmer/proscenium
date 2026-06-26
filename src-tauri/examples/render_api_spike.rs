@@ -46,9 +46,9 @@ mod win {
     };
     use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, PeekMessageW,
-        PostQuitMessage, RegisterClassW, TranslateMessage, CS_OWNDC, CW_USEDEFAULT, MSG, PM_REMOVE,
-        WM_CLOSE, WM_DESTROY, WM_QUIT, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
+        PostMessageW, PostQuitMessage, RegisterClassW, TranslateMessage, CS_OWNDC, CW_USEDEFAULT,
+        MSG, WM_CLOSE, WM_DESTROY, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
 
     // --- mpv client + render API surface (client.h / render.h / render_gl.h) ---
@@ -101,6 +101,12 @@ mod win {
         render_context_report_swap: unsafe extern "C" fn(MpvRenderCtx),
         render_context_free: unsafe extern "C" fn(MpvRenderCtx),
     }
+
+    // The mpv client API is thread-safe and the function pointers/library handle
+    // are address-stable; sharing `Arc<Mpv>` across the main + render threads is
+    // sound (the app shares `Arc<MpvApi>` the same way).
+    unsafe impl Send for Mpv {}
+    unsafe impl Sync for Mpv {}
 
     impl Mpv {
         fn load() -> Result<Self, String> {
@@ -335,31 +341,18 @@ mod win {
 
     pub fn run() -> Result<(), String> {
         let url = acquire_url()?;
-        let mpv = Mpv::load()?;
+        let mpv = std::sync::Arc::new(Mpv::load()?);
 
-        // --- window + WGL context ---
-        let (hwnd, hdc, hglrc) = unsafe { create_gl_window()? };
-        eprintln!("[spike] GL context created");
+        // Window + message pump live on THIS (main) thread; rendering lives on a
+        // dedicated thread. That separation is the whole point of the fix: a
+        // Win32 drag-resize runs a *modal* loop on the window's thread, so if we
+        // rendered here the video would freeze mid-resize. With rendering off on
+        // its own thread, resize stays smooth and the main thread always services
+        // window messages (so resizing never gets "stuck").
+        let hwnd = unsafe { create_window()? };
 
-        // Log the GL version/renderer so there's signal even without watching.
-        unsafe {
-            let gl_get_string: Option<unsafe extern "C" fn(u32) -> *const u8> =
-                std::mem::transmute(get_proc_address(std::ptr::null_mut(), b"glGetString\0".as_ptr() as _));
-            if let Some(f) = gl_get_string {
-                const GL_VERSION: u32 = 0x1F02;
-                const GL_RENDERER: u32 = 0x1F01;
-                let ver = f(GL_VERSION);
-                let rend = f(GL_RENDERER);
-                if !ver.is_null() {
-                    eprintln!("[spike] GL_VERSION  = {}", CStr::from_ptr(ver as _).to_string_lossy());
-                }
-                if !rend.is_null() {
-                    eprintln!("[spike] GL_RENDERER = {}", CStr::from_ptr(rend as _).to_string_lossy());
-                }
-            }
-        }
-
-        // --- mpv player + render context ---
+        // mpv player (the handle is thread-safe; the render *context* is created
+        // and used only on the render thread, where the GL context is current).
         let handle = unsafe { (mpv.create)() };
         if handle.is_null() {
             return Err("mpv_create returned null".into());
@@ -370,7 +363,7 @@ mod win {
             };
             set("terminal", "no");
             set("msg-level", "all=warn");
-            set("vo", "libmpv"); // render API output
+            set("vo", "libmpv");
             set("hwdec", "auto-safe");
             let rc = (mpv.initialize)(handle);
             if rc < 0 {
@@ -378,6 +371,69 @@ mod win {
             }
         }
 
+        // Spawn the render thread. Pass the raw handles as isize (Send) and cast
+        // back inside — avoids wrapping, since a Copy `*mut c_void` field would
+        // still be captured bare under 2021 disjoint closure captures.
+        let hwnd_n = hwnd as isize;
+        let handle_n = handle as isize;
+        let mpv_rt = mpv.clone();
+        let url_rt = url.clone();
+        let render = std::thread::spawn(move || {
+            let hwnd = hwnd_n as *mut c_void;
+            let handle = handle_n as *mut c_void;
+            if let Err(e) = render_thread(&mpv_rt, handle, hwnd, &url_rt) {
+                eprintln!("[spike] render thread ERROR: {e}");
+                // Wake the main thread so it can exit.
+                unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0) };
+            }
+        });
+
+        // Message pump: block on messages (no busy-spin — rendering is elsewhere).
+        unsafe {
+            let mut msg: MSG = std::mem::zeroed();
+            while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+        QUIT.store(true, Ordering::SeqCst);
+        let _ = render.join();
+
+        // The render thread freed its render context before exiting; now destroy
+        // the player (order matters).
+        unsafe { (mpv.terminate_destroy)(handle) };
+        eprintln!("[spike] done.");
+        Ok(())
+    }
+
+    /// Runs on the render thread: owns the GL context, renders mpv into it.
+    fn render_thread(
+        mpv: &Mpv,
+        handle: MpvHandle,
+        hwnd: *mut c_void,
+        url: &str,
+    ) -> Result<(), String> {
+        let (hdc, hglrc) = unsafe { init_gl(hwnd)? };
+        eprintln!("[spike] GL context current on render thread");
+
+        // GL version/renderer (context is current now).
+        unsafe {
+            let gl_get_string: Option<unsafe extern "C" fn(u32) -> *const u8> = std::mem::transmute(
+                get_proc_address(std::ptr::null_mut(), b"glGetString\0".as_ptr() as _),
+            );
+            if let Some(f) = gl_get_string {
+                let ver = f(0x1F02);
+                let rend = f(0x1F01);
+                if !ver.is_null() {
+                    eprintln!("[spike] GL_VERSION  = {}", CStr::from_ptr(ver as _).to_string_lossy());
+                }
+                if !rend.is_null() {
+                    eprintln!("[spike] GL_RENDERER = {}", CStr::from_ptr(rend as _).to_string_lossy());
+                }
+            }
+        }
+
+        // Render context.
         let mut ctx: MpvRenderCtx = std::ptr::null_mut();
         unsafe {
             let api = cstr("opengl");
@@ -386,33 +442,27 @@ mod win {
                 get_proc_address_ctx: std::ptr::null_mut(),
             };
             let mut params = [
-                MpvRenderParam {
-                    type_: MPV_RENDER_PARAM_API_TYPE,
-                    data: api.as_ptr() as *mut c_void,
-                },
+                MpvRenderParam { type_: MPV_RENDER_PARAM_API_TYPE, data: api.as_ptr() as *mut c_void },
                 MpvRenderParam {
                     type_: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
                     data: &mut gl_init as *mut _ as *mut c_void,
                 },
-                MpvRenderParam {
-                    type_: MPV_RENDER_PARAM_INVALID,
-                    data: std::ptr::null_mut(),
-                },
+                MpvRenderParam { type_: MPV_RENDER_PARAM_INVALID, data: std::ptr::null_mut() },
             ];
             let rc = (mpv.render_context_create)(&mut ctx, handle, params.as_mut_ptr());
             if rc < 0 {
                 return Err(format!(
-                    "mpv_render_context_create failed: {} — this libmpv build may not support the OpenGL render API",
+                    "mpv_render_context_create failed: {} — this libmpv may not support the GL render API",
                     mpv.err(rc)
                 ));
             }
         }
         eprintln!("[spike] render context created OK");
 
-        // loadfile <url>
+        // loadfile.
         unsafe {
             let load = cstr("loadfile");
-            let u = cstr(&url);
+            let u = cstr(url);
             let mut args = [load.as_ptr(), u.as_ptr(), std::ptr::null()];
             let rc = (mpv.command)(handle, args.as_mut_ptr());
             if rc < 0 {
@@ -420,36 +470,23 @@ mod win {
             }
         }
 
-        // --- render loop (vsync-paced via SwapBuffers) ---
-        // SPIKE_SECS=N auto-quits cleanly after N seconds (for headless runs +
-        // exercising teardown without having to close the window by hand).
+        // Render loop (vsync-paced via SwapBuffers), unaffected by the main
+        // thread's modal resize loop.
         let max_secs = std::env::var("SPIKE_SECS").ok().and_then(|s| s.parse::<u64>().ok());
+        let start = std::time::Instant::now();
         let mut frames: u64 = 0;
         let mut last_size = (0, 0);
-        let mut msg: MSG = unsafe { std::mem::zeroed() };
-        let start = std::time::Instant::now();
-        'outer: loop {
-            if let Some(m) = max_secs {
-                if start.elapsed().as_secs() >= m {
-                    eprintln!("[spike] auto-quit after {m}s");
-                    break;
-                }
-            }
-            unsafe {
-                while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
-                    if msg.message == WM_QUIT {
-                        break 'outer;
-                    }
-                    TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-            }
+        loop {
             if QUIT.load(Ordering::SeqCst) {
                 break;
             }
-
-            // Only render when mpv has a new frame (keeps the loop honest about
-            // whether frames are actually arriving).
+            if let Some(m) = max_secs {
+                if start.elapsed().as_secs() >= m {
+                    eprintln!("[spike] auto-quit after {m}s");
+                    unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0) };
+                    break;
+                }
+            }
             let flags = unsafe { (mpv.render_context_update)(ctx) };
             let (w, h) = client_size(hwnd);
             if (w, h) != last_size {
@@ -484,26 +521,22 @@ mod win {
                     eprintln!("[spike] {frames} frames ({fps:.0} fps avg), {w}x{h}");
                 }
             } else {
-                // No new frame; yield briefly so we don't spin a core.
                 std::thread::sleep(std::time::Duration::from_millis(2));
             }
         }
 
-        // --- teardown (order matters: free the render context before the player) ---
-        eprintln!("[spike] tearing down…");
+        eprintln!("[spike] render thread tearing down… ({frames} frames)");
         unsafe {
             (mpv.render_context_free)(ctx);
-            (mpv.terminate_destroy)(handle);
             wglMakeCurrent(std::ptr::null_mut(), std::ptr::null_mut());
             wglDeleteContext(hglrc as *mut c_void);
-            let _ = hdc;
-            let _ = hwnd;
         }
-        eprintln!("[spike] done — {frames} frames rendered.");
         Ok(())
     }
 
-    unsafe fn create_gl_window() -> Result<(HWND, HDC, isize), String> {
+    /// Register the class + create the (visible, resizable) window on the calling
+    /// (main) thread. No GL here — that's set up on the render thread.
+    unsafe fn create_window() -> Result<*mut c_void, String> {
         let class_name = wide("ProsceniumRenderSpike");
         let wc = WNDCLASSW {
             style: CS_OWNDC,
@@ -536,6 +569,12 @@ mod win {
         if hwnd.is_null() {
             return Err("CreateWindowExW failed".into());
         }
+        Ok(hwnd)
+    }
+
+    /// Set up the WGL/GL context on the window's private DC. Called on the render
+    /// thread so the context is current there.
+    unsafe fn init_gl(hwnd: *mut c_void) -> Result<(HDC, isize), String> {
         let hdc = GetDC(hwnd);
         if hdc.is_null() {
             return Err("GetDC failed".into());
@@ -562,6 +601,6 @@ mod win {
         if wglMakeCurrent(hdc, hglrc) == 0 {
             return Err("wglMakeCurrent failed".into());
         }
-        Ok((hwnd, hdc, hglrc as isize))
+        Ok((hdc, hglrc as isize))
     }
 }
