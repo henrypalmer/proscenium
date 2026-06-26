@@ -41,16 +41,19 @@ Bonus vs Spike D: mpv played the **HLS test stream directly — no proxy, no tra
 - `vo=libmpv` + `hwdec=auto-safe`; `mpv_render_context_create` with `MPV_RENDER_PARAM_API_TYPE=opengl` + init params.
 - Render loop: render only on `MPV_RENDER_UPDATE_FRAME`, into FBO 0 at the live client size, `SwapBuffers`, `report_swap`.
 - `SPIKE_SECS=N` auto-quit for headless lifecycle/teardown testing.
+- **`--channel ["filter"]`** — resolves a REAL channel's URL from the app's SQLite DB + the OS keychain, the same way the app composes it at play time (`{base}/live/{user}/{password}/{id}.{ext}`). Done with `sqlx` + `keyring` **directly**, not the `proscenium` lib — a Tauri-linked *example* won't load on Windows (no Common-Controls manifest, CLAUDE.md). The password is used only in-process, never logged. This is why we don't store full URLs anywhere (Milestone 21): they're composed on demand from the keychain.
 
 `Cargo.toml`: added `Win32_Graphics_OpenGL` + `Win32_System_LibraryLoader` to the existing `windows-sys` (binding availability only; no runtime cost).
 
 **Run:**
 ```sh
 cd src-tauri
-cargo run --example render_api_spike                 # public HLS test stream; close the window to exit
-cargo run --example render_api_spike -- "<url>"      # any mpv-playable URL, incl. a real provider stream
-SPIKE_SECS=8 cargo run --example render_api_spike     # headless: auto-quit + teardown after 8s
+cargo run --example render_api_spike                  # public HLS test stream; close the window to exit
+cargo run --example render_api_spike -- "<url>"       # any mpv-playable URL
+cargo run --example render_api_spike -- --channel ESPN  # a REAL provider channel (DB + keychain)
+SPIKE_SECS=8 cargo run --example render_api_spike      # headless: auto-quit + teardown after 8s
 ```
+> Tip: pass a name filter to `--channel` (e.g. `ESPN`) — the unfiltered first channel may be a dead/blank-named entry.
 
 ---
 
@@ -62,7 +65,7 @@ SPIKE_SECS=8 cargo run --example render_api_spike     # headless: auto-quit + te
 | GL context creation (WGL) on the target GPU | ✅ verified (GL 4.6) |
 | mpv renders frames into a surface we own | ✅ verified (frames flowing) |
 | Clean teardown (free render ctx → terminate player) | ✅ verified (no hang/crash) |
-| Plays real live IPTV robustly | ✅ inherent (it's mpv/ffmpeg — the existing player's strength; re-run with a provider URL to confirm) |
+| Plays real live IPTV robustly | ✅ verified — "EL: ESPN" from the real provider (SRP Tech App, keychain-composed) rendered 88 frames in 12s via the render API. Same engine as the existing player, so the streams that froze on MSE play here. |
 | **Resize without flicker / black flashes** | ⏳ **human visual check** — run it and drag-resize the window |
 | **Compositing behind the Tauri WebView** (the "sandwich", but our surface) | ⏳ **Phase 2** — not attempted yet |
 | Multiple render contexts → N viewports (multi-view) | ⏳ Phase 3 / M37 |

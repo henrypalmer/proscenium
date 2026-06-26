@@ -167,6 +167,118 @@ mod win {
         CString::new(s).unwrap()
     }
 
+    /// Decide what to play:
+    ///   (no args)                  → a public HLS test stream
+    ///   "<url>"                    → that URL verbatim (mpv plays TS/HLS/etc.)
+    ///   --channel ["name filter"]  → resolve a REAL channel from the app's DB +
+    ///                                keychain, exactly like the app does at play
+    ///                                time (so you don't hand-compose URLs).
+    fn acquire_url() -> Result<String, String> {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        match args.first().map(|s| s.as_str()) {
+            Some("--channel") => resolve_channel(args.get(1).cloned()),
+            Some(url) => {
+                eprintln!("[spike] stream: {url}");
+                Ok(url.to_string())
+            }
+            None => {
+                let def = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8".to_string();
+                eprintln!("[spike] stream (default test): {def}");
+                Ok(def)
+            }
+        }
+    }
+
+    /// Resolve a live channel's real stream URL straight from the app's SQLite DB
+    /// + the OS keychain, mirroring the app's compose (`commands/playback.rs`).
+    /// Uses sqlx + keyring directly — NOT the proscenium lib — because linking the
+    /// Tauri-bound lib into an *example* won't load on Windows (no Common-Controls
+    /// manifest; see CLAUDE.md). The composed URL (with the password) is never logged.
+    fn resolve_channel(query: Option<String>) -> Result<String, String> {
+        use sqlx::Row;
+        let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA not set".to_string())?;
+        let db_path = std::path::Path::new(&appdata)
+            .join("proscenium")
+            .join("proscenium.db");
+        if !db_path.exists() {
+            return Err(format!("app DB not found at {}", db_path.display()));
+        }
+        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        rt.block_on(async move {
+            let opts = sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(&db_path)
+                .read_only(true);
+            let pool = sqlx::SqlitePool::connect_with(opts)
+                .await
+                .map_err(|e| format!("open db (is the app installed/initialized?): {e}"))?;
+
+            let provider_id: String =
+                sqlx::query("SELECT value FROM settings WHERE key='active_provider_id'")
+                    .fetch_optional(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .map(|r| r.get::<String, _>("value"))
+                    .ok_or("no active provider — open the app and select one first")?;
+
+            let prow = sqlx::query("SELECT name, type, server_url, username FROM providers WHERE id = ?")
+                .bind(&provider_id)
+                .fetch_optional(&pool)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or("active provider row not found")?;
+            let pname: String = prow.get("name");
+            let ptype: String = prow.get("type");
+            let server_url: Option<String> = prow.get("server_url");
+            let username: Option<String> = prow.get("username");
+
+            let crow = sqlx::query(
+                "SELECT id, name, stream_ext, stream_url FROM live_channels
+                 WHERE provider_id = ?1 AND (?2 = '' OR name LIKE ?3)
+                 ORDER BY name COLLATE NOCASE LIMIT 1",
+            )
+            .bind(&provider_id)
+            .bind(query.clone().unwrap_or_default())
+            .bind(format!("%{}%", query.clone().unwrap_or_default()))
+                .fetch_optional(&pool)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| match &query {
+                    Some(qq) => format!("no live channel matches \"{qq}\""),
+                    None => "no live channels in the catalog".to_string(),
+                })?;
+            let chid: String = crow.get("id");
+            let chname: String = crow.get("name");
+            let ext: String = crow.get("stream_ext");
+            let stored_url: String = crow.get("stream_url");
+            eprintln!("[spike] provider: {pname} ({ptype}) | channel: {chname} ({chid})");
+
+            let url = if ptype == "xtream" {
+                let base = server_url
+                    .as_deref()
+                    .map(|s| s.trim_end_matches('/'))
+                    .filter(|s| !s.is_empty())
+                    .ok_or("provider has no server URL")?;
+                let user = username
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .ok_or("provider has no username")?;
+                let entry = keyring::Entry::new("Proscenium", &format!("provider:{provider_id}"))
+                    .map_err(|e| format!("keychain: {e}"))?;
+                let password = entry
+                    .get_password()
+                    .map_err(|e| format!("keychain read failed: {e}"))?;
+                format!("{base}/live/{user}/{password}/{chid}.{ext}")
+            } else {
+                if stored_url.is_empty() {
+                    return Err("M3U channel has no stored URL".into());
+                }
+                stored_url
+            };
+            eprintln!("[spike] resolved real stream URL from keychain (secret redacted)");
+            Ok(url)
+        })
+    }
+
     // GL function loader handed to mpv: try wgl first (extensions), then the
     // opengl32 module (GL 1.1 core entry points wgl won't return).
     static OPENGL32: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
@@ -222,11 +334,7 @@ mod win {
     }
 
     pub fn run() -> Result<(), String> {
-        let url = std::env::args()
-            .nth(1)
-            .unwrap_or_else(|| "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8".to_string());
-        eprintln!("[spike] stream: {url}");
-
+        let url = acquire_url()?;
         let mpv = Mpv::load()?;
 
         // --- window + WGL context ---
