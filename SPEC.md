@@ -2431,7 +2431,7 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 
 > **Execution order:** scheduled **next** (ahead of the still-unstarted M30–M35), like M36 was. The number is just an identifier.
 
-> **Spike outcomes (2026-06-25) — the player approach changed.** Two spikes informed this milestone: the **embedding spike** (`docs/spikes/2026-06-25-player-embedding-architecture.md`) and **Spike D** (`docs/spikes/2026-06-25-spike-d-mse-multiview-poc.md`). Spike D prototyped multi-view via HTML5 `<video>` + MSE (mpegts.js/hls.js): architecturally trivial (N `<video>` in a grid), but on the **real provider it froze hard after the first buffer or two** — the browser MSE pipeline can't match mpv/ffmpeg's tolerance of messy live IPTV. **MSE is rejected.** Multi-view will instead use the **libmpv `render` API** (render N mpv instances into N viewports of one composited surface), which keeps mpv's robust playback **and** enables the grid without the fragile N-separate-native-windows approach the original scope below assumed. **The "native windows" design notes below are superseded by the render-API design**, to be re-detailed after **Spike B** (a single-player render-API PoC to de-risk the GPU-context plumbing — flicker-on-resize, context lifecycle, macOS GL/Metal). Spike B is the immediate next step before this milestone is implemented.
+> **Spike outcomes (2026-06-25) — the player approach changed.** Two spikes informed this milestone: the **embedding spike** (`docs/spikes/2026-06-25-player-embedding-architecture.md`) and **Spike D** (`docs/spikes/2026-06-25-spike-d-mse-multiview-poc.md`). Spike D prototyped multi-view via HTML5 `<video>` + MSE (mpegts.js/hls.js): architecturally trivial (N `<video>` in a grid), but on the **real provider it froze hard after the first buffer or two** — the browser MSE pipeline can't match mpv/ffmpeg's tolerance of messy live IPTV. **MSE is rejected.** Multi-view will instead use the **libmpv `render` API** (render N mpv instances into N viewports of one composited surface), which keeps mpv's robust playback **and** enables the grid without the fragile N-separate-native-windows approach the original scope below assumed. **The "native windows" design notes below are superseded by the render-API design.** Spike B (now ✅ PASS) validated the render API on Windows, and **Milestone 38 (Built-in Player: Render-API Migration) is the prerequisite foundation** — it migrates the *single* player to the render API + a dedicated render thread; **M37 then adds the second-and-beyond render context/viewport on top of it.** Implement M38 first; the multi-view scope below will be re-detailed against the M38 render layer.
 
 **Goal:** Let a user watch **multiple live channels at once** in a neatly arranged grid — so a household with fans of different teams can follow several games simultaneously. Generalizes the single built-in player to render **multiple mpv instances into one composited surface** (the libmpv render API — see the Spike outcomes note). **Windows-first** (macOS is a follow-up). All tiles stream from the **active provider** (consistent with the one-active-provider model, §2) — multi-view is multiple *channels*, not multiple providers.
 
@@ -2466,3 +2466,39 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - [ ] A **failed/forbidden tile** (provider connection limit, HTTP 4xx) shows that tile's error state **without** disrupting the others.
 - [ ] **Closing multi-view stops all instances** and frees all provider connections; returning to single view behaves as today.
 - [ ] `cargo test --tests` and `npm run build` pass clean; reduced-motion honored. *(Windows-only; macOS deferred.)*
+
+### Milestone 38 — Built-in Player: Render-API Migration
+
+> **Execution order:** runs **before Milestone 37** — it's the foundation M37 builds on. (The number is just an identifier.) Validated by **Spike B** (`docs/spikes/2026-06-25-spike-b-render-api-poc.md`); see the embedding spike (`docs/spikes/2026-06-25-player-embedding-architecture.md`) for why.
+
+**Goal:** Migrate the built-in player's video output from `--wid` window-embedding to libmpv's **render API**, rendering into a GPU surface the app owns (on a dedicated render thread) composited behind the transparent WebView. This unifies Windows + macOS on **one** mechanism (mpv's recommended path), removes the fragile per-platform window-glue/z-order self-heal, and is the prerequisite for M37 multi-view (N render contexts → N viewports). **Windows-first.** No change to the player's control surface, state, events, or shortcuts — only *how the video is drawn*.
+
+**Why (recap from the spikes):** today there are **two divergent** embeddings — Windows `--wid` into a `WS_POPUP` toolwindow glued with `SetWindowPos`, and macOS demoting mpv's *own* `NSWindow` to a borderless child via objc2 — both leaning on a re-fit/self-heal "sandwich" that M37 would multiply by N. Spike B proved the render API works with our shipped libmpv (GL 4.6 via WGL), plays real provider streams robustly (the engine is unchanged — none of MSE's instability), and resizes smoothly **when rendering is on a dedicated thread** (the Win32 modal resize loop must not block rendering).
+
+**Design decisions (resolved during Spike B):**
+- **Render API (`vo=libmpv`)**, rendering mpv into a surface we own: **OpenGL via WGL on Windows** (Spike B-proven), **GL or Metal on macOS** (to validate — see risks).
+- **Dedicated render thread.** The UI/event thread only pumps window messages; a separate thread owns the GL context and renders (render-on-`MPV_RENDER_UPDATE_FRAME`, `SwapBuffers`, `report_swap`). This is non-negotiable — Spike B showed single-thread rendering freezes during a drag-resize and starves resize hit-testing.
+- **Keep the "surface behind the transparent WebView" model.** You cannot composite native video *into* the WebView (WebView2/WKWebView expose no compositor surface; the "upload frames into the page" path is immature/flickery — embedding spike Option C, rejected). So the host surface stays behind the page (the page goes transparent over the player area once frames flow); only **how that surface is fed** changes (our render context vs mpv's `--wid`/own-window).
+- **Ordered teardown:** free the render context (on the render thread) **before** destroying the player; the Rust binding can't enforce this, so it's explicit.
+
+**Scope:**
+- **`mpv/` render layer:** add the render-API symbols (`mpv_render_context_create`/`render`/`update`/`report_swap`/`free`) to the loader; a render-thread that creates the GL context on the host surface, hands mpv `get_proc_address`, creates the render context, and runs the render loop. Replace the `--wid` / `force-window` player init with `vo=libmpv` + render-context setup.
+- **Windows:** create a WGL/GL context on the existing host window (the glued top-level window behind the WebView stays; the `lib.rs` `on_window_event` re-fit keeps it positioned). Render via the context on the render thread.
+- **macOS:** create a GL/Metal layer/view behind the transparent WebView and render the context into it — **replacing** the `find_video_window`/`glue`/demote hack. (Gated on the libmpv build supporting the render API — validate first.)
+- **Preserve everything else unchanged:** play/pause, seek, volume/mute, audio/subtitle track selection, buffering/error states (§12/M22), fullscreen, the keyboard shortcuts (M23), resume (§5.9), the opaque-backdrop-until-frames behavior, and the `mpv:state_changed` event surface.
+- **Docs:** update the "Player rendering" section of `CLAUDE.md` to the render-API model.
+
+**Out of scope:** multi-view (M37, built on this); rendering into the WebView (Option C); removing libmpv bundling (inherent, LGPL).
+
+**Acceptance Criteria:**
+- [ ] The built-in player renders via the **render API** (not `--wid`) on Windows; a live channel and a VOD title both play correctly behind the WebView.
+- [ ] **Resize / move / fullscreen are smooth** (dedicated render thread); the transparency "sandwich" is intact — opaque backdrop until frames flow, transparent over the player area during playback, no video bleeding outside it.
+- [ ] **All existing playback features work unchanged:** play/pause, seek, volume/mute, audio + subtitle track selection, buffering/error surfacing, fullscreen, the §5.6 keyboard shortcuts, and §5.9 resume.
+- [ ] **Clean teardown** (render context freed before the player); no startup-time regression; the player z-order/transparency behaves as before.
+- [ ] **macOS:** the same render-API path works via GL/Metal — **or**, if the available libmpv build lacks render-API support, the milestone documents the gap, keeps the current macOS embedding, and ships the render API on Windows (with a follow-up to resolve the macOS libmpv build).
+- [ ] The architecture is **ready for M37** (a second render context/viewport can be added without re-plumbing).
+- [ ] `cargo test --tests` and `npm run build` pass clean.
+
+**Risks:**
+- **macOS libmpv render-API support is untested** (Spike B was Windows-only). The Homebrew build may need GL/Metal render support, a different build, or a Metal path. Validate early; it may split macOS into a follow-up.
+- Integrating the app-rendered surface with Tauri's transparent window + the existing z-order glue, and coordinating the render thread with Tauri's event loop.
