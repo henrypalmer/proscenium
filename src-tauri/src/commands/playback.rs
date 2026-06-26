@@ -304,6 +304,12 @@ async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
 
     let wid = ensure_video_host(app).await?;
 
+    // macOS (Milestone 38): create our GL host window + NSOpenGLContext on the
+    // main thread and glue it behind the app window, then hand the context/view
+    // to the player so its render thread can draw into it.
+    #[cfg(target_os = "macos")]
+    let gl_host = ensure_gl_host(app).await?;
+
     let pool = app.state::<Db>().0.clone();
     let hwdec = !matches!(
         db::settings::get(&pool, "hw_decode_enabled").await,
@@ -314,6 +320,8 @@ async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
     let player = MpvPlayer::new(
         MpvConfig {
             wid,
+            #[cfg(target_os = "macos")]
+            gl_host,
             hwdec,
             headless: false,
         },
@@ -334,12 +342,6 @@ async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
             let _ = emitter.emit("mpv:state_changed", &state);
         }),
     )?;
-
-    // macOS: mpv created its own video window; glue it behind the app window
-    // before we hand back the player so the first frames land in the right
-    // place. (No-op once the host window is already attached.)
-    #[cfg(target_os = "macos")]
-    glue_video_window(app).await;
 
     let slot = app.state::<PlayerHandle>();
     let mut guard = slot.0.lock().unwrap();
@@ -401,36 +403,24 @@ async fn run_on_main<T: Send + 'static>(
         .map_err(|_| "the main thread did not respond".to_string())
 }
 
-/// macOS: mpv renders into its own window (`--force-window`); wait for it to
-/// appear, then glue it behind the app window and remember it so the window
-/// event handler can keep it fitted. Best-effort — if it never shows we let
-/// playback proceed rather than block it.
+/// macOS (Milestone 38): create our borderless GL host window + NSOpenGLContext
+/// on the main thread and glue it behind the app window, remembering the window
+/// in `VideoHost` so the window-event handler can keep it fitted. Returns the
+/// `(context, view)` pointers for the player's render thread.
 #[cfg(target_os = "macos")]
-async fn glue_video_window(app: &AppHandle) {
+async fn ensure_gl_host(app: &AppHandle) -> Result<Option<(isize, isize)>, String> {
     let host_state = app.state::<VideoHost>();
-    if host_state.0.load(Ordering::SeqCst) != 0 {
-        return;
-    }
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    let main = match window.ns_window() {
-        Ok(ptr) => ptr as isize,
-        Err(_) => return,
-    };
-    // force-window=immediate makes mpv's window appear within ~1s; poll for it.
-    for _ in 0..60 {
-        if let Ok(found) =
-            run_on_main(app, move || crate::mpv::video_host::find_video_window(main)).await
-        {
-            if found != 0 {
-                let _ = run_on_main(app, move || crate::mpv::video_host::glue(main, found)).await;
-                host_state.0.store(found, Ordering::SeqCst);
-                return;
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or("main window not found")?;
+    let main = window
+        .ns_window()
+        .map_err(|e| format!("could not get the ns_window handle: {e}"))? as isize;
+
+    let (host_window, gl_context, gl_view) =
+        run_on_main(app, move || crate::mpv::render_mac::create_gl_host(main)).await??;
+    host_state.0.store(host_window, Ordering::SeqCst);
+    Ok(Some((gl_context, gl_view)))
 }
 
 fn with_player<T>(

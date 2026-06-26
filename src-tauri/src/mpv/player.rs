@@ -191,6 +191,11 @@ pub struct MpvConfig {
     /// mpv's render API into it — it is *not* passed to mpv as `--wid`. None =
     /// no video window (headless / tests; macOS still uses its own window).
     pub wid: Option<isize>,
+    /// macOS render-API host (Milestone 38): `(NSOpenGLContext, NSView)` pointers
+    /// as `isize`. The render thread makes the context current and draws mpv's
+    /// frames into it. None = headless / tests.
+    #[cfg(target_os = "macos")]
+    pub gl_host: Option<(isize, isize)>,
     pub hwdec: bool,
     /// Null video/audio outputs for tests.
     pub headless: bool,
@@ -208,16 +213,16 @@ pub struct MpvPlayer {
     /// playback starts at the resume point with no visible jump from 0.
     pending_seek: Arc<Mutex<Option<f64>>>,
     event_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
-    /// Windows render-API host (Milestone 38): the dedicated render thread plus
-    /// its stop flag. Its render context must be freed before the player handle
-    /// is destroyed, which `Drop` enforces by joining this thread first.
-    #[cfg(target_os = "windows")]
+    /// Render-API host (Milestone 38): the dedicated render thread plus its stop
+    /// flag (Windows + macOS). Its render context must be freed before the player
+    /// handle is destroyed, which `Drop` enforces by joining this thread first.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     render: Mutex<Option<RenderHost>>,
 }
 
-/// Owns the render thread (and the signal to stop it) for the Windows render-API
-/// path. The thread itself owns the GL + mpv render context.
-#[cfg(target_os = "windows")]
+/// Owns the render thread (and the signal to stop it) for the render-API path.
+/// The thread itself owns the GL + mpv render context.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 struct RenderHost {
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -273,18 +278,14 @@ impl MpvPlayer {
         if !config.headless && config.wid.is_some() {
             set("vo", "libmpv")?;
         }
-        // macOS: this libmpv build still renders into a window it creates (no
-        // Cocoa-GL `--wid` embedding), which we glue behind the app window (see
-        // `mpv::video_host`). Create that window up front and borderless, and
-        // stop mpv from resizing/refocusing it so the glue stays put. (The macOS
-        // render-API path is a follow-up slice — see Milestone 38.)
+        // macOS (Milestone 38): render via the libmpv render API into the
+        // NSOpenGLContext we own (created on the main thread and glued behind the
+        // app window — see `mpv::render_mac`), driven by the render thread spawned
+        // below. `vo=libmpv` makes mpv hand frames to our render context instead
+        // of opening its own window.
         #[cfg(target_os = "macos")]
-        if !config.headless {
-            set("force-window", "immediate")?;
-            set("border", "no")?;
-            set("auto-window-resize", "no")?;
-            set("focus-on", "never")?;
-            set("ontop", "no")?;
+        if !config.headless && config.gl_host.is_some() {
+            set("vo", "libmpv")?;
         }
         if config.headless {
             set("vo", "null")?;
@@ -328,7 +329,7 @@ impl MpvPlayer {
             shutdown: Arc::new(AtomicBool::new(false)),
             pending_seek: Arc::new(Mutex::new(None)),
             event_thread: Mutex::new(None),
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             render: Mutex::new(None),
         });
 
@@ -360,6 +361,28 @@ impl MpvPlayer {
                 let thread = std::thread::Builder::new()
                     .name("mpv-render".into())
                     .spawn(move || render_thread(api, handle, hwnd, stop_rt))
+                    .map_err(|e| format!("failed to spawn mpv render thread: {e}"))?;
+                *player.render.lock().unwrap() = Some(RenderHost {
+                    stop,
+                    thread: Some(thread),
+                });
+            }
+        }
+
+        // macOS render-API (Milestone 38): same dedicated-render-thread model, but
+        // the GL context is the NSOpenGLContext created on the main thread and
+        // handed in via `gl_host`. Made current on this thread (proven OK by the
+        // probe), it renders into the context's drawable.
+        #[cfg(target_os = "macos")]
+        if !config.headless {
+            if let Some((gl_context, gl_view)) = config.gl_host {
+                let stop = Arc::new(AtomicBool::new(false));
+                let api = api.clone();
+                let handle = player.handle.clone();
+                let stop_rt = stop.clone();
+                let thread = std::thread::Builder::new()
+                    .name("mpv-render".into())
+                    .spawn(move || render_thread_mac(api, handle, gl_context, gl_view, stop_rt))
                     .map_err(|e| format!("failed to spawn mpv render thread: {e}"))?;
                 *player.render.lock().unwrap() = Some(RenderHost {
                     stop,
@@ -481,7 +504,7 @@ impl Drop for MpvPlayer {
         // Stop the render thread first: it must free its mpv render context
         // *before* the player handle is terminated below (mpv requires this
         // order; the Rust binding can't enforce it, so it's explicit here).
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         if let Some(mut host) = self.render.lock().unwrap().take() {
             host.stop.store(true, Ordering::SeqCst);
             if let Some(thread) = host.thread.take() {
@@ -781,4 +804,104 @@ fn render_thread(api: Arc<MpvApi>, handle: Arc<Handle>, hwnd: isize, stop: Arc<A
         (api.mpv_render_context_free)(ctx);
         render_win::destroy_gl(hdc, hglrc);
     }
+}
+
+/// The macOS render thread (Milestone 38). Makes the (main-thread-created)
+/// `NSOpenGLContext` current here, creates mpv's render context, and renders
+/// each frame into the context's drawable (FBO 0). The drawing is guarded by
+/// `CGLLockContext` so a main-thread `-update` (resize) can't reconfigure the
+/// drawable mid-render; on a size change it asks NSOpenGL to `-update` on the
+/// main thread. Mirrors the Windows render thread and the validated probe.
+#[cfg(target_os = "macos")]
+fn render_thread_mac(
+    api: Arc<MpvApi>,
+    handle: Arc<Handle>,
+    gl_context: isize,
+    gl_view: isize,
+    stop: Arc<AtomicBool>,
+) {
+    use crate::mpv::render_mac;
+
+    render_mac::make_current(gl_context);
+
+    // Create the mpv render context on this thread (the GL context is current).
+    let mut ctx: MpvRenderCtx = std::ptr::null_mut();
+    let api_type = cstr("opengl");
+    let mut gl_init = MpvOpenglInitParams {
+        get_proc_address: Some(render_mac::get_proc_address),
+        get_proc_address_ctx: std::ptr::null_mut(),
+    };
+    let rc = unsafe {
+        let mut params = [
+            MpvRenderParam {
+                type_: MPV_RENDER_PARAM_API_TYPE,
+                data: api_type.as_ptr() as *mut c_void,
+            },
+            MpvRenderParam {
+                type_: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
+                data: &mut gl_init as *mut _ as *mut c_void,
+            },
+            MpvRenderParam {
+                type_: MPV_RENDER_PARAM_INVALID,
+                data: std::ptr::null_mut(),
+            },
+        ];
+        (api.mpv_render_context_create)(&mut ctx, handle.0, params.as_mut_ptr())
+    };
+    if rc < 0 {
+        let msg = unsafe { CStr::from_ptr((api.mpv_error_string)(rc)) }.to_string_lossy();
+        eprintln!("[render] mpv_render_context_create failed: {msg}; video will not display");
+        render_mac::clear_current();
+        return;
+    }
+
+    let cgl = render_mac::cgl_context(gl_context);
+    let mut last_size = (0i32, 0i32);
+
+    while !stop.load(Ordering::SeqCst) {
+        let (w, h) = render_mac::view_size(gl_view);
+        if (w, h) != last_size {
+            last_size = (w, h);
+            render_mac::update_on_main(gl_context); // tell NSOpenGL the drawable resized
+        }
+        let flags = unsafe { (api.mpv_render_context_update)(ctx) };
+        if flags & MPV_RENDER_UPDATE_FRAME != 0 {
+            // Lock so a concurrent main-thread -update can't reconfigure the
+            // drawable while we render + present.
+            render_mac::lock(cgl);
+            unsafe {
+                let mut fbo = MpvOpenglFbo {
+                    fbo: 0,
+                    w,
+                    h,
+                    internal_format: 0,
+                };
+                let mut flip: c_int = 1;
+                let mut params = [
+                    MpvRenderParam {
+                        type_: MPV_RENDER_PARAM_OPENGL_FBO,
+                        data: &mut fbo as *mut _ as *mut c_void,
+                    },
+                    MpvRenderParam {
+                        type_: MPV_RENDER_PARAM_FLIP_Y,
+                        data: &mut flip as *mut _ as *mut c_void,
+                    },
+                    MpvRenderParam {
+                        type_: MPV_RENDER_PARAM_INVALID,
+                        data: std::ptr::null_mut(),
+                    },
+                ];
+                (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
+            }
+            render_mac::flush_buffer(gl_context); // present
+            render_mac::unlock(cgl);
+            unsafe { (api.mpv_render_context_report_swap)(ctx) };
+        } else {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    // Ordered teardown: free the render context, then release the GL context.
+    unsafe { (api.mpv_render_context_free)(ctx) };
+    render_mac::clear_current();
 }

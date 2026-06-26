@@ -238,7 +238,7 @@ pub mod render_win {
 pub mod video_host {
     use objc2::encode::{Encode, Encoding};
     use objc2::runtime::AnyObject;
-    use objc2::{class, msg_send};
+    use objc2::msg_send;
 
     // Minimal CoreGraphics geometry mirrors. `Encode` lets objc2's `msg_send!`
     // pass/return them by value with the right ABI (CGFloat is f64 on 64-bit).
@@ -275,29 +275,7 @@ pub mod video_host {
     const NS_WINDOW_STYLE_BORDERLESS: u64 = 0;
     const NS_WINDOW_BELOW: i64 = -1;
 
-    /// Locate mpv's own video window: the one visible app window that isn't the
-    /// main (`main`) window. Returns its `NSWindow` pointer, or 0 if it hasn't
-    /// been created yet. Must run on the main (AppKit) thread.
-    pub fn find_video_window(main: isize) -> isize {
-        unsafe {
-            let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
-            let windows: *mut AnyObject = msg_send![app, windows];
-            let count: u64 = msg_send![windows, count];
-            for i in 0..count {
-                let w: *mut AnyObject = msg_send![windows, objectAtIndex: i];
-                if w.is_null() || w as isize == main {
-                    continue;
-                }
-                let visible: bool = msg_send![w, isVisible];
-                if visible {
-                    return w as isize;
-                }
-            }
-            0
-        }
-    }
-
-    /// Glue mpv's window (`mpv`) behind the app window (`main`): strip its
+    /// Glue our video window (`mpv`) behind the app window (`main`): strip its
     /// border, match the app window's level, ignore mouse events (the main
     /// window handles all input), and attach it as a child ordered below the
     /// main window so it tracks moves automatically. Must run on the main
@@ -326,6 +304,224 @@ pub mod video_host {
             let frame: CGRect = msg_send![main_w, frame];
             let content: CGRect = msg_send![main_w, contentRectForFrameRect: frame];
             let _: () = msg_send![mpv_w, setFrame: content, display: true];
+        }
+    }
+}
+
+/// macOS OpenGL plumbing for the libmpv render API (Milestone 38). We create our
+/// own borderless host window with an `NSOpenGLContext`, glue it behind the
+/// transparent app window (`video_host::glue`), and the `mpv::player` render
+/// thread draws `mpv_render_context_render` into it. This *replaces* the old
+/// "mpv owns its window; we find + demote it" hack. Ported from the validated
+/// probe (`examples/render_api_probe_macos.rs`, Tier 2). All AppKit object
+/// creation here must run on the main thread; the render loop helpers run on the
+/// render thread (the context is made current there).
+#[cfg(target_os = "macos")]
+pub mod render_mac {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send, sel};
+    use std::ffi::{c_char, c_int, c_void, CString};
+    use std::sync::OnceLock;
+
+    // CoreGraphics geometry mirrors (same pattern as `video_host`).
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    unsafe impl Encode for CGPoint {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+    unsafe impl Encode for CGSize {
+        const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGSize,
+    }
+    unsafe impl Encode for CGRect {
+        const ENCODING: Encoding =
+            Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
+    }
+
+    // dlopen/dlsym from libSystem (implicitly linked) for the GL proc loader.
+    extern "C" {
+        fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
+        fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    }
+    const RTLD_LAZY: c_int = 0x1;
+    const RTLD_LOCAL: c_int = 0x4;
+
+    // CGL lock/unlock from the (deprecated but present) OpenGL framework. Used to
+    // serialize the render thread's drawing against a main-thread `-update` so a
+    // resize can't reconfigure the drawable mid-render.
+    #[link(name = "OpenGL", kind = "framework")]
+    extern "C" {
+        fn CGLLockContext(ctx: *mut c_void) -> c_int;
+        fn CGLUnlockContext(ctx: *mut c_void) -> c_int;
+    }
+
+    // NSWindow / NSOpenGL constants.
+    const NS_WINDOW_STYLE_BORDERLESS: u64 = 0;
+    const NS_BACKING_STORE_BUFFERED: u64 = 2;
+    const NSOPENGL_PFA_ACCELERATED: u32 = 73;
+    const NSOPENGL_PFA_DOUBLE_BUFFER: u32 = 5;
+    const NSOPENGL_PFA_COLOR_SIZE: u32 = 8;
+    const NSOPENGL_PFA_OPENGL_PROFILE: u32 = 99;
+    const NSOPENGL_PROFILE_VERSION_3_2_CORE: u32 = 0x3200;
+
+    /// GL proc loader handed to mpv: dlopen the OpenGL framework once, then dlsym
+    /// each symbol. Matches `MpvOpenglInitParams::get_proc_address`.
+    static OPENGL_FW: OnceLock<usize> = OnceLock::new();
+    pub unsafe extern "C" fn get_proc_address(_ctx: *mut c_void, name: *const c_char) -> *mut c_void {
+        let handle = *OPENGL_FW.get_or_init(|| {
+            let path = CString::new(
+                "/System/Library/Frameworks/OpenGL.framework/Versions/Current/OpenGL",
+            )
+            .unwrap();
+            dlopen(path.as_ptr(), RTLD_LAZY | RTLD_LOCAL) as usize
+        });
+        if handle == 0 {
+            return std::ptr::null_mut();
+        }
+        dlsym(handle as *mut c_void, name)
+    }
+
+    /// Create the borderless host window + an `NSOpenGLContext` (3.2 core) bound
+    /// to its content view, and glue it behind the app window. Returns
+    /// `(window, context, view)` as `isize`. **Must run on the main thread.**
+    pub fn create_gl_host(main: isize) -> Result<(isize, isize, isize), String> {
+        unsafe {
+            // Provisional size; `glue` fits it to the app window's content area.
+            let rect = CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: CGSize { width: 1280.0, height: 720.0 },
+            };
+            let win: *mut AnyObject = msg_send![class!(NSWindow), alloc];
+            let win: *mut AnyObject = msg_send![
+                win,
+                initWithContentRect: rect,
+                styleMask: NS_WINDOW_STYLE_BORDERLESS,
+                backing: NS_BACKING_STORE_BUFFERED,
+                defer: false
+            ];
+            if win.is_null() {
+                return Err("NSWindow init failed".into());
+            }
+            let _: () = msg_send![win, setReleasedWhenClosed: false];
+
+            let view: *mut AnyObject = msg_send![win, contentView];
+            // 1:1 backing (no retina doubling) keeps the FBO size = point size, so
+            // the render thread can use the view bounds as the FBO dimensions.
+            let _: () = msg_send![view, setWantsBestResolutionOpenGLSurface: false];
+
+            let attrs: [u32; 8] = [
+                NSOPENGL_PFA_ACCELERATED,
+                NSOPENGL_PFA_DOUBLE_BUFFER,
+                NSOPENGL_PFA_COLOR_SIZE,
+                24,
+                NSOPENGL_PFA_OPENGL_PROFILE,
+                NSOPENGL_PROFILE_VERSION_3_2_CORE,
+                0,
+                0,
+            ];
+            let pf: *mut AnyObject = msg_send![class!(NSOpenGLPixelFormat), alloc];
+            let pf: *mut AnyObject = msg_send![pf, initWithAttributes: attrs.as_ptr()];
+            if pf.is_null() {
+                return Err("NSOpenGLPixelFormat init failed (no 3.2 core pixel format)".into());
+            }
+            let nil: *mut AnyObject = std::ptr::null_mut();
+            let ctx: *mut AnyObject = msg_send![class!(NSOpenGLContext), alloc];
+            let ctx: *mut AnyObject = msg_send![ctx, initWithFormat: pf, shareContext: nil];
+            if ctx.is_null() {
+                return Err("NSOpenGLContext init failed".into());
+            }
+            let _: () = msg_send![ctx, setView: view];
+
+            // Demote behind the app window: borderless, child ordered below,
+            // ignores mouse, fitted to the content area (reused from the old path).
+            super::video_host::glue(main, win as isize);
+
+            Ok((win as isize, ctx as isize, view as isize))
+        }
+    }
+
+    /// Make the context current on the calling (render) thread.
+    pub fn make_current(ctx: isize) {
+        unsafe {
+            let c = ctx as *mut AnyObject;
+            let _: () = msg_send![c, makeCurrentContext];
+        }
+    }
+
+    /// The underlying `CGLContextObj`, used for lock/unlock around a render.
+    pub fn cgl_context(ctx: isize) -> isize {
+        unsafe {
+            let c = ctx as *mut AnyObject;
+            let cgl: *mut c_void = msg_send![c, CGLContextObj];
+            cgl as isize
+        }
+    }
+
+    /// Present the rendered frame (the NSOpenGL analogue of `SwapBuffers`).
+    pub fn flush_buffer(ctx: isize) {
+        unsafe {
+            let c = ctx as *mut AnyObject;
+            let _: () = msg_send![c, flushBuffer];
+        }
+    }
+
+    pub fn lock(cgl: isize) {
+        unsafe {
+            CGLLockContext(cgl as *mut c_void);
+        }
+    }
+
+    pub fn unlock(cgl: isize) {
+        unsafe {
+            CGLUnlockContext(cgl as *mut c_void);
+        }
+    }
+
+    /// Release the context on the render thread at teardown.
+    pub fn clear_current() {
+        unsafe {
+            let _: () = msg_send![class!(NSOpenGLContext), clearCurrentContext];
+        }
+    }
+
+    /// Tell NSOpenGL its drawable resized. `-update` touches AppKit, so it must
+    /// run on the main thread; dispatch without waiting so a modal drag-resize on
+    /// the main thread can't deadlock the render thread.
+    pub fn update_on_main(ctx: isize) {
+        unsafe {
+            let c = ctx as *mut AnyObject;
+            let nil: *mut AnyObject = std::ptr::null_mut();
+            let _: () = msg_send![
+                c,
+                performSelectorOnMainThread: sel!(update),
+                withObject: nil,
+                waitUntilDone: false
+            ];
+        }
+    }
+
+    /// Current backing size of the host view (clamped to ≥ 1×1).
+    pub fn view_size(view: isize) -> (i32, i32) {
+        unsafe {
+            let v = view as *mut AnyObject;
+            let b: CGRect = msg_send![v, bounds];
+            ((b.size.width as i32).max(1), (b.size.height as i32).max(1))
         }
     }
 }

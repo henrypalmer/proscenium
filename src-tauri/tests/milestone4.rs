@@ -60,6 +60,8 @@ fn headless_player(hwdec: bool) -> std::sync::Arc<MpvPlayer> {
     MpvPlayer::new(
         MpvConfig {
             wid: None,
+            #[cfg(target_os = "macos")]
+            gl_host: None,
             hwdec,
             headless: true,
         },
@@ -196,6 +198,8 @@ fn state_change_callback_fires() {
     let player = MpvPlayer::new(
         MpvConfig {
             wid: None,
+            #[cfg(target_os = "macos")]
+            gl_host: None,
             hwdec: false,
             headless: true,
         },

@@ -85,7 +85,11 @@ fn main() {
         let url2 = url.clone();
         std::thread::spawn(move || {
             let player = MpvPlayer::new(
-                MpvConfig { wid: None, hwdec: true, headless: false },
+                // NOTE: stale since Milestone 38 — the app no longer embeds via
+                // mpv's own window on macOS; it renders via the render API into
+                // our NSOpenGLContext (gl_host). This harness needs reworking to
+                // match (or removing). Left compiling for now.
+                MpvConfig { wid: None, gl_host: None, hwdec: true, headless: false },
                 Box::new(|_state| {}),
             )
             .expect("MpvPlayer::new failed");
