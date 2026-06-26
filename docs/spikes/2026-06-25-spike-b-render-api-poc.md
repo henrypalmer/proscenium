@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-25
 - **Branch:** `poc/render-api`
-- **Status:** **Phase 1 PASS** (core GPU plumbing, headless-verified). Two things remain: a human visual resize-flicker check, and the WebView-compositing integration (Phase 2).
+- **Status:** ✅ **PASS.** Render API verified end-to-end on Windows: plays real provider streams robustly, smooth resize (dedicated render thread — user-confirmed "exactly how I'd want it as an end user"), clean teardown. Remaining work is the WebView-compositing integration (Phase 2), which is the first slice of the real single-player render-API migration.
 - **Question:** can we drive libmpv's **render API** (render mpv into a GPU surface *we* own) instead of the current `--wid` window-glue — on Windows, with our shipped libmpv build? This is the foundation the embedding spike recommended and that M37 (multi-view) needs.
 
 ---
@@ -79,7 +79,7 @@ First cut rendered in the main thread's message loop. Testing surfaced two issue
 1. **Video froze during a drag-resize (audio kept playing).** A Win32 drag-resize runs a *modal* message loop on the window's thread, starving any rendering done on that thread; mpv's audio runs on its own internal thread, so it continued.
 2. **Resize got "stuck" in some directions** (fullscreen + resize un-stuck it). Same root cause — the single thread was busy rendering / `SwapBuffers`-blocking instead of promptly servicing window messages, so resize hit-testing was starved.
 
-**Fix (and the architecture the real implementation should use): render on a dedicated thread.** The main thread does *only* the window + a blocking `GetMessage` pump; a separate thread owns the GL context and renders continuously. The modal resize loop no longer blocks rendering, and the main thread always services window messages. Teardown stays ordered (render thread frees the render context → main thread destroys the player); auto-quit posts `WM_CLOSE` to wake the pump. Verified headless (renders + clean join). **Visual resize re-check is the remaining human step.**
+**Fix (and the architecture the real implementation should use): render on a dedicated thread.** The main thread does *only* the window + a blocking `GetMessage` pump; a separate thread owns the GL context and renders continuously. The modal resize loop no longer blocks rendering, and the main thread always services window messages. Teardown stays ordered (render thread frees the render context → main thread destroys the player); auto-quit posts `WM_CLOSE` to wake the pump. **Confirmed:** with the render thread, drag-resize is smooth in all directions, video keeps playing, and nothing gets stuck — user-verified as end-user-quality.
 
 ---
 
