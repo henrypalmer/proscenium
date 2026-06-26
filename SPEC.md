@@ -2506,5 +2506,5 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - ~~Integrating the app-rendered surface with Tauri's transparent window + z-order glue~~ — **resolved:** the existing host-window glue (`on_window_event` + self-healing `fit_to_parent`) was reused unchanged; the render thread reads the host's live size each frame, so resize needed no new coordination with Tauri's event loop.
 
 **Known follow-ups (out of scope, not blocking M38):**
-- **macOS bundled-ffmpeg TLS:** the probe saw the Homebrew mpv's ffmpeg fail TLS on one real-provider HTTPS stream (`tls: Unknown error`) while public HTTPS HLS played fine — a transport-stack issue, independent of the render API. Confirm real-provider HTTPS playback on macOS; chase separately if it recurs.
-- `examples/macos_video_check.rs` is stale vs the render-API model (it verified `--wid`-style embedding); rework or remove it.
+- ~~macOS bundled-ffmpeg TLS~~ — **closed (2026-06-26):** real-provider HTTPS playback was owner-verified in the shipped app on macOS. The probe's one-off `tls: Unknown error` was stream-/probe-specific and does **not** reproduce in the player.
+- `examples/macos_video_check.rs` is **deprecated** (it verified the old `--wid`-style embedding that M38 removed; it does not exercise the render-API path). Marked deprecated in-file and **kept for reference** for now — rework or delete in a later pass.

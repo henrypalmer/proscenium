@@ -1,3 +1,11 @@
+//! DEPRECATED (Milestone 38) — kept for reference, not currently meaningful.
+//!
+//! This harness verified the old `--wid`-style embedding (mpv rendering into one
+//! of our `NSView`s). M38 removed that path: the app now renders via the libmpv
+//! render API into an `NSOpenGLContext` we own (see `mpv::render_mac` /
+//! `mpv::player::render_thread_mac`). This example does NOT exercise the current
+//! macOS render path and would need reworking before it proves anything again.
+//!
 //! macOS playback verification harness (not part of the app).
 //!
 //! Exercises the exact code path the app uses to render video on macOS:
