@@ -17,8 +17,8 @@ pub mod video_host {
     use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, CreateSolidBrush};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, GetClientRect, IsIconic, RegisterClassW, SetWindowPos,
-        ShowWindow, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNOACTIVATE, WNDCLASSW, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW, WS_POPUP,
+        ShowWindow, CS_OWNDC, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNOACTIVATE, WNDCLASSW,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
     };
 
     fn wide(s: &str) -> Vec<u16> {
@@ -33,7 +33,10 @@ pub mod video_host {
             let name = wide("ProsceniumVideoHost");
             unsafe {
                 let class = WNDCLASSW {
-                    style: 0,
+                    // CS_OWNDC: a private DC the render thread can bind a GL
+                    // context to once (set pixel format + WGL context) and keep
+                    // for the window's lifetime (Milestone 38).
+                    style: CS_OWNDC,
                     lpfnWndProc: Some(DefWindowProcW),
                     cbClsExtra: 0,
                     cbWndExtra: 0,
@@ -121,6 +124,102 @@ pub mod video_host {
         }
     }
 
+}
+
+/// Windows OpenGL plumbing for the libmpv render API (Milestone 38). The
+/// `mpv::player` render thread owns a WGL context on the video-host window and
+/// drives `mpv_render_context_render` into it. Handles are passed as `isize`
+/// so they cross from the spawning thread cleanly. Ported from the Spike B
+/// example (`examples/render_api_spike.rs`), which validated this end-to-end.
+#[cfg(target_os = "windows")]
+pub mod render_win {
+    use std::ffi::{c_char, c_void};
+    use std::sync::OnceLock;
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{GetDC, HDC};
+    use windows_sys::Win32::Graphics::OpenGL::{
+        wglCreateContext, wglDeleteContext, wglGetProcAddress, wglMakeCurrent, ChoosePixelFormat,
+        SetPixelFormat, SwapBuffers, PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW, PFD_MAIN_PLANE,
+        PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR,
+    };
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect;
+
+    static OPENGL32: OnceLock<isize> = OnceLock::new();
+
+    /// GL proc loader handed to mpv: `wglGetProcAddress` first (extensions),
+    /// then the `opengl32.dll` module for the GL 1.1 core entry points wgl
+    /// won't return. Must run with a GL context current (it is, on the render
+    /// thread). Matches the `MpvOpenglInitParams::get_proc_address` ABI.
+    pub unsafe extern "C" fn get_proc_address(_ctx: *mut c_void, name: *const c_char) -> *mut c_void {
+        if let Some(f) = wglGetProcAddress(name as *const u8) {
+            return f as *mut c_void;
+        }
+        let module = *OPENGL32.get_or_init(|| LoadLibraryA(b"opengl32.dll\0".as_ptr()) as isize);
+        if module == 0 {
+            return std::ptr::null_mut();
+        }
+        match GetProcAddress(module as _, name as *const u8) {
+            Some(f) => f as *mut c_void,
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    /// Create and make-current a legacy WGL context on the host window's private
+    /// DC (the window class must have `CS_OWNDC`). Runs on the render thread so
+    /// the context is current there. Returns `(HDC, HGLRC)` as `isize`.
+    pub unsafe fn init_gl(hwnd: isize) -> Result<(isize, isize), String> {
+        let hdc = GetDC(hwnd as HWND);
+        if hdc.is_null() {
+            return Err("GetDC failed".into());
+        }
+        let mut pfd: PIXELFORMATDESCRIPTOR = std::mem::zeroed();
+        pfd.nSize = std::mem::size_of::<PIXELFORMATDESCRIPTOR>() as u16;
+        pfd.nVersion = 1;
+        pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+        pfd.iPixelType = PFD_TYPE_RGBA as u8;
+        pfd.cColorBits = 32;
+        pfd.cDepthBits = 24;
+        pfd.iLayerType = PFD_MAIN_PLANE as u8;
+        let pf = ChoosePixelFormat(hdc, &pfd);
+        if pf == 0 {
+            return Err("ChoosePixelFormat failed".into());
+        }
+        if SetPixelFormat(hdc, pf, &pfd) == 0 {
+            return Err("SetPixelFormat failed".into());
+        }
+        let hglrc = wglCreateContext(hdc);
+        if hglrc.is_null() {
+            return Err("wglCreateContext failed".into());
+        }
+        if wglMakeCurrent(hdc, hglrc) == 0 {
+            return Err("wglMakeCurrent failed".into());
+        }
+        Ok((hdc as isize, hglrc as isize))
+    }
+
+    /// Present the rendered frame (vsync-paced).
+    pub unsafe fn swap_buffers(hdc: isize) {
+        SwapBuffers(hdc as HDC);
+    }
+
+    /// Current client size of the host window (clamped to ≥ 1×1). Queried each
+    /// frame so resizes (driven by `SetWindowPos` on the UI thread) are picked
+    /// up with no cross-thread signaling.
+    pub fn client_size(hwnd: isize) -> (i32, i32) {
+        unsafe {
+            let mut r: RECT = std::mem::zeroed();
+            GetClientRect(hwnd as HWND, &mut r);
+            ((r.right - r.left).max(1), (r.bottom - r.top).max(1))
+        }
+    }
+
+    /// Release the GL context. The DC is owned by the window (`CS_OWNDC`), so it
+    /// isn't released here.
+    pub unsafe fn destroy_gl(_hdc: isize, hglrc: isize) {
+        wglMakeCurrent(std::ptr::null_mut(), std::ptr::null_mut());
+        wglDeleteContext(hglrc as *mut c_void);
+    }
 }
 
 /// Native window hosting mpv's video output on macOS.

@@ -58,6 +58,31 @@ pub fn run() {
             tauri::async_runtime::spawn(commands::settings::startup_image_cache_eviction(
                 app.handle().clone(),
             ));
+            // Windows (Milestone 38): disable the DWM maximize/restore/fullscreen
+            // transition animation on the main window. The video renders into a
+            // separate top-level window (mpv::video_host) that we resize in one
+            // SetWindowPos step, so it snaps to the final size immediately; with
+            // the animation on, the main-window frame lags behind and the video
+            // briefly pokes past it. Disabling transitions keeps the two in sync.
+            #[cfg(target_os = "windows")]
+            {
+                use windows_sys::Win32::Graphics::Dwm::{
+                    DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED,
+                };
+                if let Some(win) = app.get_webview_window("main") {
+                    if let Ok(hwnd) = win.hwnd() {
+                        let disable: i32 = 1; // BOOL TRUE
+                        unsafe {
+                            DwmSetWindowAttribute(
+                                hwnd.0 as isize as *mut core::ffi::c_void,
+                                DWMWA_TRANSITIONS_FORCEDISABLED as u32,
+                                &disable as *const i32 as *const core::ffi::c_void,
+                                std::mem::size_of::<i32>() as u32,
+                            );
+                        }
+                    }
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
