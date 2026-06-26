@@ -1,7 +1,7 @@
 # macOS Render-API Probe — pickup instructions
 
 - **Date:** 2026-06-26
-- **Status:** ⏳ **Not started** — to be run on a Mac.
+- **Status:** ✅ **PASS (Tier 1 + Tier 2).** The OpenGL render API works on this Mac's libmpv (Homebrew mpv 0.41.0, `libmpv.2.dylib`, Apple M1 Pro). `mpv_render_context_create(opengl)` returned `0`, frames flow into a GL FBO we own (non-black pixel confirmed), and headless teardown is clean. **Tier 2 (onscreen NSOpenGL + dedicated render thread) — owner-confirmed 2026-06-26: drag-resize looks great** (smooth, no freeze/flicker/stuck-resize). **→ M38 macOS path is fully de-risked; build it on the render API (unify with Windows).** See the results section below.
 - **Owner action:** this is a **go/no-go probe**, not the migration. Answer one question, record the result, stop.
 - **Prereq for:** Milestone 38 (player render-API migration) — specifically its macOS acceptance criterion and risk line (`SPEC.md` §19). Windows is already proven by Spike B (`docs/spikes/2026-06-25-spike-b-render-api-poc.md`).
 
@@ -18,6 +18,56 @@ Decision outcomes:
 - **PASS** → M38 macOS path is viable as planned; proceed to build it on the render API (unify with Windows).
 - **PARTIAL** (GL fails, software `sw` works) → render API is present but not via GL; note it — software blit is too slow to ship, so macOS would need a GL fix or a different libmpv build.
 - **FAIL** (`MPV_ERROR_NOT_IMPLEMENTED` for both) → trigger the M38 fallback: ship the render API on **Windows only**, keep the current macOS `--wid`/NSWindow-demote embedding, file a follow-up to source a render-capable libmpv on macOS.
+
+---
+
+## Results (2026-06-26) — ✅ PASS
+
+**Machine:** Apple M1 Pro, macOS (Darwin 25.5). **libmpv:** Homebrew mpv 0.41.0, `libmpv.2.dylib` (the bundled `src-tauri/lib/` copy is byte-identical; loaded the Homebrew one by absolute path). **Probe:** `src-tauri/examples/render_api_probe_macos.rs`.
+
+### Tier 1 (headless CGL) — the go/no-go answer
+
+- `mpv_render_context_create` with `MPV_RENDER_PARAM_API_TYPE = "opengl"` returned **`0`** → the OpenGL render API is supported. This is the whole question.
+- `GL_VERSION = 4.1 Metal - 90.5`, `GL_RENDERER = Apple M1 Pro`, `GL_VENDOR = Apple` — exactly the "4.1 Metal" the doc predicted; mpv's GL renderer (`[libmpv_render] Detected desktop OpenGL 4.1`, chose FBO format `rgba16f`, loaded `videotoolbox` hwdec) initialized fine.
+- **Frames flow into a GL FBO we own:** rendered into a texture-backed offscreen FBO; `glReadPixels` of the center pixel returned non-black (e.g. `[116, 116, 116, 255]`), proving real content, not a cleared buffer.
+- **Clean teardown** in the mandated order (`render_context_free` → `terminate_destroy` → `CGLSetCurrentContext(null)` → `CGLDestroyContext`), no hang/crash.
+
+Canonical log (Apple BipBop HLS, 30 s auto-quit):
+
+```
+[probe] loaded /opt/homebrew/opt/mpv/lib/libmpv.2.dylib
+[probe] CGL context current (headless, 3.2 core)
+[probe] GL_VERSION  = 4.1 Metal - 90.5
+[probe] GL_RENDERER = Apple M1 Pro
+[probe] GL_VENDOR   = Apple
+[probe] render context created OK   <-- PASS (OpenGL render API)
+[probe] offscreen FBO 1 (1280x720) ready
+[probe] first non-black frame: center pixel rgba = [116, 116, 116, 255]
+[probe] 60 frames (5 fps avg)
+[probe] 120 frames (8 fps avg)
+...
+[probe] 420 frames (22 fps avg)
+```
+
+### Conclusion
+
+**M38's macOS path is viable as planned — build it on the OpenGL render API and unify with Windows.** `render_api_probe_macos.rs` is kept as the seed for M38's macOS render layer.
+
+### Notes / gotchas found while running
+
+- **Doc had `msg-level=all=v`; the probe uses `all=warn`** (matching the real Windows spike). At `v`, mpv echoes the *resolved* stream URL — which contains the keychain password — to the terminal. Keep it at `warn`. The probe's own Rust code never logs the URL.
+- **HLS startup buffering, not a render bug:** with a short auto-quit (≤~12 s) you may see "0 frames" or a handful — the fps figure *ramps* (5→8→12→…→22) as mpv fills its buffer. Give it ~20–30 s. mpv's `terminate_destroy` can also block briefly if torn down while a network read is stuck.
+- **Real provider stream (`--channel ESPN`) hit a TLS error** in this Homebrew mpv's ffmpeg: `tls: Unknown error` / `https: Error reading HTTP response: Input/output error`. This is a network/TLS-stack issue in the bundled ffmpeg, **not** the render API (the DB+keychain URL composition worked, and public HLS over HTTPS plays). Worth a follow-up before M38 ships on macOS, but out of scope for this go/no-go.
+
+### Tier 2 (onscreen NSOpenGL + drag-resize) — ✅ owner-confirmed (2026-06-26)
+
+Implemented in the same example (gated behind `PROBE_TIER2=1`): an `NSWindow` + `NSOpenGLContext` (3.2 core) on the main thread, **rendering on a dedicated thread** (the §3a architecture), `[ctx flushBuffer]` to present, with `-update` dispatched to the **main thread** and the render guarded by `CGLLockContext` so a resize can't reconfigure the drawable mid-frame. **Owner ran it foreground and confirmed drag-resize "looks great"** — smooth, video keeps playing, no freeze/flicker/stuck-resize. This is the macOS equivalent of the Spike B §3a finding and the closest path to the real M38 integration, so the macOS half of M38 is fully de-risked. Run it from a foreground Terminal (a bare example binary launched headless never becomes the frontmost GUI app, so its window isn't presented and frames stall):
+
+```sh
+cd src-tauri
+PROBE_TIER2=1 cargo run --example render_api_probe_macos -- --channel ESPN   # or a public URL
+# close the window to exit, or SPIKE_SECS=N to auto-quit
+```
 
 ---
 
