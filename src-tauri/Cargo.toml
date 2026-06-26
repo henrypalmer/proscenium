@@ -52,3 +52,6 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_Wind
 # Objective-C runtime for the native video host (NSView behind the WebView).
 # Version pinned to the one Tauri already resolves so nothing is duplicated.
 objc2 = "0.6"
+# dlopen/dlsym for the macOS render-API probe (examples/render_api_probe_macos.rs):
+# resolving GL symbols for mpv's get_proc_address (no wglGetProcAddress on macOS).
+libc = "0.2"
