@@ -8,7 +8,7 @@ use proscenium_lib::commands::catalog::{
 use proscenium_lib::commands::providers::{delete_provider_impl, upsert_provider_impl};
 use proscenium_lib::iptv::m3u;
 use proscenium_lib::models::{Provider, ProviderInput, ProviderType};
-use proscenium_lib::{db, keychain};
+use proscenium_lib::db;
 use sqlx::{Row, SqlitePool};
 use std::io::Write;
 use std::path::PathBuf;

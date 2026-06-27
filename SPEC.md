@@ -2456,16 +2456,18 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - **macOS** multi-window glue — mpv owns its own `NSWindow`s (no `--wid` embedding), so N-window management there is a separate, harder effort; tracked as a follow-up.
 - VOD/episode multi-view; per-tile simultaneous audio mixing; picture-in-picture of a tile; recording.
 
+**Status:** ✅ **Complete (Windows; 2026-06-27).** Built on the M38 render layer as a **compositor** (`mpv/compositor.rs`): one GL context + render thread draws N render contexts into N viewports of the host surface (single playback = N=1). Staged: compositor refactor → multi-view backend registry → N=2 proof → grid UI → polish. macOS deferred (entry points gate on `isWindows`). Core flows owner-verified on Windows; the rest browser-verified + unit/compile-checked.
+
 **Acceptance Criteria:**
-- [ ] From a live stream the user can enter multi-view and **add live channels up to the cap**, each playing concurrently in an auto-arranged grid (1 → full, 2 → 1×2, 3/4 → 2×2).
-- [ ] Both **Grid** and **Focus (1+N)** layouts are available; in Focus, clicking a secondary tile promotes it to the primary.
-- [ ] The grid is capped at **4 tiles** (trying to exceed shows "Multi-view shows up to 4 streams at once."); the app does **not** enforce the provider's `max_connections` — a provider that refuses an extra stream surfaces as that tile's own classified error. No user-configurable max-streams setting.
-- [ ] **Exactly one tile has audio** at any time; clicking a tile (or its speaker) moves audio focus and the volume control affects the active tile; the others stay muted but playing.
-- [ ] Per-tile controls work: **close** a tile (frees its connection and reflows the grid), **promote to primary**, and **claim audio**.
-- [ ] The native video windows stay correctly **positioned in their cells** on window move/resize/fullscreen, with the transparency sandwich intact (no video bleeding outside its tile).
-- [ ] A **failed/forbidden tile** (provider connection limit, HTTP 4xx) shows that tile's error state **without** disrupting the others.
-- [ ] **Closing multi-view stops all instances** and frees all provider connections; returning to single view behaves as today.
-- [ ] `cargo test --tests` and `npm run build` pass clean; reduced-motion honored. *(Windows-only; macOS deferred.)*
+- [x] From a live stream the user can enter multi-view and **add live channels up to the cap**, each playing concurrently in an auto-arranged grid (1 → full, 2 → 1×2, 3/4 → 2×2). *(owner-verified; N=2 first proven via the console smoke-test, then the real grid.)*
+- [x] Both **Grid** and **Focus (1+N)** layouts are available; in Focus, clicking a secondary tile promotes it to the primary (and moves audio there — owner-requested refinement).
+- [x] The grid is capped at **4 tiles** (trying to exceed shows "Multi-view shows up to 4 streams at once."); the app does **not** enforce the provider's `max_connections` — a provider that refuses an extra stream surfaces as that tile's own classified error. No user-configurable max-streams setting.
+- [x] **Exactly one tile has audio** at any time; clicking a tile (or its speaker) moves audio focus and the volume control affects the active tile; the others stay muted but playing. *(owner-verified audio hand-off.)*
+- [x] Per-tile controls work: **close** a tile (drops its player → frees the stream, reflows the grid), **promote to primary**, and **claim audio**.
+- [x] Video stays correctly **positioned in each cell** on window move/resize/fullscreen, with the transparency sandwich intact (no video bleeding outside its tile). *(The render-API compositor draws into per-cell viewports — not N native windows — so the cells track the window via frontend rect-reporting × DPR; owner-verified resize, incl. the exit-restore-to-fill fix.)*
+- [x] A **failed/forbidden tile** (provider connection limit, HTTP 4xx) shows that tile's error state **without** disrupting the others. *(Per-tile `diagnose_playback_failure` classification — mirrors single-player `refineStreamError`; the other tiles keep playing. Pending a live provider rejection to observe in the wild.)*
+- [x] **Closing multi-view stops all instances** and frees all provider connections; returning to single view behaves as today. *(owner-verified; `mv_close` drops secondaries + restores the primary to fill.)*
+- [x] `cargo test --tests` and `npm run build` pass clean; reduced-motion honored. *(Windows-only; macOS deferred — entry points hidden off-Windows.)*
 
 ### Milestone 38 — Built-in Player: Render-API Migration
 
