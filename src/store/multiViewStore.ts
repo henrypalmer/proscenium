@@ -30,6 +30,8 @@ interface MultiViewState {
   activeAudio: number;
   /** Effective cap = min(4, provider max_connections). */
   cap: number;
+  /** The provider's reported max simultaneous connections (null = unknown/M3U). */
+  maxConnections: number | null;
   pickerOpen: boolean;
   adding: boolean;
   error: string | null;
@@ -42,9 +44,19 @@ interface MultiViewState {
   setVolume: (volume: number) => Promise<void>;
   setLayout: (layout: MvLayout) => void;
   promote: (id: number) => void;
+  /** Open the picker, or surface the cap error if at the limit (no setting to
+   *  configure — the limit is the provider's, plus the 4-tile grid). */
+  requestPicker: () => void;
   openPicker: () => void;
   closePicker: () => void;
   applyTileState: (tileId: number, state: MpvState) => void;
+}
+
+/** The user-facing reason adding another stream is blocked. */
+function capReason(count: number, maxConnections: number | null): string {
+  return maxConnections != null && maxConnections < 4 && count >= maxConnections
+    ? `Maximum active connections reached — your provider allows up to ${maxConnections} simultaneous stream${maxConnections === 1 ? "" : "s"}.`
+    : "Multi-view supports up to 4 streams at once.";
 }
 
 let listenersAttached = false;
@@ -68,6 +80,7 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   focusId: 0,
   activeAudio: 0,
   cap: 4,
+  maxConnections: null,
   pickerOpen: false,
   adding: false,
   error: null,
@@ -81,13 +94,14 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
       focusId: 0,
       activeAudio: 0,
       cap: 4,
+      maxConnections: null,
       pickerOpen: false,
       adding: false,
       error: null,
     });
     try {
       const budget = await api.mv.getBudget(channel.providerId);
-      set({ cap: budget.cap });
+      set({ cap: budget.cap, maxConnections: budget.maxConnections });
     } catch {
       // Budget is best-effort; fall back to the default cap of 4.
     }
@@ -107,9 +121,9 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   },
 
   addChannel: async (channel) => {
-    const { tiles, cap } = get();
+    const { tiles, cap, maxConnections } = get();
     if (tiles.length >= cap) {
-      set({ error: `Connection limit reached — ${tiles.length} of ${cap} streams in use.` });
+      set({ error: capReason(tiles.length, maxConnections) });
       return;
     }
     set({ adding: true, error: null, pickerOpen: false });
@@ -165,6 +179,14 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
 
   setLayout: (layout) => set({ layout }),
   promote: (id) => set({ focusId: id, layout: "focus" }),
+  requestPicker: () => {
+    const { tiles, cap, maxConnections } = get();
+    if (tiles.length >= cap) {
+      set({ error: capReason(tiles.length, maxConnections) });
+    } else {
+      set({ pickerOpen: true, error: null });
+    }
+  },
   openPicker: () => set({ pickerOpen: true, error: null }),
   closePicker: () => set({ pickerOpen: false }),
 

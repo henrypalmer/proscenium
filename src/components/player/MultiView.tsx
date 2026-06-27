@@ -30,6 +30,7 @@ export default function MultiView() {
   const setVolume = useMultiViewStore((s) => s.setVolume);
   const removeTile = useMultiViewStore((s) => s.removeTile);
   const promote = useMultiViewStore((s) => s.promote);
+  const requestPicker = useMultiViewStore((s) => s.requestPicker);
   const openPicker = useMultiViewStore((s) => s.openPicker);
   const closePicker = useMultiViewStore((s) => s.closePicker);
   const addChannel = useMultiViewStore((s) => s.addChannel);
@@ -163,10 +164,9 @@ export default function MultiView() {
         </div>
         <span className="mx-1 h-5 w-px bg-white/15" />
         <button
-          onClick={openPicker}
-          disabled={!canAdd}
-          title={canAdd ? "Add a channel" : `Connection limit reached (${cap})`}
-          className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white enabled:hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={requestPicker}
+          title="Add a channel"
+          className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500"
         >
           + Add channel
         </button>

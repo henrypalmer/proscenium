@@ -2448,7 +2448,7 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 - **Audio focus:** exactly one instance unmuted at any time; switching focus mutes the previous and unmutes the new; the volume/mute UI controls the active tile.
 - **Connection budget:** read the active provider's `max_connections` (Xtream `user_info`; unknown for M3U → assume the configured max); compute the effective cap; surface "N of M connections in use"; gate **+ Add**; a per-tile "max connections reached" / 4xx failure shows that tile's error state (reusing the §12 / M22 classifier) **without** disrupting the other tiles.
 - **Frontend — `MultiView` overlay:** extend/replace `PlayerOverlay` with a CSS grid of tiles that auto-arranges by count, a **layout toggle (Grid / Focus)**, and per-tile chrome on hover (channel label, claim-audio, promote-to-primary, close). Entry points: a **"Multi-view" control in the single-player bar** (the current channel becomes tile 1) and a Live-TV channel context-menu **"Add to Multi-view"**; **+ Add** opens a **channel picker** reusing the Live TV list + filter (live channels only). Exit returns to single view / closes all tiles.
-- **Settings:** a "Max simultaneous streams" control (default 4, hard-capped at 4 this milestone, further gated by provider connections).
+- ~~**Settings:** a "Max simultaneous streams" control~~ — **dropped (owner decision):** a user-configurable max just adds a knob nobody needs; the only real limits are the provider's `max_connections` and the 4-tile grid. Both are enforced automatically and surfaced as a **clear error when you try to exceed them** (not a setting to pre-configure).
 - **Keyboard / reduced-motion:** Esc closes the picker / exits multi-view; tiles are keyboard-focusable; honor `prefers-reduced-motion`.
 
 **Out of scope (deferred):**
@@ -2459,7 +2459,7 @@ Each milestone is an independently shippable slice. Claude Code should complete 
 **Acceptance Criteria:**
 - [ ] From a live stream the user can enter multi-view and **add live channels up to the cap**, each playing concurrently in an auto-arranged grid (1 → full, 2 → 1×2, 3/4 → 2×2).
 - [ ] Both **Grid** and **Focus (1+N)** layouts are available; in Focus, clicking a secondary tile promotes it to the primary.
-- [ ] The stream cap is **enforced and surfaced** and **respects the provider's `max_connections`** (the app never opens more connections than the provider allows); **+ Add** disables at the cap with a clear reason.
+- [ ] The stream cap is **enforced** and **respects the provider's `max_connections`** (the app never opens more connections than the provider allows); trying to exceed it shows a **clear error** ("Maximum active connections reached…" / "up to 4 streams") rather than silently blocking — no user-configurable max-streams setting.
 - [ ] **Exactly one tile has audio** at any time; clicking a tile (or its speaker) moves audio focus and the volume control affects the active tile; the others stay muted but playing.
 - [ ] Per-tile controls work: **close** a tile (frees its connection and reflows the grid), **promote to primary**, and **claim audio**.
 - [ ] The native video windows stay correctly **positioned in their cells** on window move/resize/fullscreen, with the transparency sandwich intact (no video bleeding outside its tile).
