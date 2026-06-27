@@ -19,6 +19,13 @@ pub struct PlayerHandle(pub Mutex<Option<Arc<MpvPlayer>>>);
 #[derive(Default)]
 pub struct VideoHost(pub AtomicIsize);
 
+/// The Windows render compositor (Milestone 37): one GL context + render thread
+/// drawing N mpv render contexts into the host window. Lazily created with the
+/// first player; shared across all tiles.
+#[cfg(target_os = "windows")]
+#[derive(Default)]
+pub(crate) struct CompositorState(pub Mutex<Option<Arc<crate::mpv::compositor::Compositor>>>);
+
 /// Resolve the playable URL for a catalog item (spec §16, Milestone 21).
 ///
 /// The provider password is never persisted in the catalog (§5.1). For Xtream
@@ -349,8 +356,38 @@ async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
     if let Some(existing) = guard.clone() {
         return Ok(existing);
     }
+
+    // Windows (Milestone 37): register this player with the shared compositor as
+    // a full-window tile (the N=1 single-player case), and arrange for its render
+    // context to be freed before the handle is destroyed (ordered teardown).
+    #[cfg(target_os = "windows")]
+    if let Some(host) = wid {
+        let compositor = ensure_compositor(app, host, &player)?;
+        let tile = compositor.add(player.raw_handle(), None)?;
+        let comp = compositor.clone();
+        player.set_pre_terminate(Box::new(move || comp.remove(tile)));
+    }
+
     *guard = Some(player.clone());
     Ok(player)
+}
+
+/// Get or lazily create the shared compositor on the host window. The first
+/// player's libmpv API is reused (its render-context functions are global).
+#[cfg(target_os = "windows")]
+fn ensure_compositor(
+    app: &AppHandle,
+    host_hwnd: isize,
+    player: &Arc<MpvPlayer>,
+) -> Result<Arc<crate::mpv::compositor::Compositor>, String> {
+    let state = app.state::<CompositorState>();
+    let mut guard = state.0.lock().unwrap();
+    if let Some(c) = guard.clone() {
+        return Ok(c);
+    }
+    let comp = Arc::new(crate::mpv::compositor::Compositor::new(host_hwnd, player.api())?);
+    *guard = Some(comp.clone());
+    Ok(comp)
 }
 
 #[cfg(target_os = "windows")]

@@ -46,6 +46,10 @@ pub fn run() {
             app.manage(commands::catalog::DetailCache::default());
             app.manage(commands::playback::PlayerHandle::default());
             app.manage(commands::playback::VideoHost::default());
+            // Windows render compositor (Milestone 37): one GL context + render
+            // thread compositing N mpv tiles into the host window.
+            #[cfg(target_os = "windows")]
+            app.manage(commands::playback::CompositorState::default());
             // Background stale-cache check (spec §5.2 startup trigger).
             tauri::async_runtime::spawn(commands::catalog::startup_stale_check(
                 app.handle().clone(),

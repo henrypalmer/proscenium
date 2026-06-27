@@ -23,8 +23,9 @@ const MPV_EVENT_PROPERTY_CHANGE: c_int = 22;
 
 const MPV_END_FILE_REASON_ERROR: c_int = 4;
 
+// pub(crate): appears in the (pub(crate)) `MpvApi::mpv_wait_event` signature.
 #[repr(C)]
-struct MpvEvent {
+pub(crate) struct MpvEvent {
     event_id: c_int,
     error: c_int,
     reply_userdata: u64,
@@ -45,53 +46,54 @@ struct MpvEventEndFile {
     error: c_int,
 }
 
-type MpvHandle = *mut c_void;
+pub(crate) type MpvHandle = *mut c_void;
 
-// --- render API surface (render.h / render_gl.h), Milestone 38 ---
+// --- render API surface (render.h / render_gl.h), Milestone 38 + 37 ---
 //
 // Instead of `--wid` window embedding, mpv renders each frame into a GPU
-// surface *we* own (an OpenGL framebuffer). `MpvRenderCtx`/`MpvRenderParam`
-// are referenced by the loader below on every platform (the symbols exist in
-// every libmpv build — verified by Spike B on Windows and the macOS probe);
-// the rest is consumed by the Windows render thread today, macOS in a follow-up
-// slice, hence `allow(dead_code)` so the unused-on-macOS path stays warning-free.
-type MpvRenderCtx = *mut c_void;
+// surface *we* own (an OpenGL framebuffer). These ABI bindings are shared:
+// the macOS player render thread (M38) uses them directly, and the Windows
+// `mpv::compositor` (M37) uses them to drive N render contexts into one
+// surface — hence `pub(crate)`. `allow(dead_code)` keeps any platform that
+// uses only a subset warning-free.
+pub(crate) type MpvRenderCtx = *mut c_void;
 
 #[allow(dead_code)]
-const MPV_RENDER_PARAM_INVALID: c_int = 0;
+pub(crate) const MPV_RENDER_PARAM_INVALID: c_int = 0;
 #[allow(dead_code)]
-const MPV_RENDER_PARAM_API_TYPE: c_int = 1;
+pub(crate) const MPV_RENDER_PARAM_API_TYPE: c_int = 1;
 #[allow(dead_code)]
-const MPV_RENDER_PARAM_OPENGL_INIT_PARAMS: c_int = 2;
+pub(crate) const MPV_RENDER_PARAM_OPENGL_INIT_PARAMS: c_int = 2;
 #[allow(dead_code)]
-const MPV_RENDER_PARAM_OPENGL_FBO: c_int = 3;
+pub(crate) const MPV_RENDER_PARAM_OPENGL_FBO: c_int = 3;
 #[allow(dead_code)]
-const MPV_RENDER_PARAM_FLIP_Y: c_int = 4;
+pub(crate) const MPV_RENDER_PARAM_FLIP_Y: c_int = 4;
 /// Bit returned by mpv_render_context_update() meaning "a new frame is ready".
 #[allow(dead_code)]
-const MPV_RENDER_UPDATE_FRAME: u64 = 1;
+pub(crate) const MPV_RENDER_UPDATE_FRAME: u64 = 1;
 
 #[repr(C)]
 #[allow(dead_code)]
-struct MpvRenderParam {
-    type_: c_int,
-    data: *mut c_void,
+pub(crate) struct MpvRenderParam {
+    pub(crate) type_: c_int,
+    pub(crate) data: *mut c_void,
 }
 
 #[repr(C)]
 #[allow(dead_code)]
-struct MpvOpenglInitParams {
-    get_proc_address: Option<unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void>,
-    get_proc_address_ctx: *mut c_void,
+pub(crate) struct MpvOpenglInitParams {
+    pub(crate) get_proc_address:
+        Option<unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void>,
+    pub(crate) get_proc_address_ctx: *mut c_void,
 }
 
 #[repr(C)]
 #[allow(dead_code)]
-struct MpvOpenglFbo {
-    fbo: c_int,
-    w: c_int,
-    h: c_int,
-    internal_format: c_int,
+pub(crate) struct MpvOpenglFbo {
+    pub(crate) fbo: c_int,
+    pub(crate) w: c_int,
+    pub(crate) h: c_int,
+    pub(crate) internal_format: c_int,
 }
 
 macro_rules! mpv_api {
@@ -99,9 +101,9 @@ macro_rules! mpv_api {
         // Render-API fn pointers are unused on macOS until its render slice
         // lands (Milestone 38 is Windows-first), so allow dead fields there.
         #[allow(dead_code)]
-        struct MpvApi {
+        pub(crate) struct MpvApi {
             _lib: Library,
-            $($name: unsafe extern "C" fn($($arg),*) -> $ret,)+
+            $(pub(crate) $name: unsafe extern "C" fn($($arg),*) -> $ret,)+
         }
         impl MpvApi {
             fn load() -> Result<Self, String> {
@@ -186,10 +188,10 @@ unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}
 
 pub struct MpvConfig {
-    /// Native host window to render video into. On Windows (Milestone 38) the
-    /// render thread creates a GL context on this window (HWND) and drives
-    /// mpv's render API into it — it is *not* passed to mpv as `--wid`. None =
-    /// no video window (headless / tests; macOS still uses its own window).
+    /// Set (to the host window HWND) when this is a composited video player on
+    /// Windows — it flips the player to `vo=libmpv` so the shared
+    /// `mpv::compositor` (Milestone 37) can render its handle. It is *not* passed
+    /// to mpv as `--wid`. None = headless / tests (macOS uses `gl_host` instead).
     pub wid: Option<isize>,
     /// macOS render-API host (Milestone 38): `(NSOpenGLContext, NSView)` pointers
     /// as `isize`. The render thread makes the context current and draws mpv's
@@ -213,16 +215,22 @@ pub struct MpvPlayer {
     /// playback starts at the resume point with no visible jump from 0.
     pending_seek: Arc<Mutex<Option<f64>>>,
     event_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
-    /// Render-API host (Milestone 38): the dedicated render thread plus its stop
-    /// flag (Windows + macOS). Its render context must be freed before the player
-    /// handle is destroyed, which `Drop` enforces by joining this thread first.
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    /// macOS render-API host (Milestone 38): the dedicated render thread plus its
+    /// stop flag. Its render context must be freed before the player handle is
+    /// destroyed, which `Drop` enforces by joining this thread first. On Windows
+    /// rendering is owned by `mpv::compositor` (Milestone 37), not the player.
+    #[cfg(target_os = "macos")]
     render: Mutex<Option<RenderHost>>,
+    /// Windows ordered-teardown hook (Milestone 37): runs in `Drop` *before* the
+    /// mpv handle is terminated. `commands/playback.rs` sets it to remove this
+    /// player's compositor tile, freeing its render context in the right order.
+    #[cfg(target_os = "windows")]
+    pre_terminate: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
-/// Owns the render thread (and the signal to stop it) for the render-API path.
-/// The thread itself owns the GL + mpv render context.
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+/// Owns the macOS render thread (and the signal to stop it). The thread itself
+/// owns the GL + mpv render context.
+#[cfg(target_os = "macos")]
 struct RenderHost {
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -270,10 +278,9 @@ impl MpvPlayer {
         // Hardware decode by default (spec §11); silent software fallback —
         // including the Dolby Vision chain — is handled inside libmpv.
         set("hwdec", if config.hwdec { "auto-safe" } else { "no" })?;
-        // Windows (Milestone 38): render via the libmpv render API into a GPU
-        // surface we own, not `--wid`. `vo=libmpv` makes mpv hand frames to our
-        // render context (created on the render thread spawned below) instead of
-        // opening/embedding a window itself.
+        // Windows (Milestone 38/37): render via the libmpv render API into a GPU
+        // surface we own, not `--wid`. `vo=libmpv` makes mpv hand frames to the
+        // render context the shared `mpv::compositor` creates for this player.
         #[cfg(target_os = "windows")]
         if !config.headless && config.wid.is_some() {
             set("vo", "libmpv")?;
@@ -329,8 +336,10 @@ impl MpvPlayer {
             shutdown: Arc::new(AtomicBool::new(false)),
             pending_seek: Arc::new(Mutex::new(None)),
             event_thread: Mutex::new(None),
-            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            #[cfg(target_os = "macos")]
             render: Mutex::new(None),
+            #[cfg(target_os = "windows")]
+            pre_terminate: Mutex::new(None),
         });
 
         let thread = {
@@ -346,28 +355,11 @@ impl MpvPlayer {
         };
         *player.event_thread.lock().unwrap() = Some(thread);
 
-        // Windows render-API (Milestone 38): spawn the dedicated render thread.
-        // It owns the GL context + mpv render context and draws into the host
-        // window; the UI thread only pumps window messages. A dedicated thread
-        // is required — a Win32 modal drag-resize loop would otherwise starve
-        // rendering (Spike B §3a). Headless/tests and the macOS path skip this.
-        #[cfg(target_os = "windows")]
-        if !config.headless {
-            if let Some(hwnd) = config.wid {
-                let stop = Arc::new(AtomicBool::new(false));
-                let api = api.clone();
-                let handle = player.handle.clone();
-                let stop_rt = stop.clone();
-                let thread = std::thread::Builder::new()
-                    .name("mpv-render".into())
-                    .spawn(move || render_thread(api, handle, hwnd, stop_rt))
-                    .map_err(|e| format!("failed to spawn mpv render thread: {e}"))?;
-                *player.render.lock().unwrap() = Some(RenderHost {
-                    stop,
-                    thread: Some(thread),
-                });
-            }
-        }
+        // Windows (Milestone 37): the player does NOT own a render thread — the
+        // shared `mpv::compositor` creates a render context for this player's
+        // handle and composites it (and any other tiles) into the host window.
+        // `commands/playback.rs` registers the player with the compositor after
+        // construction (and unregisters it before drop, for ordered teardown).
 
         // macOS render-API (Milestone 38): same dedicated-render-thread model, but
         // the GL context is the NSOpenGLContext created on the main thread and
@@ -489,6 +481,28 @@ impl MpvPlayer {
         self.state.lock().unwrap().clone()
     }
 
+    /// The raw mpv handle as an `isize`, for the Windows compositor to create a
+    /// render context against (Milestone 37). The handle is thread-safe; the
+    /// compositor only ever calls render-API functions with it, never frees it.
+    #[cfg(target_os = "windows")]
+    pub(crate) fn raw_handle(&self) -> isize {
+        self.handle.0 as isize
+    }
+
+    /// A clone of the loaded libmpv API, so the compositor can call the
+    /// render-context functions (they are library-global — valid for any handle).
+    #[cfg(target_os = "windows")]
+    pub(crate) fn api(&self) -> Arc<MpvApi> {
+        self.api.clone()
+    }
+
+    /// Register a hook to run in `Drop` *before* the mpv handle is terminated
+    /// (Milestone 37): used to free this player's compositor tile in order.
+    #[cfg(target_os = "windows")]
+    pub(crate) fn set_pre_terminate(&self, f: Box<dyn FnOnce() + Send>) {
+        *self.pre_terminate.lock().unwrap() = Some(f);
+    }
+
     /// Capture the current video frame to `path` as a PNG. `subtitles` keeps
     /// the rendered subtitle overlay; `false` grabs the clean video. Used by
     /// the macOS playback verification harness to prove the embedded video
@@ -501,15 +515,23 @@ impl MpvPlayer {
 
 impl Drop for MpvPlayer {
     fn drop(&mut self) {
-        // Stop the render thread first: it must free its mpv render context
-        // *before* the player handle is terminated below (mpv requires this
-        // order; the Rust binding can't enforce it, so it's explicit here).
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        // macOS: stop the render thread first — it must free its mpv render
+        // context *before* the player handle is terminated below (mpv requires
+        // this order; the binding can't enforce it). On Windows the compositor
+        // owns the render context and `commands/playback.rs` removes this
+        // player's tile (freeing it) before dropping the player.
+        #[cfg(target_os = "macos")]
         if let Some(mut host) = self.render.lock().unwrap().take() {
             host.stop.store(true, Ordering::SeqCst);
             if let Some(thread) = host.thread.take() {
                 let _ = thread.join();
             }
+        }
+        // Windows: free this player's compositor tile (its render context) before
+        // terminating the handle — the ordered-teardown rule the compositor needs.
+        #[cfg(target_os = "windows")]
+        if let Some(f) = self.pre_terminate.lock().unwrap().take() {
+            f();
         }
         self.shutdown.store(true, Ordering::SeqCst);
         unsafe { (self.api.mpv_wakeup)(self.handle.0) };
@@ -705,104 +727,6 @@ fn apply_track_list(s: &mut MpvState, json: &str) {
             Some("sub") => s.subtitle_tracks.push(info),
             _ => {}
         }
-    }
-}
-
-/// The Windows render thread (Milestone 38). Owns a WGL/OpenGL context on the
-/// host window and mpv's render context; renders each frame mpv produces into
-/// the window's default framebuffer. Runs until `stop` is set, then frees the
-/// render context and tears down GL (the caller destroys the player handle only
-/// after this thread has joined — see `Drop`).
-///
-/// Resize needs no signaling: the host window is resized by `SetWindowPos`
-/// (from the UI thread's window-event handler), and this loop reads the live
-/// client size each frame.
-#[cfg(target_os = "windows")]
-fn render_thread(api: Arc<MpvApi>, handle: Arc<Handle>, hwnd: isize, stop: Arc<AtomicBool>) {
-    use crate::mpv::render_win;
-
-    let (hdc, hglrc) = match unsafe { render_win::init_gl(hwnd) } {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("[render] GL init failed: {e}; video will not display");
-            return;
-        }
-    };
-
-    // Create the mpv render context on this thread (the GL context is current
-    // here). `get_proc_address` lets mpv resolve GL entry points.
-    let mut ctx: MpvRenderCtx = std::ptr::null_mut();
-    let api_type = cstr("opengl");
-    let mut gl_init = MpvOpenglInitParams {
-        get_proc_address: Some(render_win::get_proc_address),
-        get_proc_address_ctx: std::ptr::null_mut(),
-    };
-    let rc = unsafe {
-        let mut params = [
-            MpvRenderParam {
-                type_: MPV_RENDER_PARAM_API_TYPE,
-                data: api_type.as_ptr() as *mut c_void,
-            },
-            MpvRenderParam {
-                type_: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
-                data: &mut gl_init as *mut _ as *mut c_void,
-            },
-            MpvRenderParam {
-                type_: MPV_RENDER_PARAM_INVALID,
-                data: std::ptr::null_mut(),
-            },
-        ];
-        (api.mpv_render_context_create)(&mut ctx, handle.0, params.as_mut_ptr())
-    };
-    if rc < 0 {
-        let msg = unsafe { CStr::from_ptr((api.mpv_error_string)(rc)) }.to_string_lossy();
-        eprintln!("[render] mpv_render_context_create failed: {msg}; video will not display");
-        unsafe { render_win::destroy_gl(hdc, hglrc) };
-        return;
-    }
-
-    // Render loop: draw only when mpv reports a new frame; otherwise idle
-    // briefly so we don't busy-spin. SwapBuffers paces to vsync.
-    while !stop.load(Ordering::SeqCst) {
-        let flags = unsafe { (api.mpv_render_context_update)(ctx) };
-        if flags & MPV_RENDER_UPDATE_FRAME != 0 {
-            let (w, h) = render_win::client_size(hwnd);
-            unsafe {
-                let mut fbo = MpvOpenglFbo {
-                    fbo: 0,
-                    w,
-                    h,
-                    internal_format: 0,
-                };
-                let mut flip: c_int = 1;
-                let mut params = [
-                    MpvRenderParam {
-                        type_: MPV_RENDER_PARAM_OPENGL_FBO,
-                        data: &mut fbo as *mut _ as *mut c_void,
-                    },
-                    MpvRenderParam {
-                        type_: MPV_RENDER_PARAM_FLIP_Y,
-                        data: &mut flip as *mut _ as *mut c_void,
-                    },
-                    MpvRenderParam {
-                        type_: MPV_RENDER_PARAM_INVALID,
-                        data: std::ptr::null_mut(),
-                    },
-                ];
-                (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
-                render_win::swap_buffers(hdc);
-                (api.mpv_render_context_report_swap)(ctx);
-            }
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-    }
-
-    // Ordered teardown: free the render context before GL goes away (and before
-    // the caller terminates the player handle).
-    unsafe {
-        (api.mpv_render_context_free)(ctx);
-        render_win::destroy_gl(hdc, hglrc);
     }
 }
 
