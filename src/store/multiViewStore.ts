@@ -6,6 +6,14 @@ import type { MpvState, TileState } from "../types";
 
 export type MvLayout = "grid" | "focus";
 
+/** Multi-view shows up to this many tiles (the 2×2 grid). The provider's own
+ *  connection limit is NOT enforced here — its semantics are fuzzy (often IP/MAC
+ *  scoped) so we let the user keep adding and surface a per-tile error if the
+ *  provider actually rejects a stream. */
+export const MAX_TILES = 4;
+
+const CAP_MESSAGE = `Multi-view shows up to ${MAX_TILES} streams at once.`;
+
 /** A channel that can become a tile. */
 export interface MvChannel {
   providerId: string;
@@ -18,6 +26,9 @@ export interface MvChannel {
 export interface MvTile extends MvChannel {
   id: number;
   state: MpvState | null;
+  /** Classified, user-facing load error for this tile (spec §12 / M22), shown
+   *  in place of the raw mpv error once diagnosed. */
+  error?: string | null;
 }
 
 interface MultiViewState {
@@ -28,10 +39,6 @@ interface MultiViewState {
   focusId: number;
   /** The tile id that currently has audio (exactly one). */
   activeAudio: number;
-  /** Effective cap = min(4, provider max_connections). */
-  cap: number;
-  /** The provider's reported max simultaneous connections (null = unknown/M3U). */
-  maxConnections: number | null;
   pickerOpen: boolean;
   adding: boolean;
   error: string | null;
@@ -44,23 +51,22 @@ interface MultiViewState {
   setVolume: (volume: number) => Promise<void>;
   setLayout: (layout: MvLayout) => void;
   promote: (id: number) => void;
-  /** Open the picker, or surface the cap error if at the limit (no setting to
-   *  configure — the limit is the provider's, plus the 4-tile grid). */
+  /** Open the picker, or surface the grid-cap error if already at MAX_TILES. */
   requestPicker: () => void;
   openPicker: () => void;
   closePicker: () => void;
   applyTileState: (tileId: number, state: MpvState) => void;
 }
 
-/** The user-facing reason adding another stream is blocked. */
-function capReason(count: number, maxConnections: number | null): string {
-  return maxConnections != null && maxConnections < 4 && count >= maxConnections
-    ? `Maximum active connections reached — your provider allows up to ${maxConnections} simultaneous stream${maxConnections === 1 ? "" : "s"}.`
-    : "Multi-view supports up to 4 streams at once.";
-}
+type Set = (
+  partial:
+    | Partial<MultiViewState>
+    | ((s: MultiViewState) => Partial<MultiViewState>),
+) => void;
+type Get = () => MultiViewState;
 
 let listenersAttached = false;
-function attachListeners(get: () => MultiViewState) {
+function attachListeners(get: Get) {
   if (listenersAttached || !inTauri) return;
   listenersAttached = true;
   // Secondary tiles emit per-tile state; the primary (tile 0) still emits the
@@ -73,14 +79,41 @@ function attachListeners(get: () => MultiViewState) {
   );
 }
 
+/**
+ * Replace a tile's raw mpv error with a classified, user-facing reason
+ * (spec §12 / M22) — e.g. a provider connection-limit rejection becomes a
+ * friendly message. Mirrors the single-player `refineStreamError`.
+ */
+async function refineTileError(
+  set: Set,
+  get: Get,
+  tile: MvTile,
+  rawError: string,
+): Promise<void> {
+  try {
+    const message = await api.diagnosePlaybackFailure(
+      tile.providerId,
+      "live",
+      tile.contentId,
+      rawError,
+    );
+    const cur = get().tiles.find((t) => t.id === tile.id);
+    if (get().active && cur && cur.state?.error) {
+      set((s) => ({
+        tiles: s.tiles.map((t) => (t.id === tile.id ? { ...t, error: message } : t)),
+      }));
+    }
+  } catch {
+    // Diagnosis is best-effort; keep the raw error.
+  }
+}
+
 export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   active: false,
   tiles: [],
   layout: "grid",
   focusId: 0,
   activeAudio: 0,
-  cap: 4,
-  maxConnections: null,
   pickerOpen: false,
   adding: false,
   error: null,
@@ -89,22 +122,14 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
     attachListeners(get);
     set({
       active: true,
-      tiles: [{ id: 0, ...channel, state: initialState }],
+      tiles: [{ id: 0, ...channel, state: initialState, error: null }],
       layout: "grid",
       focusId: 0,
       activeAudio: 0,
-      cap: 4,
-      maxConnections: null,
       pickerOpen: false,
       adding: false,
       error: null,
     });
-    try {
-      const budget = await api.mv.getBudget(channel.providerId);
-      set({ cap: budget.cap, maxConnections: budget.maxConnections });
-    } catch {
-      // Budget is best-effort; fall back to the default cap of 4.
-    }
   },
 
   exit: async () => {
@@ -121,18 +146,18 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   },
 
   addChannel: async (channel) => {
-    const { tiles, cap, maxConnections } = get();
-    if (tiles.length >= cap) {
-      set({ error: capReason(tiles.length, maxConnections) });
+    if (get().tiles.length >= MAX_TILES) {
+      set({ error: CAP_MESSAGE });
       return;
     }
     set({ adding: true, error: null, pickerOpen: false });
     try {
       // The initial rect is a placeholder; the grid re-renders with the new tile
-      // and immediately reports accurate rects via mv_set_rects.
+      // and immediately reports accurate rects via mv_set_rects. A provider that
+      // refuses the extra stream surfaces as that tile's own error (not here).
       const id = await api.mv.addTile(channel.providerId, channel.contentId, 0, 0, 1, 1);
       set((s) => ({
-        tiles: [...s.tiles, { id, ...channel, state: null }],
+        tiles: [...s.tiles, { id, ...channel, state: null, error: null }],
         adding: false,
       }));
     } catch (e) {
@@ -180,9 +205,8 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   setLayout: (layout) => set({ layout }),
   promote: (id) => set({ focusId: id, layout: "focus" }),
   requestPicker: () => {
-    const { tiles, cap, maxConnections } = get();
-    if (tiles.length >= cap) {
-      set({ error: capReason(tiles.length, maxConnections) });
+    if (get().tiles.length >= MAX_TILES) {
+      set({ error: CAP_MESSAGE });
     } else {
       set({ pickerOpen: true, error: null });
     }
@@ -190,10 +214,22 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   openPicker: () => set({ pickerOpen: true, error: null }),
   closePicker: () => set({ pickerOpen: false }),
 
-  applyTileState: (tileId, state) =>
-    set((s) =>
-      s.active
-        ? { tiles: s.tiles.map((t) => (t.id === tileId ? { ...t, state } : t)) }
-        : {},
-    ),
+  applyTileState: (tileId, state) => {
+    const prev = get();
+    if (!prev.active) return;
+    const prevTile = prev.tiles.find((t) => t.id === tileId);
+    if (!prevTile) return;
+    const isNewError = Boolean(state.error) && !prevTile.state?.error;
+    set((s) => ({
+      tiles: s.tiles.map((t) =>
+        t.id === tileId
+          ? { ...t, state, error: state.error ? (t.error ?? state.error) : null }
+          : t,
+      ),
+    }));
+    // A freshly-failed tile (e.g. provider connection limit / 4xx): classify it.
+    if (isNewError) {
+      void refineTileError(set, get, prevTile, state.error as string);
+    }
+  },
 }));

@@ -7,13 +7,15 @@
 //! Multi-view is Windows-only this milestone — the commands return an error on
 //! other platforms (the frontend gates entry on Windows).
 
-use crate::models::{MultiViewBudget, TileRect};
+use crate::models::TileRect;
 use crate::mpv::player::MpvPlayer;
 use std::sync::{Arc, Mutex};
 #[allow(unused_imports)]
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Hard ceiling regardless of provider connections (spec §M37).
+/// Hard ceiling = the 2×2 grid. The provider's `max_connections` is deliberately
+/// NOT enforced (its semantics are fuzzy — often IP/MAC scoped); a provider that
+/// refuses an extra stream surfaces as that tile's own error instead.
 const MAX_TILES: u32 = 4;
 
 /// Registry of secondary multi-view tiles (the primary, tile 0, is the single
@@ -29,9 +31,6 @@ impl Default for MultiView {
 pub struct MvInner {
     tiles: Vec<MvTile>,
     next_id: u32,
-    /// Effective cap = `min(4, provider max_connections)` (refreshed by
-    /// `mv_get_budget`); the primary counts as one against it.
-    cap: u32,
     /// Tile id that currently has audio (0 = primary); exactly one is unmuted.
     active_audio: u32,
 }
@@ -41,7 +40,6 @@ impl Default for MvInner {
         Self {
             tiles: Vec::new(),
             next_id: 1,
-            cap: MAX_TILES,
             active_audio: 0,
         }
     }
@@ -60,19 +58,6 @@ fn unsupported() -> String {
 }
 
 // --- commands (cross-platform wrappers; Windows-only behavior) ---
-
-#[tauri::command]
-pub async fn mv_get_budget(app: AppHandle, provider_id: String) -> Result<MultiViewBudget, String> {
-    #[cfg(target_os = "windows")]
-    {
-        win::get_budget(&app, &provider_id).await
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (&app, &provider_id);
-        Err(unsupported())
-    }
-}
 
 #[tauri::command]
 pub async fn mv_add_tile(
@@ -167,45 +152,10 @@ pub async fn mv_close(app: AppHandle) -> Result<(), String> {
 mod win {
     use super::{MultiView, MvTile, MAX_TILES};
     use crate::commands::playback::{self, CompositorState, PlayerHandle};
-    use crate::db::{self, Db};
-    use crate::models::{ProviderType, TileRect, TileState};
+    use crate::db::Db;
+    use crate::models::{TileRect, TileState};
     use crate::mpv::compositor::Rect;
     use tauri::{AppHandle, Emitter, Manager};
-
-    pub(super) async fn get_budget(
-        app: &AppHandle,
-        provider_id: &str,
-    ) -> Result<crate::models::MultiViewBudget, String> {
-        let pool = app.state::<Db>().0.clone();
-        let max = fetch_max_connections(&pool, provider_id).await;
-        let cap = match max {
-            Some(m) if m > 0 => (m as u32).min(MAX_TILES),
-            _ => MAX_TILES,
-        };
-        let state = app.state::<MultiView>();
-        let mut reg = state.0.lock().unwrap();
-        reg.cap = cap;
-        let in_use = 1 + reg.tiles.len() as u32;
-        Ok(crate::models::MultiViewBudget {
-            cap,
-            in_use,
-            max_connections: max,
-        })
-    }
-
-    async fn fetch_max_connections(pool: &sqlx::SqlitePool, provider_id: &str) -> Option<i64> {
-        let provider = db::providers::get(pool, provider_id).await.ok()??;
-        match provider.provider_type {
-            ProviderType::Xtream => {
-                let server = provider.server_url.as_deref()?;
-                let user = provider.username.as_deref()?;
-                let pass = crate::keychain::get_secret(provider_id).ok()?;
-                let r = crate::iptv::xtream::test_connection(server, user, &pass).await;
-                r.account_info.and_then(|a| a.max_connections)
-            }
-            ProviderType::M3u => None,
-        }
-    }
 
     pub(super) async fn add_tile(
         app: &AppHandle,
@@ -216,16 +166,15 @@ mod win {
         w: i32,
         h: i32,
     ) -> Result<u32, String> {
-        // Enforce the connection budget (primary + existing secondaries).
+        // Only the 2×2 grid is capped (primary + secondaries). The provider's
+        // own connection limit is left to the provider — if it refuses the extra
+        // stream, that tile shows its own classified error instead.
         {
             let mv = app.state::<MultiView>();
             let reg = mv.0.lock().unwrap();
             let in_use = 1 + reg.tiles.len() as u32;
-            if in_use >= reg.cap {
-                return Err(format!(
-                    "Connection limit reached — {} of {} streams in use.",
-                    in_use, reg.cap
-                ));
+            if in_use >= MAX_TILES {
+                return Err(format!("Multi-view shows up to {MAX_TILES} streams at once."));
             }
         }
 

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as api from "../../lib/tauri";
 import { inTauri } from "../../lib/tauri";
 import { useWindowKeydown } from "../../lib/keyboard";
-import { useMultiViewStore } from "../../store/multiViewStore";
+import { MAX_TILES, useMultiViewStore } from "../../store/multiViewStore";
 import type { MvTile } from "../../store/multiViewStore";
 import ChannelList from "../live/ChannelList";
 import { addSlot, computeLayout, type LayoutRect } from "./multiViewLayout";
@@ -20,7 +20,6 @@ export default function MultiView() {
   const layout = useMultiViewStore((s) => s.layout);
   const focusId = useMultiViewStore((s) => s.focusId);
   const activeAudio = useMultiViewStore((s) => s.activeAudio);
-  const cap = useMultiViewStore((s) => s.cap);
   const pickerOpen = useMultiViewStore((s) => s.pickerOpen);
   const error = useMultiViewStore((s) => s.error);
 
@@ -88,7 +87,7 @@ export default function MultiView() {
 
   if (!active) return null;
 
-  const canAdd = tiles.length < cap;
+  const canAdd = tiles.length < MAX_TILES;
   const activeTile = tiles.find((t) => t.id === activeAudio);
 
   return (
@@ -215,7 +214,7 @@ function Tile({
   onClose,
 }: TileProps) {
   const buffering = tile.state ? tile.state.buffering : true;
-  const fatal = tile.state?.error ?? null;
+  const fatal = tile.error ?? tile.state?.error ?? null;
   // The cell is transparent (video shows through); a ring marks audio focus.
   return (
     <div

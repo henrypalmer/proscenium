@@ -137,7 +137,6 @@ pub fn run() {
             commands::playback::mpv_set_audio_track,
             commands::playback::mpv_set_subtitle_track,
             commands::playback::mpv_get_state,
-            commands::multiview::mv_get_budget,
             commands::multiview::mv_add_tile,
             commands::multiview::mv_remove_tile,
             commands::multiview::mv_set_rects,

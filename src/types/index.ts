@@ -176,13 +176,6 @@ export interface TileRect {
   h: number;
 }
 
-/** Connection budget: the effective tile cap is `min(4, max_connections)`. */
-export interface MultiViewBudget {
-  cap: number;
-  inUse: number;
-  maxConnections: number | null;
-}
-
 /** Persisted app settings (spec §15 settings keys). */
 export interface AppSettings {
   activeProviderId: string | null;

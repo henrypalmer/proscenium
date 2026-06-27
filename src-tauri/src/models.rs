@@ -389,16 +389,6 @@ pub struct TileRect {
     pub h: i32,
 }
 
-/// Connection budget for multi-view: the effective tile cap is
-/// `min(4, provider max_connections)`, surfaced so the UI can gate "+ Add".
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MultiViewBudget {
-    pub cap: u32,
-    pub in_use: u32,
-    pub max_connections: Option<i64>,
-}
-
 /// App settings (spec §15 settings keys), returned as a single object so the
 /// UI can load every value with one call.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
