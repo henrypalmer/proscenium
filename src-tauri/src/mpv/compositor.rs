@@ -49,6 +49,9 @@ enum Cmd {
         id: TileId,
         rect: Rect,
     },
+    SetFill {
+        id: TileId,
+    },
     Remove {
         id: TileId,
         reply: Sender<()>,
@@ -106,6 +109,13 @@ impl Compositor {
     #[allow(dead_code)]
     pub(crate) fn set_rect(&self, id: TileId, rect: Rect) {
         let _ = self.tx.send(Cmd::SetRect { id, rect });
+    }
+
+    /// Revert a tile to filling the whole window (auto-tracks window resize).
+    /// Used when leaving multi-view to restore the single-player tile.
+    #[allow(dead_code)]
+    pub(crate) fn set_fill(&self, id: TileId) {
+        let _ = self.tx.send(Cmd::SetFill { id });
     }
 
     /// Remove a tile, freeing its render context + FBO on the render thread.
@@ -206,6 +216,11 @@ fn render_thread(
                 Cmd::SetRect { id, rect } => {
                     if let Some(t) = tiles.iter_mut().find(|t| t.id == id) {
                         t.rect = Some(rect);
+                    }
+                }
+                Cmd::SetFill { id } => {
+                    if let Some(t) = tiles.iter_mut().find(|t| t.id == id) {
+                        t.rect = None;
                     }
                 }
                 Cmd::Remove { id, reply } => {

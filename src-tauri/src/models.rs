@@ -366,6 +366,39 @@ pub struct ConnectionTestResult {
     pub account_info: Option<XtreamAccountInfo>,
 }
 
+// --- Multi-view (Milestone 37) ---
+
+/// Per-tile playback state pushed on the `mpv:tile_state` event so each grid
+/// cell can show its own buffering/error/track state independently.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TileState {
+    pub tile_id: u32,
+    pub state: MpvState,
+}
+
+/// A tile's destination rectangle in the window, reported by the frontend grid
+/// (CSS client coordinates: top-left origin, +y down).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TileRect {
+    pub tile_id: u32,
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+/// Connection budget for multi-view: the effective tile cap is
+/// `min(4, provider max_connections)`, surfaced so the UI can gate "+ Add".
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiViewBudget {
+    pub cap: u32,
+    pub in_use: u32,
+    pub max_connections: Option<i64>,
+}
+
 /// App settings (spec §15 settings keys), returned as a single object so the
 /// UI can load every value with one call.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

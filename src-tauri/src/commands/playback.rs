@@ -26,6 +26,13 @@ pub struct VideoHost(pub AtomicIsize);
 #[derive(Default)]
 pub(crate) struct CompositorState(pub Mutex<Option<Arc<crate::mpv::compositor::Compositor>>>);
 
+/// The compositor tile id of the single/primary player (Milestone 37), so
+/// multi-view can give it a rect (tile 0) and restore it to fill on exit.
+/// 0 = none.
+#[cfg(target_os = "windows")]
+#[derive(Default)]
+pub(crate) struct PrimaryTile(pub std::sync::atomic::AtomicU64);
+
 /// Resolve the playable URL for a catalog item (spec §16, Milestone 21).
 ///
 /// The provider password is never persisted in the catalog (§5.1). For Xtream
@@ -364,8 +371,16 @@ async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
     if let Some(host) = wid {
         let compositor = ensure_compositor(app, host, &player)?;
         let tile = compositor.add(player.raw_handle(), None)?;
+        app.state::<PrimaryTile>().0.store(tile, Ordering::SeqCst);
         let comp = compositor.clone();
-        player.set_pre_terminate(Box::new(move || comp.remove(tile)));
+        let app_for_drop = app.clone();
+        player.set_pre_terminate(Box::new(move || {
+            comp.remove(tile);
+            app_for_drop
+                .state::<PrimaryTile>()
+                .0
+                .store(0, Ordering::SeqCst);
+        }));
     }
 
     *guard = Some(player.clone());
@@ -388,6 +403,65 @@ fn ensure_compositor(
     let comp = Arc::new(crate::mpv::compositor::Compositor::new(host_hwnd, player.api())?);
     *guard = Some(comp.clone());
     Ok(comp)
+}
+
+/// Spawn an additional compositor-backed video player at `rect` (Milestone 37
+/// multi-view). The host window + compositor must already exist (multi-view is
+/// always entered from single playback). Returns the player and its compositor
+/// tile id; the caller loads the stream and tracks the tile. The player frees
+/// its compositor tile on drop (ordered teardown via the pre-terminate hook).
+#[cfg(target_os = "windows")]
+pub(crate) async fn spawn_compositor_tile(
+    app: &AppHandle,
+    rect: crate::mpv::compositor::Rect,
+    on_state: crate::mpv::player::StateCallback,
+) -> Result<(Arc<MpvPlayer>, u64), String> {
+    let host = app.state::<VideoHost>().0.load(Ordering::SeqCst);
+    if host == 0 {
+        return Err("the video host window is not initialized".into());
+    }
+    let compositor = app
+        .state::<CompositorState>()
+        .0
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("the compositor is not running")?;
+
+    let pool = app.state::<Db>().0.clone();
+    let hwdec = !matches!(
+        db::settings::get(&pool, "hw_decode_enabled").await,
+        Ok(Some(v)) if v == "false"
+    );
+
+    let player = MpvPlayer::new(
+        MpvConfig {
+            wid: Some(host),
+            hwdec,
+            headless: false,
+        },
+        on_state,
+    )?;
+    let comp_tile = compositor.add(player.raw_handle(), Some(rect))?;
+    let comp = compositor.clone();
+    player.set_pre_terminate(Box::new(move || comp.remove(comp_tile)));
+    Ok((player, comp_tile))
+}
+
+/// Set the destination rect of the primary (single-player) tile, or restore it
+/// to fill — used by multi-view to lay out / release tile 0.
+#[cfg(target_os = "windows")]
+pub(crate) fn set_primary_rect(app: &AppHandle, rect: Option<crate::mpv::compositor::Rect>) {
+    let primary = app.state::<PrimaryTile>().0.load(Ordering::SeqCst);
+    if primary == 0 {
+        return;
+    }
+    if let Some(comp) = app.state::<CompositorState>().0.lock().unwrap().clone() {
+        match rect {
+            Some(r) => comp.set_rect(primary, r),
+            None => comp.set_fill(primary),
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]

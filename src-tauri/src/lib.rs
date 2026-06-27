@@ -50,6 +50,10 @@ pub fn run() {
             // thread compositing N mpv tiles into the host window.
             #[cfg(target_os = "windows")]
             app.manage(commands::playback::CompositorState::default());
+            #[cfg(target_os = "windows")]
+            app.manage(commands::playback::PrimaryTile::default());
+            // Multi-view tile registry (Milestone 37).
+            app.manage(commands::multiview::MultiView::default());
             // Background stale-cache check (spec §5.2 startup trigger).
             tauri::async_runtime::spawn(commands::catalog::startup_stale_check(
                 app.handle().clone(),
@@ -133,6 +137,13 @@ pub fn run() {
             commands::playback::mpv_set_audio_track,
             commands::playback::mpv_set_subtitle_track,
             commands::playback::mpv_get_state,
+            commands::multiview::mv_get_budget,
+            commands::multiview::mv_add_tile,
+            commands::multiview::mv_remove_tile,
+            commands::multiview::mv_set_rects,
+            commands::multiview::mv_set_active_audio,
+            commands::multiview::mv_set_volume,
+            commands::multiview::mv_close,
             commands::watch::get_watch_progress,
             commands::watch::set_watch_progress,
             commands::watch::mark_watched,
