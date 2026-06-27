@@ -33,6 +33,13 @@ import type {
 /** True when running inside the Tauri shell (vs. a plain browser). */
 export const inTauri = isTauri();
 
+/** True on the Tauri Windows build. Multi-view (Milestone 37) is Windows-only
+ *  for now (the render compositor); its entry points hide elsewhere. */
+export const isWindows =
+  inTauri &&
+  typeof navigator !== "undefined" &&
+  /Windows NT/i.test(navigator.userAgent ?? "");
+
 const invoke: typeof tauriInvoke = inTauri
   ? tauriInvoke
   : (mockInvoke as typeof tauriInvoke);

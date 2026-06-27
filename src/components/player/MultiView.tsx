@@ -219,9 +219,18 @@ function Tile({
   return (
     <div
       data-testid="multiview-tile"
+      role="button"
+      tabIndex={0}
+      aria-label={`${tile.title}${isAudio ? " — has audio" : ""}${isFocus ? " — primary" : ""}`}
       onClick={onActivate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
-      className={`group pointer-events-auto absolute overflow-hidden rounded-md ring-inset ${
+      className={`group pointer-events-auto absolute overflow-hidden rounded-md ring-inset focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400 ${
         isAudio ? "ring-2 ring-emerald-400" : "ring-1 ring-white/10"
       }`}
     >
@@ -245,8 +254,8 @@ function Tile({
         </div>
       ) : null}
 
-      {/* Top chrome on hover: label + actions. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 bg-gradient-to-b from-black/70 to-transparent px-2 py-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+      {/* Top chrome on hover/focus: label + actions. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 bg-gradient-to-b from-black/70 to-transparent px-2 py-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-white">
           {tile.title}
         </span>

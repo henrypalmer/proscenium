@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { inTauri } from "../lib/tauri";
+import { usePlayerStore } from "./playerStore";
 import type { MpvState, TileState } from "../types";
 
 export type MvLayout = "grid" | "focus";
@@ -46,6 +47,10 @@ interface MultiViewState {
   enter: (channel: MvChannel, initialState: MpvState | null) => Promise<void>;
   exit: () => Promise<void>;
   addChannel: (channel: MvChannel) => Promise<void>;
+  /** Add a channel from the Live-TV list (context menu). Adds to the active
+   *  session, or starts one — pairing with the currently-playing live channel
+   *  as tile 0 if there is one, else opening on this channel. */
+  addFromList: (channel: MvChannel) => Promise<void>;
   removeTile: (id: number) => Promise<void>;
   setActiveAudio: (id: number) => Promise<void>;
   setVolume: (volume: number) => Promise<void>;
@@ -162,6 +167,38 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
       }));
     } catch (e) {
       set({ adding: false, error: String(e) });
+    }
+  },
+
+  addFromList: async (channel) => {
+    // Already in multi-view → just add another tile.
+    if (get().active) {
+      await get().addChannel(channel);
+      return;
+    }
+    const player = usePlayerStore.getState();
+    if (player.open && player.nowPlaying && player.nowPlaying.contentType === "live") {
+      // A live channel is playing single-view: keep it as tile 0 and add this
+      // one alongside it.
+      await get().enter(
+        {
+          providerId: player.nowPlaying.providerId,
+          contentId: player.nowPlaying.contentId,
+          title: player.nowPlaying.title,
+        },
+        player.mpv,
+      );
+      await get().addChannel(channel);
+    } else {
+      // Nothing live playing: open multi-view on this channel (it becomes
+      // tile 0, played by the single player) so the user can + Add more.
+      await get().enter(channel, null);
+      await player.openContent({
+        providerId: channel.providerId,
+        contentType: "live",
+        contentId: channel.contentId,
+        title: channel.title,
+      });
     }
   },
 

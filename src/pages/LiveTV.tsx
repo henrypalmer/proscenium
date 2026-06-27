@@ -6,8 +6,10 @@ import ChannelFilterBar from "../components/live/ChannelFilterBar";
 import ChannelList from "../components/live/ChannelList";
 import RecentChannelsRow from "../components/live/RecentChannelsRow";
 import * as api from "../lib/tauri";
+import { isWindows } from "../lib/tauri";
 import { useCatalogStore } from "../store/catalogStore";
 import { usePlayerStore } from "../store/playerStore";
+import { useMultiViewStore } from "../store/multiViewStore";
 import type { Category, LiveChannel } from "../types";
 
 interface MenuState {
@@ -147,6 +149,20 @@ export default function LiveTV() {
           onClose={() => setMenu(null)}
           items={[
             { label: "Play", onSelect: () => play(menu.channel) },
+            ...(isWindows
+              ? [
+                  {
+                    label: "Add to Multi-view",
+                    onSelect: () =>
+                      void useMultiViewStore.getState().addFromList({
+                        providerId: activeProvider.id,
+                        contentId: menu.channel.id,
+                        title: menu.channel.name,
+                        logoUrl: menu.channel.logoUrl,
+                      }),
+                  },
+                ]
+              : []),
             {
               label: "Open in External Player",
               onSelect: () => void openExternal(menu.channel),
