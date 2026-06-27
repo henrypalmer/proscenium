@@ -105,6 +105,12 @@ export default function MultiView() {
             isAudio={t.id === activeAudio}
             isFocus={layout === "focus" && t.id === focusId}
             canClose={t.id !== 0}
+            onActivate={() => {
+              // In Focus, clicking a tile promotes it to the main pane and
+              // moves audio there in one go; in Grid it just claims audio.
+              void setActiveAudio(t.id);
+              if (layout === "focus") promote(t.id);
+            }}
             onClaimAudio={() => void setActiveAudio(t.id)}
             onPromote={() => promote(t.id)}
             onClose={() => void removeTile(t.id)}
@@ -189,6 +195,9 @@ interface TileProps {
   isAudio: boolean;
   isFocus: boolean;
   canClose: boolean;
+  /** Body click: claim audio (Grid) or promote + claim audio (Focus). */
+  onActivate: () => void;
+  /** Speaker button: claim audio only (without promoting). */
   onClaimAudio: () => void;
   onPromote: () => void;
   onClose: () => void;
@@ -200,6 +209,7 @@ function Tile({
   isAudio,
   isFocus,
   canClose,
+  onActivate,
   onClaimAudio,
   onPromote,
   onClose,
@@ -210,7 +220,7 @@ function Tile({
   return (
     <div
       data-testid="multiview-tile"
-      onClick={onClaimAudio}
+      onClick={onActivate}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
       className={`group pointer-events-auto absolute overflow-hidden rounded-md ring-inset ${
         isAudio ? "ring-2 ring-emerald-400" : "ring-1 ring-white/10"

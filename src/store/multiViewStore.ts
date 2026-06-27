@@ -94,12 +94,16 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   },
 
   exit: async () => {
+    // Tear the grid down FIRST so it stops reporting tile rects. Otherwise a
+    // tile-state event arriving during `mv.close()` would re-fire the rect
+    // report and overwrite the primary's "fill" rect back to its small grid
+    // cell — leaving the single player locked to that size (and not resizing).
+    set({ active: false, tiles: [], pickerOpen: false, error: null });
     try {
       await api.mv.close();
     } catch {
-      // Closing is best-effort; tear the UI down regardless.
+      // Closing is best-effort; the UI is already torn down.
     }
-    set({ active: false, tiles: [], pickerOpen: false, error: null });
   },
 
   addChannel: async (channel) => {
