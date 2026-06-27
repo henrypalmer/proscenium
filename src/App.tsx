@@ -10,6 +10,7 @@ import ProviderForm from "./components/providers/ProviderForm";
 import Toast from "./components/common/Toast";
 import WarningBanner from "./components/common/WarningBanner";
 import PlayerOverlay from "./components/player/PlayerOverlay";
+import MultiView from "./components/player/MultiView";
 import ResumeDialog from "./components/player/ResumeDialog";
 import SearchOverlay from "./components/search/SearchOverlay";
 import SearchResultsPage from "./components/search/SearchResultsPage";
@@ -21,6 +22,7 @@ import Settings from "./pages/Settings";
 import TVShows from "./pages/TVShows";
 import { useCatalogStore } from "./store/catalogStore";
 import { usePlayerStore } from "./store/playerStore";
+import { useMultiViewStore } from "./store/multiViewStore";
 import { useListsStore } from "./store/listsStore";
 import { useProgressStore } from "./store/progressStore";
 import { useProviderStore } from "./store/providerStore";
@@ -101,6 +103,7 @@ export default function App() {
       providers: useProviderStore,
       progress: useProgressStore,
       lists: useListsStore,
+      multiView: useMultiViewStore,
     };
   }, [load]);
 
@@ -112,6 +115,7 @@ export default function App() {
     <BrowserRouter>
       {providers.length === 0 ? <FirstLaunch /> : <Shell />}
       <PlayerOverlay />
+      <MultiView />
       <ResumeDialog />
       <Toast />
     </BrowserRouter>

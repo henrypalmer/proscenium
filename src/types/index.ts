@@ -159,6 +159,30 @@ export interface MpvState {
   hwdecCurrent: string | null;
 }
 
+// --- Multi-view (Milestone 37) ---
+
+/** Per-tile playback state pushed on the `mpv:tile_state` event. */
+export interface TileState {
+  tileId: number;
+  state: MpvState;
+}
+
+/** A tile's destination rectangle in the host window (physical pixels). */
+export interface TileRect {
+  tileId: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Connection budget: the effective tile cap is `min(4, max_connections)`. */
+export interface MultiViewBudget {
+  cap: number;
+  inUse: number;
+  maxConnections: number | null;
+}
+
 /** Persisted app settings (spec §15 settings keys). */
 export interface AppSettings {
   activeProviderId: string | null;

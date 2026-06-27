@@ -552,6 +552,11 @@ const mockMpv = {
 
 type Args = Record<string, unknown>;
 
+// Multi-view (Milestone 37) dev state: the browser mock has no real second
+// stream, so it just tracks the tile count + ids so the grid UI can be exercised.
+let mockMvTiles = 0;
+let mockMvNextId = 0;
+
 export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
   // Search is a local FTS query in the real backend (~1ms); the simulated
   // network latency would misrepresent it (spec §10: results < 300ms).
@@ -961,6 +966,24 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
     }
     case "mpv_get_state":
       return { ...mockMpv.state } as T;
+    // --- Multi-view (Milestone 37) ---
+    case "mv_get_budget":
+      return { cap: 4, inUse: 1 + mockMvTiles, maxConnections: 4 } as T;
+    case "mv_add_tile":
+      mockMvNextId += 1;
+      mockMvTiles += 1;
+      return mockMvNextId as T;
+    case "mv_remove_tile":
+      mockMvTiles = Math.max(0, mockMvTiles - 1);
+      return undefined as T;
+    case "mv_set_rects":
+    case "mv_set_active_audio":
+    case "mv_set_volume":
+      return undefined as T;
+    case "mv_close":
+      mockMvTiles = 0;
+      mockMvNextId = 0;
+      return undefined as T;
     default:
       throw new Error(`devMock: unhandled command "${cmd}"`);
   }

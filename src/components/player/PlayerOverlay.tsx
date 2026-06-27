@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { inTauri, mpv } from "../../lib/tauri";
 import { useWindowKeydown } from "../../lib/keyboard";
 import { usePlayerStore } from "../../store/playerStore";
+import { useMultiViewStore } from "../../store/multiViewStore";
 import BufferingOverlay from "./BufferingOverlay";
 import PlayerControls from "./PlayerControls";
 import type { TrackInfo } from "../../types";
@@ -56,6 +57,10 @@ export default function PlayerOverlay() {
   const everPlayed = usePlayerStore((s) => s.everPlayed);
   const fatalError = usePlayerStore((s) => s.fatalError);
   const close = usePlayerStore((s) => s.close);
+  // While multi-view is active it owns the player surface; the single-player
+  // overlay hides (but the player keeps running as tile 0, so `open` stays true
+  // and the page-transparency effect below keeps the compositor visible).
+  const mvActive = useMultiViewStore((s) => s.active);
 
   // Until the stream has delivered frames (and whenever it has failed) the
   // player area keeps a soft opaque backdrop instead of exposing the empty
@@ -157,10 +162,10 @@ export default function PlayerOverlay() {
       pokeControls();
     },
     [handleClose, toggleFullscreen, pokeControls],
-    { enabled: open, ignoreEditable: true },
+    { enabled: open && !mvActive, ignoreEditable: true },
   );
 
-  if (!open || !nowPlaying) return null;
+  if (!open || !nowPlaying || mvActive) return null;
 
   return (
     <div
@@ -190,6 +195,19 @@ export default function PlayerOverlay() {
           isLive={nowPlaying.contentType === "live"}
           onToggleFullscreen={() => void toggleFullscreen()}
           onClose={() => void handleClose()}
+          onMultiView={
+            nowPlaying.contentType === "live"
+              ? () =>
+                  void useMultiViewStore.getState().enter(
+                    {
+                      providerId: nowPlaying.providerId,
+                      contentId: nowPlaying.contentId,
+                      title: nowPlaying.title,
+                    },
+                    state,
+                  )
+              : undefined
+          }
         />
       )}
     </div>

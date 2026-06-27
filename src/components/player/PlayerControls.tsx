@@ -19,6 +19,8 @@ interface PlayerControlsProps {
   isLive: boolean;
   onToggleFullscreen: () => void;
   onClose: () => void;
+  /** Enter multi-view with this channel as the first tile (live only). */
+  onMultiView?: () => void;
 }
 
 export default function PlayerControls({
@@ -27,6 +29,7 @@ export default function PlayerControls({
   isLive,
   onToggleFullscreen,
   onClose,
+  onMultiView,
 }: PlayerControlsProps) {
   // Three distinct bar modes (Milestone 22): a seekable VOD, a genuine live
   // stream, or a VOD whose duration isn't known yet (loading or failed) — the
@@ -111,6 +114,22 @@ export default function PlayerControls({
           activeId={state.activeSubtitleTrack}
         />
 
+        {onMultiView && (
+          <button
+            onClick={onMultiView}
+            aria-label="Multi-view"
+            title="Multi-view — watch several channels at once"
+            data-testid="multiview-enter"
+            className="rounded p-2 text-zinc-300 hover:bg-white/10 hover:text-white"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+              <rect x="3" y="3" width="8" height="8" rx="1" />
+              <rect x="13" y="3" width="8" height="8" rx="1" />
+              <rect x="3" y="13" width="8" height="8" rx="1" />
+              <rect x="13" y="13" width="8" height="8" rx="1" />
+            </svg>
+          </button>
+        )}
         <button
           onClick={onToggleFullscreen}
           aria-label="Toggle full screen"

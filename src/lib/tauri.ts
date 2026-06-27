@@ -13,6 +13,7 @@ import type {
   Movie,
   MovieDetail,
   MpvState,
+  MultiViewBudget,
   PaginatedResult,
   PlayableContentType,
   Provider,
@@ -23,6 +24,7 @@ import type {
   SearchResults,
   Series,
   SeriesDetail,
+  TileRect,
   ProgressContentType,
   UserList,
   UserListItem,
@@ -402,4 +404,29 @@ export const mpv = {
   setSubtitleTrack: (trackId: number): Promise<void> =>
     invoke("mpv_set_subtitle_track", { trackId }),
   getState: (): Promise<MpvState> => invoke("mpv_get_state"),
+};
+
+/** Multi-view tile control (Milestone 37). Tile 0 is the primary/single player;
+ *  secondary tiles get ids 1.. Windows-only — the commands reject elsewhere. */
+export const mv = {
+  getBudget: (providerId: string): Promise<MultiViewBudget> =>
+    invoke("mv_get_budget", { providerId }),
+  addTile: (
+    providerId: string,
+    contentId: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): Promise<number> =>
+    invoke("mv_add_tile", { providerId, contentId, x, y, w, h }),
+  removeTile: (tileId: number): Promise<void> =>
+    invoke("mv_remove_tile", { tileId }),
+  setRects: (rects: TileRect[]): Promise<void> =>
+    invoke("mv_set_rects", { rects }),
+  setActiveAudio: (tileId: number): Promise<void> =>
+    invoke("mv_set_active_audio", { tileId }),
+  setVolume: (tileId: number, volume: number): Promise<void> =>
+    invoke("mv_set_volume", { tileId, volume }),
+  close: (): Promise<void> => invoke("mv_close"),
 };
