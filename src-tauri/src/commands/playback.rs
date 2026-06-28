@@ -439,7 +439,7 @@ fn ensure_compositor(
 /// always entered from single playback). Returns the player and its compositor
 /// tile id; the caller loads the stream and tracks the tile. The player frees
 /// its compositor tile on drop (ordered teardown via the pre-terminate hook).
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub(crate) async fn spawn_compositor_tile(
     app: &AppHandle,
     rect: crate::mpv::compositor::Rect,
@@ -479,7 +479,7 @@ pub(crate) async fn spawn_compositor_tile(
 
 /// Set the destination rect of the primary (single-player) tile, or restore it
 /// to fill — used by multi-view to lay out / release tile 0.
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub(crate) fn set_primary_rect(app: &AppHandle, rect: Option<crate::mpv::compositor::Rect>) {
     let primary = app.state::<PrimaryTile>().0.load(Ordering::SeqCst);
     if primary == 0 {

@@ -1,11 +1,12 @@
-//! Multi-view commands (Milestone 37, Windows). Additional live-TV tiles drawn
-//! by the shared compositor alongside the single (primary) player. The primary
-//! is tile id **0** (its player lives in `playback::PlayerHandle`); secondary
-//! tiles get ids 1.. and live in this registry. Each secondary emits its own
+//! Multi-view commands (Milestone 37). Additional live-TV tiles drawn by the
+//! shared compositor alongside the single (primary) player. The primary is tile
+//! id **0** (its player lives in `playback::PlayerHandle`); secondary tiles get
+//! ids 1.. and live in this registry. Each secondary emits its own
 //! `mpv:tile_state` so its grid cell can show buffering/error independently.
 //!
-//! Multi-view is Windows-only this milestone — the commands return an error on
-//! other platforms (the frontend gates entry on Windows).
+//! Supported on Windows + macOS (both render through `mpv::compositor`); the
+//! commands return an error on other platforms and the frontend gates entry to
+//! those two.
 
 use crate::models::TileRect;
 use crate::mpv::player::MpvPlayer;
@@ -45,16 +46,16 @@ impl Default for MvInner {
     }
 }
 
-#[allow(dead_code)] // fields used only on the Windows render path
+#[allow(dead_code)] // fields used only on the compositor render path (Windows + macOS)
 struct MvTile {
     id: u32,
     player: Arc<MpvPlayer>,
     comp_tile: u64,
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn unsupported() -> String {
-    "Multi-view is currently available on Windows only.".to_string()
+    "Multi-view is currently available on Windows and macOS only.".to_string()
 }
 
 // --- commands (cross-platform wrappers; Windows-only behavior) ---
@@ -69,11 +70,11 @@ pub async fn mv_add_tile(
     w: i32,
     h: i32,
 ) -> Result<u32, String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        win::add_tile(&app, provider_id, content_id, x, y, w, h).await
+        imp::add_tile(&app, provider_id, content_id, x, y, w, h).await
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = (&app, provider_id, content_id, x, y, w, h);
         Err(unsupported())
@@ -82,12 +83,12 @@ pub async fn mv_add_tile(
 
 #[tauri::command]
 pub async fn mv_remove_tile(app: AppHandle, tile_id: u32) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        win::remove_tile(&app, tile_id);
+        imp::remove_tile(&app, tile_id);
         Ok(())
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = (&app, tile_id);
         Err(unsupported())
@@ -96,12 +97,12 @@ pub async fn mv_remove_tile(app: AppHandle, tile_id: u32) -> Result<(), String> 
 
 #[tauri::command]
 pub async fn mv_set_rects(app: AppHandle, rects: Vec<TileRect>) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        win::set_rects(&app, rects);
+        imp::set_rects(&app, rects);
         Ok(())
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = (&app, rects);
         Err(unsupported())
@@ -110,11 +111,11 @@ pub async fn mv_set_rects(app: AppHandle, rects: Vec<TileRect>) -> Result<(), St
 
 #[tauri::command]
 pub async fn mv_set_active_audio(app: AppHandle, tile_id: u32) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        win::set_active_audio(&app, tile_id)
+        imp::set_active_audio(&app, tile_id)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = (&app, tile_id);
         Err(unsupported())
@@ -123,11 +124,11 @@ pub async fn mv_set_active_audio(app: AppHandle, tile_id: u32) -> Result<(), Str
 
 #[tauri::command]
 pub async fn mv_set_volume(app: AppHandle, tile_id: u32, volume: f64) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        win::set_volume(&app, tile_id, volume)
+        imp::set_volume(&app, tile_id, volume)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = (&app, tile_id, volume);
         Err(unsupported())
@@ -136,20 +137,20 @@ pub async fn mv_set_volume(app: AppHandle, tile_id: u32, volume: f64) -> Result<
 
 #[tauri::command]
 pub async fn mv_close(app: AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        win::close(&app);
+        imp::close(&app);
         Ok(())
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = &app;
         Err(unsupported())
     }
 }
 
-#[cfg(target_os = "windows")]
-mod win {
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod imp {
     use super::{MultiView, MvTile, MAX_TILES};
     use crate::commands::playback::{self, CompositorState, PlayerHandle};
     use crate::db::Db;
