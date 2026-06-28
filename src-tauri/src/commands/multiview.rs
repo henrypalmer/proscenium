@@ -65,18 +65,14 @@ pub async fn mv_add_tile(
     app: AppHandle,
     provider_id: String,
     content_id: String,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
 ) -> Result<u32, String> {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        imp::add_tile(&app, provider_id, content_id, x, y, w, h).await
+        imp::add_tile(&app, provider_id, content_id).await
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        let _ = (&app, provider_id, content_id, x, y, w, h);
+        let _ = (&app, provider_id, content_id);
         Err(unsupported())
     }
 }
@@ -162,10 +158,6 @@ mod imp {
         app: &AppHandle,
         provider_id: String,
         content_id: String,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
     ) -> Result<u32, String> {
         // Only the 2×2 grid is capped (primary + secondaries). The provider's
         // own connection limit is left to the provider — if it refuses the extra
@@ -194,8 +186,16 @@ mod imp {
         let on_state: crate::mpv::player::StateCallback = Box::new(move |state| {
             let _ = emitter.emit("mpv:tile_state", TileState { tile_id: id, state });
         });
+        // Placeholder rect; the grid reports the tile's real fractional rect via
+        // mv_set_rects the moment it mounts (before any frames flow).
+        let placeholder = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 0.0,
+            h: 0.0,
+        };
         let (player, comp_tile) =
-            playback::spawn_compositor_tile(app, Rect { x, y, w, h }, on_state).await?;
+            playback::spawn_compositor_tile(app, placeholder, on_state).await?;
         // New tiles start muted — only the active-audio tile has sound.
         let _ = player.set_mute(true);
         player.load_url(&url, None)?;

@@ -422,17 +422,10 @@ export const mpv = {
 };
 
 /** Multi-view tile control (Milestone 37). Tile 0 is the primary/single player;
- *  secondary tiles get ids 1.. Windows-only — the commands reject elsewhere. */
+ *  secondary tiles get ids 1.. Windows + macOS — the commands reject elsewhere. */
 export const mv = {
-  addTile: (
-    providerId: string,
-    contentId: string,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-  ): Promise<number> =>
-    invoke("mv_add_tile", { providerId, contentId, x, y, w, h }),
+  addTile: (providerId: string, contentId: string): Promise<number> =>
+    invoke("mv_add_tile", { providerId, contentId }),
   removeTile: (tileId: number): Promise<void> =>
     invoke("mv_remove_tile", { tileId }),
   setRects: (rects: TileRect[]): Promise<void> =>

@@ -157,10 +157,11 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
     }
     set({ adding: true, error: null, pickerOpen: false });
     try {
-      // The initial rect is a placeholder; the grid re-renders with the new tile
-      // and immediately reports accurate rects via mv_set_rects. A provider that
-      // refuses the extra stream surfaces as that tile's own error (not here).
-      const id = await api.mv.addTile(channel.providerId, channel.contentId, 0, 0, 1, 1);
+      // The grid re-renders with the new tile and immediately reports its real
+      // fractional rect via mv_set_rects (the backend uses a placeholder until
+      // then). A provider that refuses the extra stream surfaces as that tile's
+      // own error (not here).
+      const id = await api.mv.addTile(channel.providerId, channel.contentId);
       set((s) => ({
         tiles: [...s.tiles, { id, ...channel, state: null, error: null }],
         adding: false,

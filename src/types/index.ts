@@ -167,7 +167,8 @@ export interface TileState {
   state: MpvState;
 }
 
-/** A tile's destination rectangle in the host window (physical pixels). */
+/** A tile's destination rectangle as fractions (0..1) of the player area; the
+ *  compositor maps them onto its own drawable (robust to WebView vs. host size). */
 export interface TileRect {
   tileId: number;
   x: number;

@@ -377,16 +377,19 @@ pub struct TileState {
     pub state: MpvState,
 }
 
-/// A tile's destination rectangle in the window, reported by the frontend grid
-/// (CSS client coordinates: top-left origin, +y down).
+/// A tile's destination rectangle reported by the frontend grid as **fractions
+/// (0..1)** of the player area (top-left origin, +y down). Fractions, not pixels,
+/// so the compositor maps them onto its own live drawable size — robust to the
+/// WebView viewport and the host surface differing in size/scale (e.g. macOS,
+/// where the CSS viewport is not the content size in points). See `mpv::compositor`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TileRect {
     pub tile_id: u32,
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
 }
 
 /// App settings (spec §15 settings keys), returned as a single object so the

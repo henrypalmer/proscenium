@@ -34,17 +34,31 @@ use crate::mpv::render_win as glsys;
 use crate::mpv::render_mac as glsys;
 use glsys::HostSurface;
 
-/// A tile's destination rectangle in window *client* coordinates (CSS top-left
-/// origin, +y down) as reported by the frontend grid.
-// Constructed by the multi-view layout path (Stage 3); the single-player tile
-// uses `rect: None` (fill window), so this is dead until then.
+/// A tile's destination rectangle as **fractions (0..1)** of the host drawable
+/// (top-left origin, +y down), as reported by the frontend grid. Fractions, not
+/// pixels, so a tile maps onto the compositor's own live drawable size each frame
+/// — robust to the WebView viewport and the host surface differing in size/scale
+/// (notably macOS). `to_px` resolves a fractional rect against the drawable.
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Rect {
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl Rect {
+    /// Resolve to pixel `(x, y, w, h)` against a `cw`×`ch` drawable (w/h ≥ 1).
+    fn to_px(&self, cw: i32, ch: i32) -> (i32, i32, i32, i32) {
+        let (cw, ch) = (cw as f32, ch as f32);
+        (
+            (self.x * cw).round() as i32,
+            (self.y * ch).round() as i32,
+            ((self.w * cw).round() as i32).max(1),
+            ((self.h * ch).round() as i32).max(1),
+        )
+    }
 }
 
 pub(crate) type TileId = u64;
@@ -290,7 +304,10 @@ fn render_thread(
 
         for t in tiles.iter_mut() {
             let (rw, rh) = match t.rect {
-                Some(r) => (r.w.max(1), r.h.max(1)),
+                Some(r) => {
+                    let (_, _, w, h) = r.to_px(cw, ch);
+                    (w, h)
+                }
                 None => (cw, ch),
             };
             let mut force = false;
@@ -332,7 +349,7 @@ fn render_thread(
                     continue;
                 }
                 let (dx, dy, dw, dh) = match t.rect {
-                    Some(r) => (r.x, r.y, r.w.max(1), r.h.max(1)),
+                    Some(r) => r.to_px(cw, ch),
                     None => (0, 0, cw, ch),
                 };
                 // CSS top-left rect -> GL bottom-left destination.
@@ -369,7 +386,10 @@ unsafe fn add_tile(
 ) -> Result<Tile, String> {
     let render_ctx = create_render_ctx(api, handle as MpvHandle)?;
     let (iw, ih) = match rect {
-        Some(r) => (r.w, r.h),
+        Some(r) => {
+            let (_, _, w, h) = r.to_px(fill_w, fill_h);
+            (w, h)
+        }
         None => (fill_w, fill_h),
     };
     let cap_w = round_up(iw);
