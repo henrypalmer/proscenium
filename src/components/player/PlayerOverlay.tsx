@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { inTauri, isWindows, mpv } from "../../lib/tauri";
+import { inTauri, multiViewSupported, mpv } from "../../lib/tauri";
 import { useWindowKeydown } from "../../lib/keyboard";
 import { usePlayerStore } from "../../store/playerStore";
 import { useMultiViewStore } from "../../store/multiViewStore";
@@ -196,7 +196,7 @@ export default function PlayerOverlay() {
           onToggleFullscreen={() => void toggleFullscreen()}
           onClose={() => void handleClose()}
           onMultiView={
-            isWindows && nowPlaying.contentType === "live"
+            multiViewSupported && nowPlaying.contentType === "live"
               ? () =>
                   void useMultiViewStore.getState().enter(
                     {

@@ -33,12 +33,21 @@ import type {
 /** True when running inside the Tauri shell (vs. a plain browser). */
 export const inTauri = isTauri();
 
-/** True on the Tauri Windows build. Multi-view (Milestone 37) is Windows-only
- *  for now (the render compositor); its entry points hide elsewhere. */
+/** True on the Tauri Windows build. */
 export const isWindows =
   inTauri &&
   typeof navigator !== "undefined" &&
   /Windows NT/i.test(navigator.userAgent ?? "");
+
+/** True on the Tauri macOS build. */
+export const isMacOS =
+  inTauri &&
+  typeof navigator !== "undefined" &&
+  /Mac OS X|Macintosh/i.test(navigator.userAgent ?? "");
+
+/** Platforms where Live-TV multi-view (Milestone 37) is available — both render
+ *  through the native `mpv::compositor`. Its entry points hide elsewhere. */
+export const multiViewSupported = isWindows || isMacOS;
 
 const invoke: typeof tauriInvoke = inTauri
   ? tauriInvoke

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as api from "../../lib/tauri";
-import { inTauri } from "../../lib/tauri";
+import { inTauri, isWindows } from "../../lib/tauri";
 import { useWindowKeydown } from "../../lib/keyboard";
 import { MAX_TILES, useMultiViewStore } from "../../store/multiViewStore";
 import type { MvTile } from "../../store/multiViewStore";
@@ -60,16 +60,20 @@ export default function MultiView() {
   );
   const add = addSlot(tiles.length, layout, size.w, size.h);
 
-  // Report each tile's physical-pixel rect to the compositor (CSS px × DPR).
+  // Report each tile's rect to the compositor in the host drawable's pixel space.
+  // Windows: the host window is sized in physical pixels, so scale CSS px × DPR.
+  // macOS: the NSOpenGL host uses 1:1 point backing (M37 decision — see SPEC),
+  // so the drawable is 1:1 with CSS px and the scale is 1. (Revisit if macOS
+  // moves to a Retina backing.)
   useEffect(() => {
     if (!active || size.w === 0 || rects.length !== tiles.length) return;
-    const dpr = window.devicePixelRatio || 1;
+    const scale = isWindows ? window.devicePixelRatio || 1 : 1;
     const payload = tiles.map((t, i) => ({
       tileId: t.id,
-      x: Math.round(rects[i].x * dpr),
-      y: Math.round(rects[i].y * dpr),
-      w: Math.round(rects[i].w * dpr),
-      h: Math.round(rects[i].h * dpr),
+      x: Math.round(rects[i].x * scale),
+      y: Math.round(rects[i].y * scale),
+      w: Math.round(rects[i].w * scale),
+      h: Math.round(rects[i].h * scale),
     }));
     void api.mv.setRects(payload);
   }, [active, rects, tiles, size]);

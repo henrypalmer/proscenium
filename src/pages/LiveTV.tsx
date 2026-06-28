@@ -6,7 +6,7 @@ import ChannelFilterBar from "../components/live/ChannelFilterBar";
 import ChannelList from "../components/live/ChannelList";
 import RecentChannelsRow from "../components/live/RecentChannelsRow";
 import * as api from "../lib/tauri";
-import { isWindows } from "../lib/tauri";
+import { multiViewSupported } from "../lib/tauri";
 import { useCatalogStore } from "../store/catalogStore";
 import { usePlayerStore } from "../store/playerStore";
 import { useMultiViewStore } from "../store/multiViewStore";
@@ -149,7 +149,7 @@ export default function LiveTV() {
           onClose={() => setMenu(null)}
           items={[
             { label: "Play", onSelect: () => play(menu.channel) },
-            ...(isWindows
+            ...(multiViewSupported
               ? [
                   {
                     label: "Add to Multi-view",
