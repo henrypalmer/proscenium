@@ -1,8 +1,15 @@
 pub mod player;
 
-/// Multi-instance render compositor (Milestone 37). Windows-only for now —
-/// macOS keeps the M38 per-player render thread until its multi-view follow-up.
-#[cfg(target_os = "windows")]
+/// Multi-instance render compositor (Milestone 37). One GL context + one render
+/// thread composite N mpv render contexts into N viewports of the host surface
+/// (single playback = N=1). Windows and macOS share this module; the per-platform
+/// GL-surface plumbing lives in `render_win` / `render_mac` (`HostSurface`).
+//
+// macOS does not yet *call* into the compositor (that lands when `playback.rs`
+// wires it up); until then its items are dead there, so suppress the lints
+// macOS-only. Drop this `cfg_attr` once the macOS playback path uses it.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub mod compositor;
 
 /// Native window hosting mpv's video output.
@@ -226,169 +233,46 @@ pub mod render_win {
         wglDeleteContext(hglrc as *mut c_void);
     }
 
-    // --- OpenGL entry points for the compositor (Milestone 37) ---
+    // --- Host GL surface for the compositor (Milestone 37) ---
     //
-    // Multi-view renders each mpv tile into its own texture-backed FBO, then
-    // `glBlitFramebuffer`s each into its sub-rectangle of the window. These are
-    // the GL functions that needs — loaded via `get_proc_address` (wgl returns
-    // 3.0+ entry points; the opengl32 fallback covers the 1.1 ones). GL uses the
-    // `system` (APIENTRY/stdcall) calling convention on Windows.
+    // The compositor's render thread drives one of these. On Windows the GL
+    // context lives on the host window's private DC (`CS_OWNDC`); a resize is
+    // picked up by re-reading the client size each frame, so the per-frame
+    // drawable lock and the resize-notify hook are no-ops here (macOS needs
+    // both — see `render_mac::HostSurface`). The shared GL function table and the
+    // composite/blit pass live in `mpv::compositor` (cross-platform).
 
-    pub const GL_TEXTURE_2D: u32 = 0x0DE1;
-    pub const GL_RGBA: u32 = 0x1908;
-    pub const GL_RGBA8: u32 = 0x8058;
-    pub const GL_UNSIGNED_BYTE: u32 = 0x1401;
-    pub const GL_FRAMEBUFFER: u32 = 0x8D40;
-    pub const GL_READ_FRAMEBUFFER: u32 = 0x8CA8;
-    pub const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
-    pub const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
-    pub const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
-    pub const GL_COLOR_BUFFER_BIT: u32 = 0x4000;
-    pub const GL_LINEAR: i32 = 0x2601;
-    pub const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
-    pub const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
-    pub const GL_SCISSOR_TEST: u32 = 0x0C11;
-
-    type GenFn = unsafe extern "system" fn(i32, *mut u32);
-    type DelFn = unsafe extern "system" fn(i32, *const u32);
-    type BindFn = unsafe extern "system" fn(u32, u32);
-
-    /// The compositor's OpenGL function table (resolved once per GL context).
-    #[allow(dead_code)]
-    pub struct GlFns {
-        gen_framebuffers: GenFn,
-        delete_framebuffers: DelFn,
-        bind_framebuffer: BindFn,
-        gen_textures: GenFn,
-        delete_textures: DelFn,
-        bind_texture: BindFn,
-        tex_image_2d:
-            unsafe extern "system" fn(u32, i32, i32, i32, i32, i32, u32, u32, *const c_void),
-        tex_parameteri: unsafe extern "system" fn(u32, u32, i32),
-        framebuffer_texture_2d: unsafe extern "system" fn(u32, u32, u32, u32, i32),
-        check_framebuffer_status: unsafe extern "system" fn(u32) -> u32,
-        blit_framebuffer:
-            unsafe extern "system" fn(i32, i32, i32, i32, i32, i32, i32, i32, u32, u32),
-        clear: unsafe extern "system" fn(u32),
-        clear_color: unsafe extern "system" fn(f32, f32, f32, f32),
-        viewport: unsafe extern "system" fn(i32, i32, i32, i32),
-        disable: unsafe extern "system" fn(u32),
+    /// The compositor's GL surface: a WGL context on the host window.
+    pub struct HostSurface {
+        hwnd: isize,
+        hdc: isize,
+        hglrc: isize,
     }
 
-    impl GlFns {
-        /// Resolve the entry points. A GL context must be current on this thread.
-        pub unsafe fn load() -> Result<Self, String> {
-            macro_rules! sym {
-                ($n:literal) => {{
-                    let p = get_proc_address(
-                        std::ptr::null_mut(),
-                        concat!($n, "\0").as_ptr() as *const c_char,
-                    );
-                    if p.is_null() {
-                        return Err(format!("GL entry point not found: {}", $n));
-                    }
-                    std::mem::transmute(p)
-                }};
-            }
-            Ok(Self {
-                gen_framebuffers: sym!("glGenFramebuffers"),
-                delete_framebuffers: sym!("glDeleteFramebuffers"),
-                bind_framebuffer: sym!("glBindFramebuffer"),
-                gen_textures: sym!("glGenTextures"),
-                delete_textures: sym!("glDeleteTextures"),
-                bind_texture: sym!("glBindTexture"),
-                tex_image_2d: sym!("glTexImage2D"),
-                tex_parameteri: sym!("glTexParameteri"),
-                framebuffer_texture_2d: sym!("glFramebufferTexture2D"),
-                check_framebuffer_status: sym!("glCheckFramebufferStatus"),
-                blit_framebuffer: sym!("glBlitFramebuffer"),
-                clear: sym!("glClear"),
-                clear_color: sym!("glClearColor"),
-                viewport: sym!("glViewport"),
-                disable: sym!("glDisable"),
-            })
+    impl HostSurface {
+        /// Create + make-current the WGL context. Runs on the render thread.
+        pub unsafe fn create(hwnd: isize) -> Result<Self, String> {
+            let (hdc, hglrc) = init_gl(hwnd)?;
+            Ok(Self { hwnd, hdc, hglrc })
         }
 
-        /// Create a texture-backed FBO of size `w`×`h`. Returns `(fbo, texture)`.
-        pub unsafe fn create_fbo(&self, w: i32, h: i32) -> Result<(u32, u32), String> {
-            let (w, h) = (w.max(1), h.max(1));
-            let mut tex: u32 = 0;
-            (self.gen_textures)(1, &mut tex);
-            (self.bind_texture)(GL_TEXTURE_2D, tex);
-            (self.tex_image_2d)(
-                GL_TEXTURE_2D,
-                0,
-                GL_RGBA8 as i32,
-                w,
-                h,
-                0,
-                GL_RGBA,
-                GL_UNSIGNED_BYTE,
-                std::ptr::null(),
-            );
-            (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            (self.tex_parameteri)(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            let mut fbo: u32 = 0;
-            (self.gen_framebuffers)(1, &mut fbo);
-            (self.bind_framebuffer)(GL_FRAMEBUFFER, fbo);
-            (self.framebuffer_texture_2d)(
-                GL_FRAMEBUFFER,
-                GL_COLOR_ATTACHMENT0,
-                GL_TEXTURE_2D,
-                tex,
-                0,
-            );
-            let status = (self.check_framebuffer_status)(GL_FRAMEBUFFER);
-            (self.bind_framebuffer)(GL_FRAMEBUFFER, 0);
-            if status != GL_FRAMEBUFFER_COMPLETE {
-                (self.delete_framebuffers)(1, &fbo);
-                (self.delete_textures)(1, &tex);
-                return Err(format!("framebuffer incomplete: 0x{status:X}"));
-            }
-            Ok((fbo, tex))
+        /// Drawable size for this frame (host window client size, physical px).
+        pub fn begin_frame(&mut self) -> (i32, i32) {
+            client_size(self.hwnd)
         }
 
-        pub unsafe fn delete_fbo(&self, fbo: u32, tex: u32) {
-            (self.delete_framebuffers)(1, &fbo);
-            (self.delete_textures)(1, &tex);
+        /// No-op on Windows — WGL needs no per-frame drawable lock.
+        pub unsafe fn lock(&self) {}
+        pub unsafe fn unlock(&self) {}
+
+        /// Present the composited frame (vsync-paced).
+        pub unsafe fn present(&self) {
+            swap_buffers(self.hdc);
         }
 
-        /// Bind the default framebuffer, reset viewport/scissor, and clear it to
-        /// `rgba` (the backdrop shown in gaps between tiles).
-        pub unsafe fn begin_window_frame(&self, cw: i32, ch: i32, rgba: (f32, f32, f32, f32)) {
-            (self.bind_framebuffer)(GL_FRAMEBUFFER, 0);
-            (self.disable)(GL_SCISSOR_TEST);
-            (self.viewport)(0, 0, cw.max(1), ch.max(1));
-            (self.clear_color)(rgba.0, rgba.1, rgba.2, rgba.3);
-            (self.clear)(GL_COLOR_BUFFER_BIT);
-        }
-
-        /// Blit tile FBO `src_fbo` (its full `sw`×`sh`) into the default
-        /// framebuffer's destination rect (GL bottom-left coordinates).
-        pub unsafe fn blit_to_window(
-            &self,
-            src_fbo: u32,
-            sw: i32,
-            sh: i32,
-            dx0: i32,
-            dy0: i32,
-            dx1: i32,
-            dy1: i32,
-        ) {
-            (self.bind_framebuffer)(GL_READ_FRAMEBUFFER, src_fbo);
-            (self.bind_framebuffer)(GL_DRAW_FRAMEBUFFER, 0);
-            (self.blit_framebuffer)(
-                0,
-                0,
-                sw,
-                sh,
-                dx0,
-                dy0,
-                dx1,
-                dy1,
-                GL_COLOR_BUFFER_BIT,
-                GL_LINEAR as u32,
-            );
+        /// Release the GL context on the render thread at teardown.
+        pub unsafe fn destroy(self) {
+            destroy_gl(self.hdc, self.hglrc);
         }
     }
 }
@@ -693,6 +577,74 @@ pub mod render_mac {
             let v = view as *mut AnyObject;
             let b: CGRect = msg_send![v, bounds];
             ((b.size.width as i32).max(1), (b.size.height as i32).max(1))
+        }
+    }
+
+    // --- Host GL surface for the compositor (Milestone 37) ---
+    //
+    // macOS analogue of `render_win::HostSurface`, presenting the same API to the
+    // cross-platform `mpv::compositor`. The `(NSOpenGLContext, NSView)` are created
+    // on the main thread (`create_gl_host`) and glued behind the app window; the
+    // render thread makes the context current and drives the surface. Unlike
+    // Windows, NSOpenGL needs a per-frame `CGLLockContext` guard and a main-thread
+    // `-update` whenever the drawable resizes — both are folded in here (the same
+    // dance the M38 per-player `render_thread_mac` performs).
+    //
+    // `#[allow(dead_code)]`: until the macOS playback path wires the compositor up
+    // (a later slice), this is referenced only from not-yet-called compositor code.
+
+    #[allow(dead_code)]
+    pub struct HostSurface {
+        ctx: isize,
+        view: isize,
+        cgl: isize,
+        last_size: (i32, i32),
+    }
+
+    #[allow(dead_code)]
+    impl HostSurface {
+        /// Make the (main-thread-created) context current on the render thread.
+        pub unsafe fn create(ctx: isize, view: isize) -> Result<Self, String> {
+            make_current(ctx);
+            let cgl = cgl_context(ctx);
+            Ok(Self {
+                ctx,
+                view,
+                cgl,
+                last_size: (0, 0),
+            })
+        }
+
+        /// Drawable size this frame; on a change, ask NSOpenGL to `-update` (on the
+        /// main thread) so it reconfigures the drawable to the new size.
+        pub fn begin_frame(&mut self) -> (i32, i32) {
+            let size = view_size(self.view);
+            if size != self.last_size {
+                self.last_size = size;
+                update_on_main(self.ctx);
+            }
+            size
+        }
+
+        // These call the module-level free fns (resolved by name, not the
+        // same-named methods — method calls need receiver syntax).
+        /// Guard the frame so a concurrent main-thread `-update` can't reconfigure
+        /// the drawable mid-render/present.
+        pub unsafe fn lock(&self) {
+            lock(self.cgl);
+        }
+        pub unsafe fn unlock(&self) {
+            unlock(self.cgl);
+        }
+
+        /// Present the composited frame (the NSOpenGL analogue of `SwapBuffers`).
+        pub unsafe fn present(&self) {
+            flush_buffer(self.ctx);
+        }
+
+        /// Release the GL context on the render thread at teardown.
+        pub unsafe fn destroy(self) {
+            clear_current();
         }
     }
 }
