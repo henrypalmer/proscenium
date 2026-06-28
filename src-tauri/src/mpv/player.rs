@@ -188,16 +188,11 @@ unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}
 
 pub struct MpvConfig {
-    /// Set (to the host window HWND) when this is a composited video player on
-    /// Windows — it flips the player to `vo=libmpv` so the shared
-    /// `mpv::compositor` (Milestone 37) can render its handle. It is *not* passed
-    /// to mpv as `--wid`. None = headless / tests (macOS uses `gl_host` instead).
-    pub wid: Option<isize>,
-    /// macOS render-API host (Milestone 38): `(NSOpenGLContext, NSView)` pointers
-    /// as `isize`. The render thread makes the context current and draws mpv's
-    /// frames into it. None = headless / tests.
-    #[cfg(target_os = "macos")]
-    pub gl_host: Option<(isize, isize)>,
+    /// True for a composited video player (Windows + macOS): flips the player to
+    /// `vo=libmpv` so the shared `mpv::compositor` (Milestone 37) renders its
+    /// handle into a surface we own — no `--wid`, no per-player window. False for
+    /// headless/tests and the unsupported Linux path (mpv keeps its default vo).
+    pub composited: bool,
     pub hwdec: bool,
     /// Null video/audio outputs for tests.
     pub headless: bool,
@@ -215,25 +210,12 @@ pub struct MpvPlayer {
     /// playback starts at the resume point with no visible jump from 0.
     pending_seek: Arc<Mutex<Option<f64>>>,
     event_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
-    /// macOS render-API host (Milestone 38): the dedicated render thread plus its
-    /// stop flag. Its render context must be freed before the player handle is
-    /// destroyed, which `Drop` enforces by joining this thread first. On Windows
-    /// rendering is owned by `mpv::compositor` (Milestone 37), not the player.
-    #[cfg(target_os = "macos")]
-    render: Mutex<Option<RenderHost>>,
-    /// Windows ordered-teardown hook (Milestone 37): runs in `Drop` *before* the
-    /// mpv handle is terminated. `commands/playback.rs` sets it to remove this
-    /// player's compositor tile, freeing its render context in the right order.
-    #[cfg(target_os = "windows")]
+    /// Ordered-teardown hook (Milestone 37): runs in `Drop` *before* the mpv
+    /// handle is terminated. `commands/playback.rs` sets it (Windows + macOS) to
+    /// remove this player's compositor tile, freeing its render context in the
+    /// order mpv requires (render context before handle). None for headless/tests
+    /// and Linux.
     pre_terminate: Mutex<Option<Box<dyn FnOnce() + Send>>>,
-}
-
-/// Owns the macOS render thread (and the signal to stop it). The thread itself
-/// owns the GL + mpv render context.
-#[cfg(target_os = "macos")]
-struct RenderHost {
-    stop: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl MpvPlayer {
@@ -278,20 +260,11 @@ impl MpvPlayer {
         // Hardware decode by default (spec §11); silent software fallback —
         // including the Dolby Vision chain — is handled inside libmpv.
         set("hwdec", if config.hwdec { "auto-safe" } else { "no" })?;
-        // Windows (Milestone 38/37): render via the libmpv render API into a GPU
-        // surface we own, not `--wid`. `vo=libmpv` makes mpv hand frames to the
+        // Composited video players (Windows + macOS, Milestone 37/38) render via
+        // the libmpv render API into a GPU surface we own — not `--wid`, and not a
+        // window mpv opens itself. `vo=libmpv` makes mpv hand each frame to the
         // render context the shared `mpv::compositor` creates for this player.
-        #[cfg(target_os = "windows")]
-        if !config.headless && config.wid.is_some() {
-            set("vo", "libmpv")?;
-        }
-        // macOS (Milestone 38): render via the libmpv render API into the
-        // NSOpenGLContext we own (created on the main thread and glued behind the
-        // app window — see `mpv::render_mac`), driven by the render thread spawned
-        // below. `vo=libmpv` makes mpv hand frames to our render context instead
-        // of opening its own window.
-        #[cfg(target_os = "macos")]
-        if !config.headless && config.gl_host.is_some() {
+        if !config.headless && config.composited {
             set("vo", "libmpv")?;
         }
         if config.headless {
@@ -336,9 +309,6 @@ impl MpvPlayer {
             shutdown: Arc::new(AtomicBool::new(false)),
             pending_seek: Arc::new(Mutex::new(None)),
             event_thread: Mutex::new(None),
-            #[cfg(target_os = "macos")]
-            render: Mutex::new(None),
-            #[cfg(target_os = "windows")]
             pre_terminate: Mutex::new(None),
         });
 
@@ -355,33 +325,12 @@ impl MpvPlayer {
         };
         *player.event_thread.lock().unwrap() = Some(thread);
 
-        // Windows (Milestone 37): the player does NOT own a render thread — the
-        // shared `mpv::compositor` creates a render context for this player's
-        // handle and composites it (and any other tiles) into the host window.
+        // The player does NOT own a render thread: on Windows and macOS the shared
+        // `mpv::compositor` creates a render context for this player's handle and
+        // composites it (and any other tiles) into the host surface.
         // `commands/playback.rs` registers the player with the compositor after
-        // construction (and unregisters it before drop, for ordered teardown).
-
-        // macOS render-API (Milestone 38): same dedicated-render-thread model, but
-        // the GL context is the NSOpenGLContext created on the main thread and
-        // handed in via `gl_host`. Made current on this thread (proven OK by the
-        // probe), it renders into the context's drawable.
-        #[cfg(target_os = "macos")]
-        if !config.headless {
-            if let Some((gl_context, gl_view)) = config.gl_host {
-                let stop = Arc::new(AtomicBool::new(false));
-                let api = api.clone();
-                let handle = player.handle.clone();
-                let stop_rt = stop.clone();
-                let thread = std::thread::Builder::new()
-                    .name("mpv-render".into())
-                    .spawn(move || render_thread_mac(api, handle, gl_context, gl_view, stop_rt))
-                    .map_err(|e| format!("failed to spawn mpv render thread: {e}"))?;
-                *player.render.lock().unwrap() = Some(RenderHost {
-                    stop,
-                    thread: Some(thread),
-                });
-            }
-        }
+        // construction and unregisters it before drop (ordered teardown via the
+        // `pre_terminate` hook).
 
         Ok(player)
     }
@@ -481,24 +430,24 @@ impl MpvPlayer {
         self.state.lock().unwrap().clone()
     }
 
-    /// The raw mpv handle as an `isize`, for the Windows compositor to create a
-    /// render context against (Milestone 37). The handle is thread-safe; the
-    /// compositor only ever calls render-API functions with it, never frees it.
-    #[cfg(target_os = "windows")]
+    /// The raw mpv handle as an `isize`, for the compositor to create a render
+    /// context against (Milestone 37). The handle is thread-safe; the compositor
+    /// only ever calls render-API functions with it, never frees it.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     pub(crate) fn raw_handle(&self) -> isize {
         self.handle.0 as isize
     }
 
     /// A clone of the loaded libmpv API, so the compositor can call the
     /// render-context functions (they are library-global — valid for any handle).
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     pub(crate) fn api(&self) -> Arc<MpvApi> {
         self.api.clone()
     }
 
     /// Register a hook to run in `Drop` *before* the mpv handle is terminated
     /// (Milestone 37): used to free this player's compositor tile in order.
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     pub(crate) fn set_pre_terminate(&self, f: Box<dyn FnOnce() + Send>) {
         *self.pre_terminate.lock().unwrap() = Some(f);
     }
@@ -515,21 +464,12 @@ impl MpvPlayer {
 
 impl Drop for MpvPlayer {
     fn drop(&mut self) {
-        // macOS: stop the render thread first — it must free its mpv render
-        // context *before* the player handle is terminated below (mpv requires
-        // this order; the binding can't enforce it). On Windows the compositor
-        // owns the render context and `commands/playback.rs` removes this
-        // player's tile (freeing it) before dropping the player.
-        #[cfg(target_os = "macos")]
-        if let Some(mut host) = self.render.lock().unwrap().take() {
-            host.stop.store(true, Ordering::SeqCst);
-            if let Some(thread) = host.thread.take() {
-                let _ = thread.join();
-            }
-        }
-        // Windows: free this player's compositor tile (its render context) before
-        // terminating the handle — the ordered-teardown rule the compositor needs.
-        #[cfg(target_os = "windows")]
+        // Ordered teardown: free this player's compositor tile (its mpv render
+        // context) *before* the handle is terminated below — mpv requires the
+        // render context be freed first, and the binding can't enforce it. The
+        // hook (set by `commands/playback.rs` on Windows + macOS) removes the tile
+        // on the compositor's render thread and blocks until done. No-op when
+        // unset (headless/tests, Linux).
         if let Some(f) = self.pre_terminate.lock().unwrap().take() {
             f();
         }
@@ -728,104 +668,4 @@ fn apply_track_list(s: &mut MpvState, json: &str) {
             _ => {}
         }
     }
-}
-
-/// The macOS render thread (Milestone 38). Makes the (main-thread-created)
-/// `NSOpenGLContext` current here, creates mpv's render context, and renders
-/// each frame into the context's drawable (FBO 0). The drawing is guarded by
-/// `CGLLockContext` so a main-thread `-update` (resize) can't reconfigure the
-/// drawable mid-render; on a size change it asks NSOpenGL to `-update` on the
-/// main thread. Mirrors the Windows render thread and the validated probe.
-#[cfg(target_os = "macos")]
-fn render_thread_mac(
-    api: Arc<MpvApi>,
-    handle: Arc<Handle>,
-    gl_context: isize,
-    gl_view: isize,
-    stop: Arc<AtomicBool>,
-) {
-    use crate::mpv::render_mac;
-
-    render_mac::make_current(gl_context);
-
-    // Create the mpv render context on this thread (the GL context is current).
-    let mut ctx: MpvRenderCtx = std::ptr::null_mut();
-    let api_type = cstr("opengl");
-    let mut gl_init = MpvOpenglInitParams {
-        get_proc_address: Some(render_mac::get_proc_address),
-        get_proc_address_ctx: std::ptr::null_mut(),
-    };
-    let rc = unsafe {
-        let mut params = [
-            MpvRenderParam {
-                type_: MPV_RENDER_PARAM_API_TYPE,
-                data: api_type.as_ptr() as *mut c_void,
-            },
-            MpvRenderParam {
-                type_: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
-                data: &mut gl_init as *mut _ as *mut c_void,
-            },
-            MpvRenderParam {
-                type_: MPV_RENDER_PARAM_INVALID,
-                data: std::ptr::null_mut(),
-            },
-        ];
-        (api.mpv_render_context_create)(&mut ctx, handle.0, params.as_mut_ptr())
-    };
-    if rc < 0 {
-        let msg = unsafe { CStr::from_ptr((api.mpv_error_string)(rc)) }.to_string_lossy();
-        eprintln!("[render] mpv_render_context_create failed: {msg}; video will not display");
-        render_mac::clear_current();
-        return;
-    }
-
-    let cgl = render_mac::cgl_context(gl_context);
-    let mut last_size = (0i32, 0i32);
-
-    while !stop.load(Ordering::SeqCst) {
-        let (w, h) = render_mac::view_size(gl_view);
-        if (w, h) != last_size {
-            last_size = (w, h);
-            render_mac::update_on_main(gl_context); // tell NSOpenGL the drawable resized
-        }
-        let flags = unsafe { (api.mpv_render_context_update)(ctx) };
-        if flags & MPV_RENDER_UPDATE_FRAME != 0 {
-            // Lock so a concurrent main-thread -update can't reconfigure the
-            // drawable while we render + present.
-            render_mac::lock(cgl);
-            unsafe {
-                let mut fbo = MpvOpenglFbo {
-                    fbo: 0,
-                    w,
-                    h,
-                    internal_format: 0,
-                };
-                let mut flip: c_int = 1;
-                let mut params = [
-                    MpvRenderParam {
-                        type_: MPV_RENDER_PARAM_OPENGL_FBO,
-                        data: &mut fbo as *mut _ as *mut c_void,
-                    },
-                    MpvRenderParam {
-                        type_: MPV_RENDER_PARAM_FLIP_Y,
-                        data: &mut flip as *mut _ as *mut c_void,
-                    },
-                    MpvRenderParam {
-                        type_: MPV_RENDER_PARAM_INVALID,
-                        data: std::ptr::null_mut(),
-                    },
-                ];
-                (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
-            }
-            render_mac::flush_buffer(gl_context); // present
-            render_mac::unlock(cgl);
-            unsafe { (api.mpv_render_context_report_swap)(ctx) };
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-    }
-
-    // Ordered teardown: free the render context, then release the GL context.
-    unsafe { (api.mpv_render_context_free)(ctx) };
-    render_mac::clear_current();
 }

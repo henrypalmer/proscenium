@@ -19,17 +19,17 @@ pub struct PlayerHandle(pub Mutex<Option<Arc<MpvPlayer>>>);
 #[derive(Default)]
 pub struct VideoHost(pub AtomicIsize);
 
-/// The Windows render compositor (Milestone 37): one GL context + render thread
-/// drawing N mpv render contexts into the host window. Lazily created with the
-/// first player; shared across all tiles.
-#[cfg(target_os = "windows")]
+/// The render compositor (Milestone 37): one GL context + render thread drawing
+/// N mpv render contexts into the host surface. Lazily created with the first
+/// player; shared across all tiles. Windows + macOS.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 #[derive(Default)]
 pub(crate) struct CompositorState(pub Mutex<Option<Arc<crate::mpv::compositor::Compositor>>>);
 
 /// The compositor tile id of the single/primary player (Milestone 37), so
 /// multi-view can give it a rect (tile 0) and restore it to fill on exit.
 /// 0 = none.
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 #[derive(Default)]
 pub(crate) struct PrimaryTile(pub std::sync::atomic::AtomicU64);
 
@@ -309,18 +309,19 @@ pub async fn open_in_external_player_impl(
     Ok(())
 }
 
-/// Get or lazily create the shared player. The video host window must be
+/// Get or lazily create the shared player. The video host surface must be
 /// created on the main thread; the mpv instance itself is thread-agnostic.
 async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
     if let Some(player) = app.state::<PlayerHandle>().0.lock().unwrap().clone() {
         return Ok(player);
     }
 
-    let wid = ensure_video_host(app).await?;
-
-    // macOS (Milestone 38): create our GL host window + NSOpenGLContext on the
-    // main thread and glue it behind the app window, then hand the context/view
-    // to the player so its render thread can draw into it.
+    // Create the platform host surface on the main thread, stored in `VideoHost`
+    // for the window-event re-fit. Windows: a WS_POPUP host window (HWND). macOS:
+    // a borderless NSWindow + NSOpenGLContext + view glued behind the app window,
+    // whose (context, view) drive the compositor below.
+    #[cfg(target_os = "windows")]
+    let host_hwnd = ensure_video_host(app).await?;
     #[cfg(target_os = "macos")]
     let gl_host = ensure_gl_host(app).await?;
 
@@ -333,15 +334,15 @@ async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
     let emitter = app.clone();
     let player = MpvPlayer::new(
         MpvConfig {
-            wid,
-            #[cfg(target_os = "macos")]
-            gl_host,
+            composited: cfg!(any(target_os = "windows", target_os = "macos")),
             hwdec,
             headless: false,
         },
         Box::new(move |state| {
-            // Self-healing glue: reassert the video window's position right
-            // below the app window a few times per second during playback.
+            // Windows self-healing glue: reassert the host window's position right
+            // below the app window a few times per second during playback. macOS
+            // tracks moves via the child-window attachment + the `on_window_event`
+            // re-fit, so it needs no per-frame glue here.
             #[cfg(target_os = "windows")]
             {
                 let host = emitter.state::<VideoHost>().0.load(Ordering::SeqCst);
@@ -364,12 +365,16 @@ async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
         return Ok(existing);
     }
 
-    // Windows (Milestone 37): register this player with the shared compositor as
-    // a full-window tile (the N=1 single-player case), and arrange for its render
-    // context to be freed before the handle is destroyed (ordered teardown).
-    #[cfg(target_os = "windows")]
-    if let Some(host) = wid {
-        let compositor = ensure_compositor(app, host, &player)?;
+    // Register this player with the shared compositor as a full-window tile (the
+    // N=1 single-player case), and arrange for its render context to be freed
+    // before the handle is destroyed (ordered teardown). Windows + macOS.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        #[cfg(target_os = "windows")]
+        let compositor = ensure_compositor(app, host_hwnd, &player)?;
+        #[cfg(target_os = "macos")]
+        let compositor = ensure_compositor(app, gl_host.0, gl_host.1, &player)?;
+
         let tile = compositor.add(player.raw_handle(), None)?;
         app.state::<PrimaryTile>().0.store(tile, Ordering::SeqCst);
         let comp = compositor.clone();
@@ -387,8 +392,8 @@ async fn ensure_player(app: &AppHandle) -> Result<Arc<MpvPlayer>, String> {
     Ok(player)
 }
 
-/// Get or lazily create the shared compositor on the host window. The first
-/// player's libmpv API is reused (its render-context functions are global).
+/// Windows: get or lazily create the shared compositor on the host window. The
+/// first player's libmpv API is reused (its render-context functions are global).
 #[cfg(target_os = "windows")]
 fn ensure_compositor(
     app: &AppHandle,
@@ -401,6 +406,30 @@ fn ensure_compositor(
         return Ok(c);
     }
     let comp = Arc::new(crate::mpv::compositor::Compositor::new(host_hwnd, player.api())?);
+    *guard = Some(comp.clone());
+    Ok(comp)
+}
+
+/// macOS: get or lazily create the shared compositor on the `(NSOpenGLContext,
+/// NSView)` host created on the main thread (`ensure_gl_host`). The first
+/// player's libmpv API is reused (its render-context functions are global).
+#[cfg(target_os = "macos")]
+fn ensure_compositor(
+    app: &AppHandle,
+    gl_context: isize,
+    gl_view: isize,
+    player: &Arc<MpvPlayer>,
+) -> Result<Arc<crate::mpv::compositor::Compositor>, String> {
+    let state = app.state::<CompositorState>();
+    let mut guard = state.0.lock().unwrap();
+    if let Some(c) = guard.clone() {
+        return Ok(c);
+    }
+    let comp = Arc::new(crate::mpv::compositor::Compositor::new(
+        gl_context,
+        gl_view,
+        player.api(),
+    )?);
     *guard = Some(comp.clone());
     Ok(comp)
 }
@@ -436,7 +465,7 @@ pub(crate) async fn spawn_compositor_tile(
 
     let player = MpvPlayer::new(
         MpvConfig {
-            wid: Some(host),
+            composited: true,
             hwdec,
             headless: false,
         },
@@ -465,11 +494,11 @@ pub(crate) fn set_primary_rect(app: &AppHandle, rect: Option<crate::mpv::composi
 }
 
 #[cfg(target_os = "windows")]
-async fn ensure_video_host(app: &AppHandle) -> Result<Option<isize>, String> {
+async fn ensure_video_host(app: &AppHandle) -> Result<isize, String> {
     let host_state = app.state::<VideoHost>();
     let existing = host_state.0.load(Ordering::SeqCst);
     if existing != 0 {
-        return Ok(Some(existing));
+        return Ok(existing);
     }
     let window = app
         .get_webview_window("main")
@@ -488,14 +517,7 @@ async fn ensure_video_host(app: &AppHandle) -> Result<Option<isize>, String> {
         .recv()
         .map_err(|_| "video host creation did not respond")??;
     host_state.0.store(host, Ordering::SeqCst);
-    Ok(Some(host))
-}
-
-#[cfg(not(target_os = "windows"))]
-async fn ensure_video_host(_app: &AppHandle) -> Result<Option<isize>, String> {
-    // macOS doesn't embed via `wid` (see `glue_video_window`); Linux embedding
-    // is not implemented yet. Either way, mpv gets no host window handle here.
-    Ok(None)
+    Ok(host)
 }
 
 /// Run `f` on the AppKit main thread and wait for its result. AppKit calls
@@ -514,12 +536,12 @@ async fn run_on_main<T: Send + 'static>(
         .map_err(|_| "the main thread did not respond".to_string())
 }
 
-/// macOS (Milestone 38): create our borderless GL host window + NSOpenGLContext
+/// macOS (Milestone 37): create our borderless GL host window + NSOpenGLContext
 /// on the main thread and glue it behind the app window, remembering the window
 /// in `VideoHost` so the window-event handler can keep it fitted. Returns the
-/// `(context, view)` pointers for the player's render thread.
+/// `(context, view)` pointers, which drive the shared `mpv::compositor`.
 #[cfg(target_os = "macos")]
-async fn ensure_gl_host(app: &AppHandle) -> Result<Option<(isize, isize)>, String> {
+async fn ensure_gl_host(app: &AppHandle) -> Result<(isize, isize), String> {
     let host_state = app.state::<VideoHost>();
     let window = app
         .get_webview_window("main")
@@ -531,7 +553,7 @@ async fn ensure_gl_host(app: &AppHandle) -> Result<Option<(isize, isize)>, Strin
     let (host_window, gl_context, gl_view) =
         run_on_main(app, move || crate::mpv::render_mac::create_gl_host(main)).await??;
     host_state.0.store(host_window, Ordering::SeqCst);
-    Ok(Some((gl_context, gl_view)))
+    Ok((gl_context, gl_view))
 }
 
 fn with_player<T>(

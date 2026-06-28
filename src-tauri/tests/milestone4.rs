@@ -59,9 +59,7 @@ fn h265_file() -> PathBuf {
 fn headless_player(hwdec: bool) -> std::sync::Arc<MpvPlayer> {
     MpvPlayer::new(
         MpvConfig {
-            wid: None,
-            #[cfg(target_os = "macos")]
-            gl_host: None,
+            composited: false,
             hwdec,
             headless: true,
         },
@@ -197,9 +195,7 @@ fn state_change_callback_fires() {
     let (tx, rx) = mpsc::channel();
     let player = MpvPlayer::new(
         MpvConfig {
-            wid: None,
-            #[cfg(target_os = "macos")]
-            gl_host: None,
+            composited: false,
             hwdec: false,
             headless: true,
         },

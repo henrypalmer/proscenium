@@ -5,9 +5,10 @@ pub mod player;
 /// (single playback = N=1). Windows and macOS share this module; the per-platform
 /// GL-surface plumbing lives in `render_win` / `render_mac` (`HostSurface`).
 //
-// macOS does not yet *call* into the compositor (that lands when `playback.rs`
-// wires it up); until then its items are dead there, so suppress the lints
-// macOS-only. Drop this `cfg_attr` once the macOS playback path uses it.
+// macOS uses the compositor for single playback (N=1); the per-tile layout
+// entry points (`Rect`, `set_rect`, `set_fill`) are still unused there until
+// macOS multi-view lands, so suppress dead-code lints macOS-only for now. Drop
+// this `cfg_attr` once macOS multi-view wires those up.
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub mod compositor;
@@ -588,12 +589,8 @@ pub mod render_mac {
     // render thread makes the context current and drives the surface. Unlike
     // Windows, NSOpenGL needs a per-frame `CGLLockContext` guard and a main-thread
     // `-update` whenever the drawable resizes — both are folded in here (the same
-    // dance the M38 per-player `render_thread_mac` performs).
-    //
-    // `#[allow(dead_code)]`: until the macOS playback path wires the compositor up
-    // (a later slice), this is referenced only from not-yet-called compositor code.
+    // dance the M38 per-player render thread used to perform).
 
-    #[allow(dead_code)]
     pub struct HostSurface {
         ctx: isize,
         view: isize,
@@ -601,7 +598,6 @@ pub mod render_mac {
         last_size: (i32, i32),
     }
 
-    #[allow(dead_code)]
     impl HostSurface {
         /// Make the (main-thread-created) context current on the render thread.
         pub unsafe fn create(ctx: isize, view: isize) -> Result<Self, String> {

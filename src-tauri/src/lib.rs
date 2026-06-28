@@ -46,11 +46,11 @@ pub fn run() {
             app.manage(commands::catalog::DetailCache::default());
             app.manage(commands::playback::PlayerHandle::default());
             app.manage(commands::playback::VideoHost::default());
-            // Windows render compositor (Milestone 37): one GL context + render
-            // thread compositing N mpv tiles into the host window.
-            #[cfg(target_os = "windows")]
+            // Render compositor (Milestone 37): one GL context + render thread
+            // compositing N mpv tiles into the host surface (Windows + macOS).
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             app.manage(commands::playback::CompositorState::default());
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             app.manage(commands::playback::PrimaryTile::default());
             // Multi-view tile registry (Milestone 37).
             app.manage(commands::multiview::MultiView::default());
