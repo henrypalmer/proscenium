@@ -244,7 +244,7 @@ Windows **and** macOS installers are produced from one GitHub Release by
 `windows-latest` + `macos-14` runners, each running `tauri-apps/tauri-action`, which
 runs the same `tauri build` and uploads every installer (and its `.sig` updater
 artifact) to the release that triggered it. It fires on **`release: published`** (so
-publishing the `release/1.0.0` GitHub Release builds and attaches the installers) and
+publishing the `release/1.0` GitHub Release builds and attaches the installers) and
 on **`workflow_dispatch`** (a test build whose bundles are kept as workflow artifacts
 rather than uploaded to a release).
 
@@ -290,7 +290,7 @@ binary to host or branch to maintain.
 
 ### Triggering a release
 
-Publish a GitHub Release (you've done this for `release/1.0.0`) → the workflow builds both
+Publish a GitHub Release (you've done this for `release/1.0`) → the workflow builds both
 platforms and attaches `Proscenium_<version>_x64_en-US.msi`, `…-setup.exe`,
 `Proscenium_<version>_aarch64.dmg`, and the updater `.sig` files to it. For future versions,
 bump the version (see the version locations in [DEVELOPMENT.md](DEVELOPMENT.md)/this repo),

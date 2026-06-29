@@ -1,7 +1,7 @@
 name: Release
 
 # Builds the Windows and macOS installers when a GitHub Release is published
-# (e.g. the release/1.0.0 release) and uploads them — plus the signed updater
+# (e.g. the release/1.0 release) and uploads them — plus the signed updater
 # artifacts — to that release. `workflow_dispatch` builds without uploading so
 # you can test the pipeline; the bundles are attached as workflow artifacts.
 #
