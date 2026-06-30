@@ -2616,14 +2616,14 @@ The macOS half of M37 was implemented by **porting the Windows compositor model 
 
 **Out of scope:** an **embedded torrent engine** (infoHash streaming) — deferred; Stremio **catalog** addons (Cinemeta is the catalog — possible later); Stremio **subtitles** addons (later).
 
-**Slice status:** Slice 1 ✅ (addon storage + Settings CRUD). Slice 2 pending (resolver + picker integration).
+**Status:** ✅ **Complete** — both slices. Add Stremio stream addons by URL (the token-bearing manifest URL lives in the keychain); a `StremioAddonResolver` folds each addon's `/stream` results into the M40 source picker alongside IPTV — direct/debrid URLs play via `mpv_load_url`, infoHash-only streams are flagged **"needs a debrid service"** (no torrent engine), and addon/network failures degrade to the other sources. Addon stream results are **Tier-3** (never persisted). Tests: `milestone41` (8). Browser-preview verified end to end.
 
 **Acceptance Criteria:**
 - [x] A user can **add a Stremio stream addon by URL** in Settings; a token-bearing URL is stored in the **keychain** and never logged; the manifest is validated and its types/resources shown. *(Slice 1: `add_stremio_addon` fetches + validates the manifest (`canonical/stremio.rs::{parse_manifest,validate}` — handles string- and object-form `resources` + id prefixes), stores the URL via `keychain::store_addon_secret` (account `addon:{id}`, never returned to the frontend or logged), and persists only non-secret metadata to the `stremio_addons` table. Settings → Addons adds/lists/removes. Tests: `milestone41` (5 — manifest parsing both forms, stream-resource validation, base-url derivation, storage CRUD). Browser-preview verified add/list/remove.)*
-- [ ] Clicking a canonical title shows **addon-sourced direct streams** in the picker **alongside IPTV sources**; selecting one plays it.
-- [ ] **infoHash-only** streams are handled gracefully (flagged/hidden with a "needs debrid" note), never crashing the picker; addon/network failures degrade to the other sources.
-- [ ] Addon stream results are **not persisted to disk** (Tier-3).
-- [ ] `cargo test --tests` and `npm run build` pass clean.
+- [x] Clicking a canonical title shows **addon-sourced direct streams** in the picker **alongside IPTV sources**; selecting one plays it. *(Slice 2: `resolve_sources` queries installed addons after the IPTV providers — `canonical/stremio.rs::fetch_streams` GETs `/stream/{type}/{imdb[:s:e]}.json` and parses `streams[]`; direct (`url`/`externalUrl`) candidates merge into the picker ranked by quality, and selecting one plays via `playerStore.playUrl` → `mpv_load_url`. Browser-preview verified an addon's 2160p/1080p sources beside IPTV, and playback on select.)*
+- [x] **infoHash-only** streams are handled gracefully (flagged/hidden with a "needs debrid" note), never crashing the picker; addon/network failures degrade to the other sources. *(infoHash-only streams become `needs_debrid` markers — the picker hides them from the playable list and shows "N torrent source(s) need a debrid service"; `fetch_streams` returns empty on any network/HTTP/parse error so the picker falls back to the other sources. Tests: `parse_streams_handles_direct_and_infohash`, `…caps_infohash_markers`, `…degrades_on_empty`.)*
+- [x] Addon stream results are **not persisted to disk** (Tier-3). *(`fetch_streams` returns candidates to the caller and writes nothing — there is no cache table for streams, unlike the Tier-2 `canonical_cache` for Cinemeta browse.)*
+- [x] `cargo test --tests` and `npm run build` pass clean. *(All backend binaries green incl. `milestone41` (8 — manifest parsing both forms, validation, base-url, storage CRUD, stream parsing direct/infoHash/caps/empty); `npm run build` — tsc + vite — clean.)*
 
 ### Milestone 42 — Multi-Source Polish: Availability, Dedup & Ranking
 

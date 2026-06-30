@@ -109,3 +109,63 @@ async fn stremio_addon_storage_crud_roundtrips() {
     pool.close().await;
     cleanup_db(&path);
 }
+
+// --- Slice 2: stream parsing (direct vs infoHash) ---
+
+#[test]
+fn parse_streams_handles_direct_and_infohash() {
+    let body = json!({
+        "streams": [
+            // Debrid-cached direct URL (AIOStreams/Torbox style).
+            { "name": "AIOStreams\n2160p [TB⚡]",
+              "title": "The.Matrix.1999.2160p.BluRay.x265\n💾 35 GB",
+              "url": "https://torbox.example/dl/abc.mkv",
+              "behaviorHints": { "filename": "The.Matrix.2160p.mkv" } },
+            // Bare torrent — infoHash only, no debrid (Torrentio style).
+            { "name": "Torrentio\n1080p",
+              "title": "The Matrix 1999 1080p BluRay x264",
+              "infoHash": "03dd34fea0ff15a451c1723062a901aa3a0ad458" }
+        ]
+    });
+    let c = stremio::parse_streams(&body, "AIOStreams", "movie");
+    assert_eq!(c.len(), 2);
+    // Direct first (higher quality confidence than the infoHash marker).
+    assert_eq!(c[0].url.as_deref(), Some("https://torbox.example/dl/abc.mkv"));
+    assert_eq!(c[0].quality.as_deref(), Some("2160p"));
+    assert_eq!(c[0].container.as_deref(), Some("mkv"));
+    assert!(!c[0].needs_debrid);
+    assert_eq!(c[0].content_type, "movie");
+    assert_eq!(c[0].source, "AIOStreams");
+    // infoHash-only → needs_debrid marker, not directly playable.
+    let debrid = c.iter().find(|x| x.needs_debrid).expect("infohash candidate");
+    assert!(debrid.url.is_none());
+    assert_eq!(debrid.quality.as_deref(), Some("1080p"));
+}
+
+#[test]
+fn parse_streams_caps_direct_and_degrades_on_empty() {
+    // 12 direct streams → capped at 8.
+    let streams: Vec<_> = (0..12)
+        .map(|i| {
+            json!({ "name": "Addon\n1080p", "title": format!("File {i} 1080p"),
+                    "url": format!("https://x/{i}.mp4") })
+        })
+        .collect();
+    let c = stremio::parse_streams(&json!({ "streams": streams }), "Addon", "movie");
+    assert_eq!(c.len(), 8, "direct streams capped");
+    assert!(c.iter().all(|x| !x.needs_debrid && x.url.is_some()));
+    // No `streams` key → empty, never panics (the failure-degrade path).
+    assert!(stremio::parse_streams(&json!({}), "Addon", "movie").is_empty());
+}
+
+#[test]
+fn parse_streams_caps_infohash_markers() {
+    let streams: Vec<_> = (0..20)
+        .map(|i| json!({ "name": "Torrentio\n720p", "title": format!("T {i}"),
+                         "infoHash": format!("hash{i}") }))
+        .collect();
+    let c = stremio::parse_streams(&json!({ "streams": streams }), "Torrentio", "episode");
+    assert_eq!(c.len(), 5, "infoHash markers capped");
+    assert!(c.iter().all(|x| x.needs_debrid && x.url.is_none()));
+    assert_eq!(c[0].content_type, "episode");
+}

@@ -3,10 +3,11 @@
 //! row when Cinemeta is unreachable (so cached browse keeps working offline,
 //! spec §19 M40 AC1).
 
-use crate::canonical::cinemeta;
-use crate::canonical::resolver::{self, CanonicalRef};
+use crate::canonical::resolver::{self, AddonSource, CanonicalRef};
+use crate::canonical::{cinemeta, stremio};
 use crate::commands::catalog::get_enabled_provider_ids;
 use crate::db::{self, Db};
+use crate::keychain;
 use crate::models::{CanonicalItem, CanonicalMeta, StreamCandidate};
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::SqlitePool;
@@ -156,7 +157,20 @@ pub async fn resolve_sources(
             providers.push(p);
         }
     }
-    Ok(resolver::resolve_sources(&state.0, &target, &providers).await)
+
+    // Stremio addons (M41): each installed addon's base URL comes from the
+    // keychain (the token-bearing URL is never logged).
+    let mut addons = Vec::new();
+    for a in db::stremio::list(&state.0).await.unwrap_or_default() {
+        if let Ok(url) = keychain::get_addon_secret(&a.id) {
+            addons.push(AddonSource {
+                name: a.name,
+                base_url: stremio::base_url(&url),
+            });
+        }
+    }
+
+    Ok(resolver::resolve_sources(&state.0, &target, &providers, &addons).await)
 }
 
 /// Persist a manual canonical↔provider match (Milestone 40 slice 4 override):

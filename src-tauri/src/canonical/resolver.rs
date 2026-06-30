@@ -376,13 +376,21 @@ impl StreamResolver for ProviderResolver {
     }
 }
 
-/// Resolve sources for a canonical title across the given providers (the
-/// registry), ranked best-confidence first. Stremio addon resolvers join this
-/// list in M41.
+/// One installed Stremio stream addon resolved to its (token-bearing) base URL.
+/// `base_url` is a secret — never logged.
+pub struct AddonSource {
+    pub name: String,
+    pub base_url: String,
+}
+
+/// Resolve sources for a canonical title across the given IPTV providers **and**
+/// Stremio addons (the registry), ranked best-confidence first. Addon failures
+/// degrade to the other sources (Milestone 41).
 pub async fn resolve_sources(
     pool: &SqlitePool,
     target: &CanonicalRef,
     providers: &[Provider],
+    addons: &[AddonSource],
 ) -> Vec<StreamCandidate> {
     let mut out = Vec::new();
     for provider in providers {
@@ -391,6 +399,35 @@ pub async fn resolve_sources(
         };
         out.extend(resolver.resolve(pool, target).await);
     }
+
+    // Stremio addons (M41): each resolves the canonical id to direct streams.
+    // Movies query by imdb id; series need a specific episode (`imdb:s:e`).
+    let (request_type, content_type) = match target.kind.as_str() {
+        "series" => ("series", "episode"),
+        _ => ("movie", "movie"),
+    };
+    let stremio_id = match (target.season, target.episode) {
+        (Some(s), Some(e)) if request_type == "series" => {
+            format!("{}:{}:{}", target.imdb_id, s, e)
+        }
+        _ => target.imdb_id.clone(),
+    };
+    let query_addons = request_type != "series" || (target.season.is_some() && target.episode.is_some());
+    if query_addons {
+        for addon in addons {
+            out.extend(
+                crate::canonical::stremio::fetch_streams(
+                    &addon.base_url,
+                    request_type,
+                    &stremio_id,
+                    content_type,
+                    &addon.name,
+                )
+                .await,
+            );
+        }
+    }
+
     out.sort_by(|a, b| {
         b.confidence
             .partial_cmp(&a.confidence)

@@ -307,6 +307,34 @@ function mockCanonicalMeta(kind: "movie" | "series", imdbId: string): CanonicalM
 
 /** Fake source resolution: candidates point at real mock movies (so the play
  * path resolves), with ~1 in 5 titles returning none to exercise "no sources". */
+/** Stremio addon stream candidates (M41) — direct URLs + one infoHash-only
+ *  marker per installed addon, so the picker shows addon sources beside IPTV. */
+function mockAddonCandidates(
+  contentType: "movie" | "episode",
+  seed: number,
+): StreamCandidate[] {
+  const out: StreamCandidate[] = [];
+  for (const addon of mockAddons) {
+    out.push(
+      {
+        source: addon.name, providerId: null, contentType, contentId: null,
+        url: `https://addon.example/${addon.id}/${seed}-2160.mkv`,
+        quality: "2160p", container: "mkv", confidence: 0.97, needsDebrid: false,
+      },
+      {
+        source: addon.name, providerId: null, contentType, contentId: null,
+        url: `https://addon.example/${addon.id}/${seed}-1080.mkv`,
+        quality: "1080p", container: "mkv", confidence: 0.95, needsDebrid: false,
+      },
+      {
+        source: addon.name, providerId: null, contentType, contentId: null,
+        url: null, quality: "720p", container: null, confidence: 0.05, needsDebrid: true,
+      },
+    );
+  }
+  return out;
+}
+
 function mockResolveSources(
   kind: "movie" | "series",
   imdbId: string,
@@ -314,46 +342,52 @@ function mockResolveSources(
   episode?: number,
 ): StreamCandidate[] {
   const seed = Number(imdbId.replace(/\D/g, "")) || 0;
+  const contentType: "movie" | "episode" = kind === "series" ? "episode" : "movie";
+  let iptv: StreamCandidate[] = [];
+
   if (kind === "series") {
-    if (season == null || episode == null) return [];
-    if ((seed + season * 10 + episode) % 5 === 0) return []; // some episodes: no source
-    const epQualities = ["1080p", "720p"];
-    return mockEnabledProviderIds.slice(0, 2).map((pid, i) => ({
-      source: mockProviders.find((p) => p.id === pid)?.name ?? pid,
-      providerId: pid,
-      contentType: "episode" as const,
-      contentId: `ep-${seed % 50}-${season}-${episode}`,
-      url: null,
-      quality: epQualities[i] ?? null,
-      container: "mkv",
-      confidence: 1 - i * 0.1,
-      needsDebrid: false,
-    }));
-  }
-  if (seed % 5 === 0) return [];
-  const movies = allMovies().filter((m) => mockEnabledProviderIds.includes(m.providerId));
-  if (movies.length === 0) return [];
-  const qualities = ["2160p", "1080p", "720p"];
-  const seen = new Set<string>();
-  const out: StreamCandidate[] = [];
-  [seed, seed * 7 + 1, seed * 13 + 2].forEach((n, i) => {
-    const m = movies[n % movies.length];
-    const key = `${m.providerId}:${m.id}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push({
-      source: mockProviders.find((p) => p.id === m.providerId)?.name ?? m.providerId,
-      providerId: m.providerId,
-      contentType: "movie",
-      contentId: m.id,
-      url: null,
-      quality: qualities[i] ?? null,
-      container: m.containerExt,
-      confidence: 1 - i * 0.1,
-      needsDebrid: false,
+    if (season != null && episode != null && (seed + season * 10 + episode) % 5 !== 0) {
+      const epQualities = ["1080p", "720p"];
+      iptv = mockEnabledProviderIds.slice(0, 2).map((pid, i) => ({
+        source: mockProviders.find((p) => p.id === pid)?.name ?? pid,
+        providerId: pid,
+        contentType: "episode" as const,
+        contentId: `ep-${seed % 50}-${season}-${episode}`,
+        url: null,
+        quality: epQualities[i] ?? null,
+        container: "mkv",
+        confidence: 1 - i * 0.1,
+        needsDebrid: false,
+      }));
+    }
+  } else if (seed % 5 !== 0) {
+    const movies = allMovies().filter((m) => mockEnabledProviderIds.includes(m.providerId));
+    const qualities = ["2160p", "1080p", "720p"];
+    const seen = new Set<string>();
+    [seed, seed * 7 + 1, seed * 13 + 2].forEach((n, i) => {
+      if (movies.length === 0) return;
+      const m = movies[n % movies.length];
+      const key = `${m.providerId}:${m.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      iptv.push({
+        source: mockProviders.find((p) => p.id === m.providerId)?.name ?? m.providerId,
+        providerId: m.providerId,
+        contentType: "movie",
+        contentId: m.id,
+        url: null,
+        quality: qualities[i] ?? null,
+        container: m.containerExt,
+        confidence: 1 - i * 0.1,
+        needsDebrid: false,
+      });
     });
-  });
-  return out;
+  }
+
+  // Addons query movies, or series only with a specific episode (mirrors backend).
+  const queryAddons = kind !== "series" || (season != null && episode != null);
+  const addons = queryAddons ? mockAddonCandidates(contentType, seed) : [];
+  return [...iptv, ...addons].sort((a, b) => b.confidence - a.confidence);
 }
 
 let movieCache: Movie[] | null = null;

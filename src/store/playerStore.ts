@@ -68,6 +68,11 @@ interface PlayerStoreState {
    * (spec §5.9 / Milestone 26), where the user has already made the choice.
    */
   playDirect: (args: OpenArgs, startAt: number) => Promise<void>;
+  /**
+   * Play an arbitrary direct stream URL (a Stremio addon source, M41). No resume
+   * prompt and no progress tracking — addon streams aren't provider content.
+   */
+  playUrl: (url: string, title: string, contentType: PlayableContentType) => Promise<void>;
   /** Proceed from a pending resume prompt. */
   resumePlayback: () => Promise<void>;
   startOver: () => Promise<void>;
@@ -112,7 +117,8 @@ async function persistProgress(
   position: number,
   duration: number | null,
 ): Promise<void> {
-  if (np.contentType === "live" || position <= 0) return;
+  // Addon URL playback carries no provider/content id — nothing to persist.
+  if (np.contentType === "live" || position <= 0 || !np.providerId) return;
   const contentType = np.contentType as ProgressContentType;
   try {
     await api.setWatchProgress(
@@ -173,6 +179,10 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => ({
 
   playDirect: async (args, startAt) => {
     await startPlayback(set, get, args, startAt);
+  },
+
+  playUrl: async (url, title, contentType) => {
+    await startUrlPlayback(set, get, url, title, contentType);
   },
 
   resumePlayback: async () => {
@@ -255,7 +265,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => ({
     // A newly-arrived stream error (spec §12, Milestone 22): upgrade the opaque
     // mpv message to a classified, user-facing reason (4xx/5xx/network/timeout)
     // and log a secret-redacted diagnostic line, in the background.
-    if (state.error && !previous.fatalError && previous.nowPlaying) {
+    if (state.error && !previous.fatalError && previous.nowPlaying?.providerId) {
       void refineStreamError(set, get, previous.nowPlaying, state.error);
     }
 
@@ -349,6 +359,51 @@ async function startPlayback(
         contentId: args.contentId,
         streamUrl: "",
       },
+      fatalError: String(e),
+      bufferingSince: null,
+      everPlayed: false,
+    });
+  }
+}
+
+/** Playback launch for an arbitrary direct URL (a Stremio addon source, M41).
+ * Skips `resolveStreamUrl` (the URL is already direct) and tracks no progress. */
+async function startUrlPlayback(
+  set: (partial: Partial<PlayerStoreState>) => void,
+  get: () => PlayerStoreState,
+  url: string,
+  title: string,
+  contentType: PlayableContentType,
+): Promise<void> {
+  if (!listenerAttached && inTauri) {
+    listenerAttached = true;
+    await listen<MpvState>("mpv:state_changed", (event) => {
+      get().applyMpvState(event.payload);
+    });
+  }
+  startMockPolling(get);
+  lastSaveAt = Date.now();
+  const nowPlaying: NowPlaying = {
+    title,
+    providerId: "",
+    contentType,
+    contentId: "",
+    streamUrl: url,
+  };
+  try {
+    set({
+      open: true,
+      nowPlaying,
+      mpv: null,
+      fatalError: null,
+      bufferingSince: Date.now(),
+      everPlayed: false,
+    });
+    await api.mpv.loadUrl(url);
+  } catch (e) {
+    set({
+      open: true,
+      nowPlaying: { ...nowPlaying, streamUrl: "" },
       fatalError: String(e),
       bufferingSince: null,
       everPlayed: false,

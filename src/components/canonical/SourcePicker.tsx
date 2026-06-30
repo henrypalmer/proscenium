@@ -39,22 +39,26 @@ export default function SourcePicker({ kind, imdbId, title, season, episode }: P
   };
 
   const play = async (c: StreamCandidate) => {
-    if (!c.providerId || !c.contentId) return; // direct-URL (addon) sources: M41
-    const args = {
-      providerId: c.providerId,
-      contentType: c.contentType,
-      contentId: c.contentId,
-      title,
-    };
-    // Resume from the title's saved position across *any* source (M40 slice 5);
-    // an un-matched title returns null and the player resumes per-item as usual.
-    const prog = await api
-      .getCanonicalProgress(kind, imdbId, season, episode)
-      .catch(() => null);
-    if (prog && !prog.completed && prog.positionSeconds >= 5) {
-      void usePlayerStore.getState().playDirect(args, prog.positionSeconds);
-    } else {
-      void usePlayerStore.getState().openContent(args);
+    if (c.providerId && c.contentId) {
+      const args = {
+        providerId: c.providerId,
+        contentType: c.contentType,
+        contentId: c.contentId,
+        title,
+      };
+      // Resume from the title's saved position across *any* source (M40 slice 5);
+      // an un-matched title returns null and the player resumes per-item as usual.
+      const prog = await api
+        .getCanonicalProgress(kind, imdbId, season, episode)
+        .catch(() => null);
+      if (prog && !prog.completed && prog.positionSeconds >= 5) {
+        void usePlayerStore.getState().playDirect(args, prog.positionSeconds);
+      } else {
+        void usePlayerStore.getState().openContent(args);
+      }
+    } else if (c.url) {
+      // Stremio addon direct stream (M41) — play the URL straight away.
+      void usePlayerStore.getState().playUrl(c.url, title, c.contentType);
     }
   };
 
@@ -89,13 +93,18 @@ export default function SourcePicker({ kind, imdbId, title, season, episode }: P
     );
   }
 
-  if (state.sources.length === 0) {
+  const playable = state.sources.filter((c) => !c.needsDebrid && (c.providerId || c.url));
+  const debridCount = state.sources.filter((c) => c.needsDebrid).length;
+
+  if (playable.length === 0) {
     return (
       <div
         data-testid="no-sources"
         className="max-w-md rounded-md border border-zinc-700 bg-zinc-900/60 px-4 py-3 text-sm text-zinc-400"
       >
-        No sources found across your enabled providers.{" "}
+        {debridCount > 0
+          ? "Sources were found but need a debrid service to play."
+          : "No sources found across your providers and addons."}{" "}
         <button onClick={() => void search()} className="underline hover:text-zinc-200">
           Try again
         </button>
@@ -108,9 +117,9 @@ export default function SourcePicker({ kind, imdbId, title, season, episode }: P
       <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
         Choose a source
       </p>
-      {state.sources.map((c, i) => (
+      {playable.map((c, i) => (
         <button
-          key={`${c.providerId ?? c.url}:${c.contentId}:${i}`}
+          key={`${c.providerId ?? c.url}:${c.contentId ?? i}:${i}`}
           onClick={() => void play(c)}
           data-testid="source-option"
           className="flex w-full items-center justify-between rounded-md border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-800"
@@ -124,6 +133,12 @@ export default function SourcePicker({ kind, imdbId, title, season, episode }: P
           </span>
         </button>
       ))}
+      {debridCount > 0 && (
+        <p data-testid="needs-debrid-note" className="pt-1 text-xs text-zinc-500">
+          + {debridCount} torrent source{debridCount === 1 ? " needs" : "s need"} a
+          debrid service to play.
+        </p>
+      )}
     </div>
   );
 }

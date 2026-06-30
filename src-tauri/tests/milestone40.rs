@@ -360,7 +360,7 @@ async fn resolve_sources_matches_by_name_year_across_providers() {
         season: None,
         episode: None,
     };
-    let sources = resolve_sources(&pool, &target, &[a.clone(), b.clone()]).await;
+    let sources = resolve_sources(&pool, &target, &[a.clone(), b.clone()], &[]).await;
 
     // One candidate per provider's matching item; the wrong-year decoy excluded.
     let ids: Vec<(Option<String>, Option<String>)> = sources
@@ -468,7 +468,7 @@ async fn resolve_series_maps_canonical_episode_to_provider_episode() {
     .await;
 
     // Canonical S1:E2 → the provider's S1E2 episode id.
-    let s1e2 = resolve_sources(&pool, &series_target(1, 2), &[p.clone()]).await;
+    let s1e2 = resolve_sources(&pool, &series_target(1, 2), &[p.clone()], &[]).await;
     assert_eq!(s1e2.len(), 1);
     assert_eq!(s1e2[0].content_type, "episode");
     assert_eq!(s1e2[0].content_id.as_deref(), Some("e12"));
@@ -478,11 +478,11 @@ async fn resolve_series_maps_canonical_episode_to_provider_episode() {
     assert_eq!(m.method, "name_year");
 
     // A different canonical episode maps to a different provider episode.
-    let s2e1 = resolve_sources(&pool, &series_target(2, 1), &[p.clone()]).await;
+    let s2e1 = resolve_sources(&pool, &series_target(2, 1), &[p.clone()], &[]).await;
     assert_eq!(s2e1[0].content_id.as_deref(), Some("e21"));
 
     // An episode the provider doesn't carry yields no source.
-    let missing = resolve_sources(&pool, &series_target(9, 9), &[p.clone()]).await;
+    let missing = resolve_sources(&pool, &series_target(9, 9), &[p.clone()], &[]).await;
     assert!(missing.is_empty());
     pool.close().await;
     cleanup_db(&path);

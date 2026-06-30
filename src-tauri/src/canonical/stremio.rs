@@ -102,3 +102,111 @@ async fn get_json(url: &str) -> Result<Value, String> {
 pub async fn fetch_manifest(manifest_url: &str) -> Result<AddonManifest, String> {
     Ok(parse_manifest(&get_json(manifest_url).await?))
 }
+
+// --- stream resolution (slice 2) ---
+
+use crate::models::StreamCandidate;
+
+/// Direct (playable) streams shown per addon, and infoHash-only "needs debrid"
+/// markers surfaced. Addons order best-first, so the head is the best.
+const CAP_DIRECT: usize = 8;
+const CAP_DEBRID: usize = 5;
+
+fn non_empty_str(v: &Value) -> Option<String> {
+    v.as_str().filter(|s| !s.is_empty()).map(String::from)
+}
+
+/// Pull a container extension out of a filename/title label.
+fn parse_container(label: &str) -> Option<String> {
+    let lower = label.to_ascii_lowercase();
+    ["mkv", "mp4", "avi", "ts", "webm", "m4v", "mov"]
+        .into_iter()
+        .find(|ext| lower.contains(&format!(".{ext}")))
+        .map(String::from)
+}
+
+/// Direct addon streams rank just under tmdb-confirmed IPTV (1.0); ordered by
+/// resolution. infoHash-only sinks to the bottom (M42 does proper ranking).
+fn quality_confidence(quality: &Option<String>) -> f64 {
+    match quality.as_deref() {
+        Some("2160p") => 0.97,
+        Some("1080p") => 0.95,
+        Some("720p") => 0.93,
+        Some("480p") => 0.91,
+        _ => 0.90,
+    }
+}
+
+/// Parse a Stremio `/stream` body into candidates (pure; unit-tested). `url`
+/// (or `externalUrl`) → a directly playable source; `infoHash`-only (no engine)
+/// → a `needs_debrid` marker. `content_type` is the player kind ("movie" |
+/// "episode"); `source` labels the addon.
+pub fn parse_streams(body: &Value, source: &str, content_type: &str) -> Vec<StreamCandidate> {
+    let Some(streams) = body["streams"].as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let (mut direct, mut debrid) = (0usize, 0usize);
+    for s in streams {
+        let label = format!(
+            "{} {}",
+            non_empty_str(&s["name"]).unwrap_or_default(),
+            non_empty_str(&s["title"]).unwrap_or_default()
+        );
+        let quality = crate::canonical::resolver::parse_quality(&label);
+        let container = non_empty_str(&s["behaviorHints"]["filename"])
+            .as_deref()
+            .and_then(parse_container)
+            .or_else(|| parse_container(&label));
+        let url = non_empty_str(&s["url"]).or_else(|| non_empty_str(&s["externalUrl"]));
+
+        if let Some(url) = url {
+            if direct < CAP_DIRECT {
+                direct += 1;
+                out.push(StreamCandidate {
+                    source: source.to_string(),
+                    provider_id: None,
+                    content_type: content_type.to_string(),
+                    content_id: None,
+                    url: Some(url),
+                    quality: quality.clone(),
+                    container,
+                    confidence: quality_confidence(&quality),
+                    needs_debrid: false,
+                });
+            }
+        } else if non_empty_str(&s["infoHash"]).is_some() && debrid < CAP_DEBRID {
+            debrid += 1;
+            out.push(StreamCandidate {
+                source: source.to_string(),
+                provider_id: None,
+                content_type: content_type.to_string(),
+                content_id: None,
+                url: None,
+                quality,
+                container,
+                confidence: 0.05,
+                needs_debrid: true,
+            });
+        }
+    }
+    out
+}
+
+/// Stream candidates from one addon for a canonical target (Milestone 41).
+/// **Tier-3**: results are returned to the caller and never persisted to disk.
+/// On any failure (network/HTTP/parse) returns empty so the picker degrades to
+/// the other sources. `base_url` carries the token in its path — never logged.
+pub async fn fetch_streams(
+    base_url: &str,
+    request_type: &str,
+    stremio_id: &str,
+    content_type: &str,
+    source: &str,
+) -> Vec<StreamCandidate> {
+    let url = format!("{base_url}/stream/{request_type}/{stremio_id}.json");
+    match get_json(&url).await {
+        Ok(body) => parse_streams(&body, source, content_type),
+        Err(_) => Vec::new(),
+    }
+}
