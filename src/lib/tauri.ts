@@ -118,27 +118,38 @@ export function setActiveProvider(providerId: string): Promise<void> {
   return invoke("set_active_provider", { providerId });
 }
 
+/** The enabled providers whose catalogs are merged (Milestone 39). */
+export function getEnabledProviders(): Promise<Provider[]> {
+  return invoke("get_enabled_providers");
+}
+
+/** Replace the enabled-provider set (Milestone 39); stale providers refresh in
+ * the background. */
+export function setEnabledProviders(providerIds: string[]): Promise<void> {
+  return invoke("set_enabled_providers", { providerIds });
+}
+
 export function refreshCatalog(providerId: string): Promise<void> {
   return invoke("refresh_catalog", { providerId });
 }
 
-export function getCatalogSummary(providerId: string): Promise<CatalogSummary> {
-  return invoke("get_catalog_summary", { providerId });
+export function getCatalogSummary(providerIds: string[]): Promise<CatalogSummary> {
+  return invoke("get_catalog_summary", { providerIds });
 }
 
-export function getLiveCategories(providerId: string): Promise<Category[]> {
-  return invoke("get_live_categories", { providerId });
+export function getLiveCategories(providerIds: string[]): Promise<Category[]> {
+  return invoke("get_live_categories", { providerIds });
 }
 
 export function getLiveChannels(
-  providerId: string,
+  providerIds: string[],
   categoryId: string | undefined,
   query: string | undefined,
   page: number,
   pageSize: number,
 ): Promise<PaginatedResult<LiveChannel>> {
   return invoke("get_live_channels", {
-    providerId,
+    providerIds,
     categoryId,
     query,
     page,
@@ -146,8 +157,8 @@ export function getLiveChannels(
   });
 }
 
-export function getVodCategories(providerId: string): Promise<Category[]> {
-  return invoke("get_vod_categories", { providerId });
+export function getVodCategories(providerIds: string[]): Promise<Category[]> {
+  return invoke("get_vod_categories", { providerIds });
 }
 
 // --- Recently-watched channels & custom category order (spec §13, M29) ---
@@ -160,10 +171,10 @@ export function recordRecentChannel(
 }
 
 export function getRecentChannels(
-  providerId: string,
+  providerIds: string[],
   limit?: number,
 ): Promise<LiveChannel[]> {
-  return invoke("get_recent_channels", { providerId, limit });
+  return invoke("get_recent_channels", { providerIds, limit });
 }
 
 /** `section` is "live" | "movie" | "series". */
@@ -183,25 +194,25 @@ export function setCategoryOrder(
 }
 
 export function getMovies(
-  providerId: string,
+  providerIds: string[],
   categoryId: string | undefined,
   page: number,
   pageSize: number,
 ): Promise<PaginatedResult<Movie>> {
-  return invoke("get_movies", { providerId, categoryId, page, pageSize });
+  return invoke("get_movies", { providerIds, categoryId, page, pageSize });
 }
 
-export function getSeriesCategories(providerId: string): Promise<Category[]> {
-  return invoke("get_series_categories", { providerId });
+export function getSeriesCategories(providerIds: string[]): Promise<Category[]> {
+  return invoke("get_series_categories", { providerIds });
 }
 
 export function getSeries(
-  providerId: string,
+  providerIds: string[],
   categoryId: string | undefined,
   page: number,
   pageSize: number,
 ): Promise<PaginatedResult<Series>> {
-  return invoke("get_series", { providerId, categoryId, page, pageSize });
+  return invoke("get_series", { providerIds, categoryId, page, pageSize });
 }
 
 export function getEpisodes(
@@ -237,13 +248,13 @@ export function getRelated(
 }
 
 export function search(
-  providerId: string,
+  providerIds: string[],
   query: string,
   contentType?: SearchContentType,
   categoryId?: string,
   limit?: number,
 ): Promise<SearchResults> {
-  return invoke("search", { providerId, query, contentType, categoryId, limit });
+  return invoke("search", { providerIds, query, contentType, categoryId, limit });
 }
 
 export function resolveStreamUrl(
@@ -321,11 +332,13 @@ export function markWatched(
   });
 }
 
+/** Watch progress for a section across the provider set; keys are
+ * `"<providerId>:<contentId>"` (Milestone 39). */
 export function listWatchProgress(
-  providerId: string,
+  providerIds: string[],
   contentType: ProgressContentType,
 ): Promise<Record<string, WatchProgress>> {
-  return invoke("list_watch_progress", { providerId, contentType });
+  return invoke("list_watch_progress", { providerIds, contentType });
 }
 
 export function clearWatchProgress(
@@ -338,16 +351,16 @@ export function clearWatchProgress(
 
 /** In-progress movies/episodes for the Home "Keep Watching" row (spec §5.10). */
 export function getContinueWatching(
-  providerId: string,
+  providerIds: string[],
   limit?: number,
 ): Promise<ContinueWatchingItem[]> {
-  return invoke("get_continue_watching", { providerId, limit });
+  return invoke("get_continue_watching", { providerIds, limit });
 }
 
 // --- Custom lists / playlists (spec §5.11 / §16) ---
 
-export function createList(providerId: string, name: string): Promise<UserList> {
-  return invoke("create_list", { providerId, name });
+export function createList(name: string): Promise<UserList> {
+  return invoke("create_list", { name });
 }
 
 export function renameList(listId: string, name: string): Promise<void> {
@@ -358,31 +371,30 @@ export function deleteList(listId: string): Promise<void> {
   return invoke("delete_list", { listId });
 }
 
-export function reorderLists(
-  providerId: string,
-  orderedListIds: string[],
-): Promise<void> {
-  return invoke("reorder_lists", { providerId, orderedListIds });
+export function reorderLists(orderedListIds: string[]): Promise<void> {
+  return invoke("reorder_lists", { orderedListIds });
 }
 
-export function getLists(providerId: string): Promise<ListSummary[]> {
-  return invoke("get_lists", { providerId });
+export function getLists(): Promise<ListSummary[]> {
+  return invoke("get_lists");
 }
 
 export function addToList(
   listId: string,
+  providerId: string,
   contentType: ListContentType,
   contentId: string,
 ): Promise<void> {
-  return invoke("add_to_list", { listId, contentType, contentId });
+  return invoke("add_to_list", { listId, providerId, contentType, contentId });
 }
 
 export function removeFromList(
   listId: string,
+  providerId: string,
   contentType: ListContentType,
   contentId: string,
 ): Promise<void> {
-  return invoke("remove_from_list", { listId, contentType, contentId });
+  return invoke("remove_from_list", { listId, providerId, contentType, contentId });
 }
 
 export function reorderListItems(

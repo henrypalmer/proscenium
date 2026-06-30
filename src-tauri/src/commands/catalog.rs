@@ -16,6 +16,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 pub const ACTIVE_PROVIDER_KEY: &str = "active_provider_id";
+/// Milestone 39: the JSON array of enabled provider ids whose catalogs are
+/// merged across every section. `active_provider_id` is kept as the "primary"
+/// (first enabled) for the M37 multi-view default and the §12 status banner.
+pub const ENABLED_PROVIDERS_KEY: &str = "enabled_provider_ids";
 pub const CACHE_TTL_KEY: &str = "cache_ttl_hours";
 pub const DEFAULT_CACHE_TTL_HOURS: i64 = 6;
 
@@ -80,6 +84,56 @@ pub async fn set_active_provider_impl(
         .await
         .map_err(|e| format!("Failed to save settings: {e}"))?;
     Ok(provider)
+}
+
+/// The enabled provider ids (Milestone 39), filtered to providers that still
+/// exist. When the key has never been written (pre-M39 install) it falls back to
+/// the legacy single active provider; once written it is respected literally
+/// (including an empty set — the user disabling every provider).
+pub async fn get_enabled_provider_ids(pool: &SqlitePool) -> Result<Vec<String>, String> {
+    let all = db::providers::list(pool)
+        .await
+        .map_err(|e| format!("Failed to load providers: {e}"))?;
+    let existing: HashSet<String> = all.into_iter().map(|p| p.id).collect();
+
+    if let Some(json) = db::settings::get(pool, ENABLED_PROVIDERS_KEY)
+        .await
+        .map_err(|e| format!("Failed to read settings: {e}"))?
+    {
+        let ids: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+        return Ok(ids.into_iter().filter(|id| existing.contains(id)).collect());
+    }
+    // Pre-M39 fallback: the legacy single active provider, if it still exists.
+    let active = db::settings::get(pool, ACTIVE_PROVIDER_KEY)
+        .await
+        .ok()
+        .flatten()
+        .filter(|id| existing.contains(id));
+    Ok(active.into_iter().collect())
+}
+
+/// Persist the enabled provider set and keep `active_provider_id` pointing at the
+/// first enabled provider (the M37/banner "primary").
+pub async fn set_enabled_provider_ids(
+    pool: &SqlitePool,
+    provider_ids: &[String],
+) -> Result<(), String> {
+    let json = serde_json::to_string(provider_ids)
+        .map_err(|e| format!("Failed to encode the provider set: {e}"))?;
+    db::settings::set(pool, ENABLED_PROVIDERS_KEY, &json)
+        .await
+        .map_err(|e| format!("Failed to save settings: {e}"))?;
+    match provider_ids.first() {
+        Some(first) => {
+            db::settings::set(pool, ACTIVE_PROVIDER_KEY, first)
+                .await
+                .map_err(|e| format!("Failed to save settings: {e}"))?;
+        }
+        None => {
+            let _ = db::settings::delete(pool, ACTIVE_PROVIDER_KEY).await;
+        }
+    }
+    Ok(())
 }
 
 /// Fetch the provider's full catalog and atomically replace the cached one.
@@ -189,12 +243,19 @@ pub async fn startup_stale_check(app: AppHandle) {
     let pool = app.state::<Db>().0.clone();
     // Give the WebView a moment to mount its event listeners.
     tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
-    let Ok(Some(provider)) = get_active_provider_impl(&pool).await else {
+    let ttl = cache_ttl_hours(&pool).await;
+    let now = now_unix();
+    let Ok(ids) = get_enabled_provider_ids(&pool).await else {
         return;
     };
-    let ttl = cache_ttl_hours(&pool).await;
-    if is_cache_stale(provider.last_refreshed, ttl, now_unix()) {
-        let _ = run_refresh(app, provider.id).await;
+    // Refresh each enabled provider whose cache is stale, sequentially so a
+    // multi-provider setup doesn't fire every refresh at once (Milestone 39).
+    for id in ids {
+        if let Ok(Some(provider)) = db::providers::get(&pool, &id).await {
+            if is_cache_stale(provider.last_refreshed, ttl, now) {
+                let _ = run_refresh(app.clone(), id).await;
+            }
+        }
     }
 }
 
@@ -376,6 +437,47 @@ pub async fn set_active_provider(app: AppHandle, provider_id: String) -> Result<
     Ok(())
 }
 
+/// The enabled providers whose catalogs are merged (Milestone 39), resolved to
+/// full `Provider` objects in enabled order.
+#[tauri::command]
+pub async fn get_enabled_providers(state: State<'_, Db>) -> Result<Vec<Provider>, String> {
+    let ids = get_enabled_provider_ids(&state.0).await?;
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(p) = db::providers::get(&state.0, &id)
+            .await
+            .map_err(|e| format!("Failed to load provider: {e}"))?
+        {
+            out.push(p);
+        }
+    }
+    Ok(out)
+}
+
+/// Replace the enabled-provider set (Milestone 39) and background-refresh any
+/// newly-enabled provider whose cache is stale (never blocking the UI).
+#[tauri::command]
+pub async fn set_enabled_providers(app: AppHandle, provider_ids: Vec<String>) -> Result<(), String> {
+    let pool = app.state::<Db>().0.clone();
+    let before = get_enabled_provider_ids(&pool).await?;
+    set_enabled_provider_ids(&pool, &provider_ids).await?;
+
+    let before_set: HashSet<&str> = before.iter().map(|s| s.as_str()).collect();
+    let ttl = cache_ttl_hours(&pool).await;
+    let now = now_unix();
+    for id in &provider_ids {
+        if before_set.contains(id.as_str()) {
+            continue;
+        }
+        if let Ok(Some(p)) = db::providers::get(&pool, id).await {
+            if is_cache_stale(p.last_refreshed, ttl, now) {
+                tauri::async_runtime::spawn(run_refresh(app.clone(), id.clone()));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn refresh_catalog(app: AppHandle, provider_id: String) -> Result<(), String> {
     run_refresh(app, provider_id).await
@@ -384,9 +486,9 @@ pub async fn refresh_catalog(app: AppHandle, provider_id: String) -> Result<(), 
 #[tauri::command]
 pub async fn get_live_categories(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
 ) -> Result<Vec<Category>, String> {
-    db::catalog::live_categories(&state.0, &provider_id)
+    db::catalog::live_categories(&state.0, &provider_ids)
         .await
         .map_err(|e| format!("Failed to read live categories: {e}"))
 }
@@ -394,15 +496,16 @@ pub async fn get_live_categories(
 #[tauri::command]
 pub async fn get_live_channels(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
     category_id: Option<String>,
     query: Option<String>,
     page: i64,
     page_size: i64,
 ) -> Result<PaginatedResult<LiveChannel>, String> {
+    // `category_id` is the merged-category key (a category name, Milestone 39).
     db::catalog::live_channels_page(
         &state.0,
-        &provider_id,
+        &provider_ids,
         category_id.as_deref(),
         query.as_deref(),
         page,
@@ -415,9 +518,9 @@ pub async fn get_live_channels(
 #[tauri::command]
 pub async fn get_vod_categories(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
 ) -> Result<Vec<Category>, String> {
-    db::catalog::vod_categories(&state.0, &provider_id)
+    db::catalog::vod_categories(&state.0, &provider_ids)
         .await
         .map_err(|e| format!("Failed to read movie genres: {e}"))
 }
@@ -425,12 +528,12 @@ pub async fn get_vod_categories(
 #[tauri::command]
 pub async fn get_movies(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
     category_id: Option<String>,
     page: i64,
     page_size: i64,
 ) -> Result<PaginatedResult<MovieItem>, String> {
-    db::catalog::movies_page(&state.0, &provider_id, category_id.as_deref(), page, page_size)
+    db::catalog::movies_page(&state.0, &provider_ids, category_id.as_deref(), page, page_size)
         .await
         .map_err(|e| format!("Failed to read movies: {e}"))
 }
@@ -438,9 +541,9 @@ pub async fn get_movies(
 #[tauri::command]
 pub async fn get_series_categories(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
 ) -> Result<Vec<Category>, String> {
-    db::catalog::series_categories(&state.0, &provider_id)
+    db::catalog::series_categories(&state.0, &provider_ids)
         .await
         .map_err(|e| format!("Failed to read series genres: {e}"))
 }
@@ -448,12 +551,12 @@ pub async fn get_series_categories(
 #[tauri::command]
 pub async fn get_series(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
     category_id: Option<String>,
     page: i64,
     page_size: i64,
 ) -> Result<PaginatedResult<SeriesItem>, String> {
-    db::catalog::series_page(&state.0, &provider_id, category_id.as_deref(), page, page_size)
+    db::catalog::series_page(&state.0, &provider_ids, category_id.as_deref(), page, page_size)
         .await
         .map_err(|e| format!("Failed to read series: {e}"))
 }
@@ -529,9 +632,9 @@ pub async fn get_related(
 #[tauri::command]
 pub async fn get_catalog_summary(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
 ) -> Result<CatalogSummary, String> {
-    db::catalog::summary(&state.0, &provider_id)
+    db::catalog::summary(&state.0, &provider_ids)
         .await
         .map_err(|e| format!("Failed to read the catalog: {e}"))
 }
@@ -552,10 +655,10 @@ pub async fn record_recent_channel(
 #[tauri::command]
 pub async fn get_recent_channels(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
     limit: Option<i64>,
 ) -> Result<Vec<LiveChannel>, String> {
-    db::catalog::recent_channels(&state.0, &provider_id, limit.unwrap_or(15))
+    db::catalog::recent_channels(&state.0, &provider_ids, limit.unwrap_or(15))
         .await
         .map_err(|e| format!("Failed to read recent channels: {e}"))
 }

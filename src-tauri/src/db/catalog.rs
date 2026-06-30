@@ -1,5 +1,6 @@
 //! Catalog persistence: atomic full-catalog replacement and FTS5 sync.
 
+use crate::db::ProviderScope;
 use crate::models::{
     CatalogData, CatalogSummary, Category, EpisodeItem, LiveChannel, MovieItem, PaginatedResult,
     SearchContentType, SearchResults, SeriesItem,
@@ -12,6 +13,13 @@ pub const MAX_PAGE_SIZE: i64 = 500;
 /// Rows per INSERT statement. SQLite's bind limit is 32k variables; the
 /// widest table (movies) has 14 columns, so 400 rows stays well under it.
 const CHUNK: usize = 400;
+
+/// `"?, ?, …"` for an `IN (...)` clause of `n` bound values (Milestone 39
+/// multi-provider merged reads). Callers bind each provider id in order and
+/// short-circuit when the provider set is empty.
+fn in_placeholders(n: usize) -> String {
+    vec!["?"; n].join(", ")
+}
 
 /// Replace the provider's entire cached catalog in one transaction and stamp
 /// `last_refreshed`. On any error the transaction rolls back, leaving the
@@ -204,30 +212,55 @@ async fn insert_categories(
     Ok(())
 }
 
-/// Live categories in provider-defined order. Categories without any
-/// channel are hidden (spec §12: empty categories are not shown).
-pub async fn live_categories(
+/// Distinct category names across `provider_ids` that have at least one content
+/// row (spec §12 hides empty categories). Merged by name (Milestone 39): the
+/// same genre from different providers collapses into one filterable entry whose
+/// `id` is the category **name** — content rows carry `category_name`, so the
+/// merged content queries filter on name. Empty `provider_ids` → no categories.
+async fn merged_categories(
     pool: &SqlitePool,
-    provider_id: &str,
+    category_table: &str,
+    content_table: &str,
+    provider_ids: &[String],
 ) -> Result<Vec<Category>, sqlx::Error> {
-    let rows = sqlx::query(
-        "SELECT c.id, c.name, c.sort_order FROM live_categories c
-         WHERE c.provider_id = ?
-           AND EXISTS (SELECT 1 FROM live_channels ch
-                       WHERE ch.provider_id = c.provider_id AND ch.category_id = c.id)
-         ORDER BY c.sort_order, c.name COLLATE NOCASE",
-    )
-    .bind(provider_id)
-    .fetch_all(pool)
-    .await?;
+    if provider_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sql = format!(
+        "SELECT c.name AS name, MIN(c.sort_order) AS sort_order
+         FROM {category_table} c
+         WHERE c.provider_id IN ({ph})
+           AND EXISTS (SELECT 1 FROM {content_table} x
+                       WHERE x.provider_id = c.provider_id AND x.category_id = c.id)
+         GROUP BY c.name
+         ORDER BY sort_order, name COLLATE NOCASE",
+        ph = in_placeholders(provider_ids.len())
+    );
+    let mut q = sqlx::query(&sql);
+    for id in provider_ids {
+        q = q.bind(id.as_str());
+    }
+    let rows = q.fetch_all(pool).await?;
     Ok(rows
         .iter()
-        .map(|r| Category {
-            id: r.get("id"),
-            name: r.get("name"),
-            sort_order: r.get("sort_order"),
+        .map(|r| {
+            let name: String = r.get("name");
+            Category {
+                id: name.clone(),
+                name,
+                sort_order: r.get("sort_order"),
+            }
         })
         .collect())
+}
+
+/// Live categories merged across `provider_ids` (Milestone 39). Categories
+/// without any channel are hidden (spec §12).
+pub async fn live_categories(
+    pool: &SqlitePool,
+    provider_ids: impl ProviderScope,
+) -> Result<Vec<Category>, sqlx::Error> {
+    merged_categories(pool, "live_categories", "live_channels", &provider_ids.to_ids()).await
 }
 
 /// Record a live channel as just-watched (spec §13, Milestone 29): upsert the
@@ -255,22 +288,29 @@ pub async fn record_recent_channel(
 /// the catalog (channels dropped on refresh are skipped) and capped at `limit`.
 pub async fn recent_channels(
     pool: &SqlitePool,
-    provider_id: &str,
+    provider_ids: impl ProviderScope,
     limit: i64,
 ) -> Result<Vec<LiveChannel>, sqlx::Error> {
+    let provider_ids = provider_ids.to_ids();
+    let provider_ids: &[String] = &provider_ids;
     let limit = limit.clamp(1, MAX_PAGE_SIZE);
-    let rows = sqlx::query(
+    if provider_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sql = format!(
         "SELECT ch.* FROM recent_channels r
          JOIN live_channels ch
            ON ch.provider_id = r.provider_id AND ch.id = r.channel_id
-         WHERE r.provider_id = ?
+         WHERE r.provider_id IN ({})
          ORDER BY r.watched_at DESC
          LIMIT ?",
-    )
-    .bind(provider_id)
-    .bind(limit)
-    .fetch_all(pool)
-    .await?;
+        in_placeholders(provider_ids.len())
+    );
+    let mut q = sqlx::query(&sql);
+    for id in provider_ids {
+        q = q.bind(id.as_str());
+    }
+    let rows = q.bind(limit).fetch_all(pool).await?;
     Ok(rows.iter().map(row_to_live_channel).collect())
 }
 
@@ -324,6 +364,7 @@ pub async fn set_category_order(
 pub(crate) fn row_to_live_channel(row: &SqliteRow) -> LiveChannel {
     LiveChannel {
         id: row.get("id"),
+        provider_id: row.get("provider_id"),
         name: row.get("name"),
         category_id: row.get("category_id"),
         category_name: row.get("category_name"),
@@ -353,14 +394,19 @@ fn escape_like(input: &str) -> String {
 
 pub async fn live_channels_page(
     pool: &SqlitePool,
-    provider_id: &str,
-    category_id: Option<&str>,
+    provider_ids: impl ProviderScope,
+    category_name: Option<&str>,
     query: Option<&str>,
     page: i64,
     page_size: i64,
 ) -> Result<PaginatedResult<LiveChannel>, sqlx::Error> {
+    let provider_ids = provider_ids.to_ids();
+    let provider_ids: &[String] = &provider_ids;
     let page = page.max(1);
     let page_size = page_size.clamp(1, MAX_PAGE_SIZE);
+    if provider_ids.is_empty() {
+        return Ok(PaginatedResult { items: Vec::new(), total: 0, page, page_size });
+    }
 
     // In-section channel filter (spec §5.3): a case-insensitive name
     // substring match, applied across the whole category so the result is not
@@ -371,9 +417,11 @@ pub async fn live_channels_page(
         .filter(|q| !q.is_empty())
         .map(|q| format!("%{}%", escape_like(q)));
 
-    let mut where_sql = String::from("provider_id = ?");
-    if category_id.is_some() {
-        where_sql.push_str(" AND category_id = ?");
+    // Merged by name across providers (Milestone 39): the category key is the
+    // category name (content rows carry `category_name`).
+    let mut where_sql = format!("provider_id IN ({})", in_placeholders(provider_ids.len()));
+    if category_name.is_some() {
+        where_sql.push_str(" AND category_name = ?");
     }
     if name_filter.is_some() {
         where_sql.push_str(r" AND name LIKE ? ESCAPE '\'");
@@ -382,12 +430,16 @@ pub async fn live_channels_page(
     let count_sql = format!("SELECT COUNT(*) FROM live_channels WHERE {where_sql}");
     let items_sql = format!(
         "SELECT * FROM live_channels WHERE {where_sql}
-         ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?"
+         ORDER BY name COLLATE NOCASE, provider_id, id LIMIT ? OFFSET ?"
     );
 
-    let mut count_query = sqlx::query(&count_sql).bind(provider_id);
-    let mut items_query = sqlx::query(&items_sql).bind(provider_id);
-    if let Some(cat) = category_id {
+    let mut count_query = sqlx::query(&count_sql);
+    let mut items_query = sqlx::query(&items_sql);
+    for id in provider_ids {
+        count_query = count_query.bind(id.as_str());
+        items_query = items_query.bind(id.as_str());
+    }
+    if let Some(cat) = category_name {
         count_query = count_query.bind(cat);
         items_query = items_query.bind(cat);
     }
@@ -414,6 +466,7 @@ pub async fn live_channels_page(
 pub(crate) fn row_to_movie(row: &SqliteRow) -> MovieItem {
     MovieItem {
         id: row.get("id"),
+        provider_id: row.get("provider_id"),
         name: row.get("name"),
         category_id: row.get("category_id"),
         category_name: row.get("category_name"),
@@ -429,6 +482,7 @@ pub(crate) fn row_to_movie(row: &SqliteRow) -> MovieItem {
 pub(crate) fn row_to_series(row: &SqliteRow) -> SeriesItem {
     SeriesItem {
         id: row.get("id"),
+        provider_id: row.get("provider_id"),
         name: row.get("name"),
         category_id: row.get("category_id"),
         category_name: row.get("category_name"),
@@ -440,6 +494,7 @@ pub(crate) fn row_to_series(row: &SqliteRow) -> SeriesItem {
 pub(crate) fn row_to_episode(row: &SqliteRow) -> EpisodeItem {
     EpisodeItem {
         id: row.get("id"),
+        provider_id: row.get("provider_id"),
         series_id: row.get("series_id"),
         season: row.get("season"),
         episode: row.get("episode"),
@@ -457,25 +512,34 @@ pub(crate) fn row_to_episode(row: &SqliteRow) -> EpisodeItem {
 async fn catalog_page<T>(
     pool: &SqlitePool,
     table: &str,
-    provider_id: &str,
-    category_id: Option<&str>,
+    provider_ids: &[String],
+    category_name: Option<&str>,
     page: i64,
     page_size: i64,
     map: fn(&SqliteRow) -> T,
 ) -> Result<PaginatedResult<T>, sqlx::Error> {
     let page = page.max(1);
     let page_size = page_size.clamp(1, MAX_PAGE_SIZE);
+    if provider_ids.is_empty() {
+        return Ok(PaginatedResult { items: Vec::new(), total: 0, page, page_size });
+    }
 
-    let category_filter = if category_id.is_some() { " AND category_id = ?" } else { "" };
-    let count_sql = format!("SELECT COUNT(*) FROM {table} WHERE provider_id = ?{category_filter}");
+    // Merged across providers (Milestone 39); the category key is the name.
+    let ph = in_placeholders(provider_ids.len());
+    let category_filter = if category_name.is_some() { " AND category_name = ?" } else { "" };
+    let count_sql = format!("SELECT COUNT(*) FROM {table} WHERE provider_id IN ({ph}){category_filter}");
     let items_sql = format!(
-        "SELECT * FROM {table} WHERE provider_id = ?{category_filter}
-         ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?"
+        "SELECT * FROM {table} WHERE provider_id IN ({ph}){category_filter}
+         ORDER BY name COLLATE NOCASE, provider_id, id LIMIT ? OFFSET ?"
     );
 
-    let mut count_query = sqlx::query(&count_sql).bind(provider_id);
-    let mut items_query = sqlx::query(&items_sql).bind(provider_id);
-    if let Some(category) = category_id {
+    let mut count_query = sqlx::query(&count_sql);
+    let mut items_query = sqlx::query(&items_sql);
+    for id in provider_ids {
+        count_query = count_query.bind(id.as_str());
+        items_query = items_query.bind(id.as_str());
+    }
+    if let Some(category) = category_name {
         count_query = count_query.bind(category);
         items_query = items_query.bind(category);
     }
@@ -497,61 +561,36 @@ async fn catalog_page<T>(
 
 pub async fn movies_page(
     pool: &SqlitePool,
-    provider_id: &str,
-    category_id: Option<&str>,
+    provider_ids: impl ProviderScope,
+    category_name: Option<&str>,
     page: i64,
     page_size: i64,
 ) -> Result<PaginatedResult<MovieItem>, sqlx::Error> {
-    catalog_page(pool, "movies", provider_id, category_id, page, page_size, row_to_movie).await
+    catalog_page(pool, "movies", &provider_ids.to_ids(), category_name, page, page_size, row_to_movie).await
 }
 
 pub async fn series_page(
     pool: &SqlitePool,
-    provider_id: &str,
-    category_id: Option<&str>,
+    provider_ids: impl ProviderScope,
+    category_name: Option<&str>,
     page: i64,
     page_size: i64,
 ) -> Result<PaginatedResult<SeriesItem>, sqlx::Error> {
-    catalog_page(pool, "series", provider_id, category_id, page, page_size, row_to_series).await
-}
-
-/// Categories in provider order, hiding ones with no content (spec §12).
-async fn non_empty_categories(
-    pool: &SqlitePool,
-    category_table: &str,
-    content_table: &str,
-    provider_id: &str,
-) -> Result<Vec<Category>, sqlx::Error> {
-    let sql = format!(
-        "SELECT c.id, c.name, c.sort_order FROM {category_table} c
-         WHERE c.provider_id = ?
-           AND EXISTS (SELECT 1 FROM {content_table} x
-                       WHERE x.provider_id = c.provider_id AND x.category_id = c.id)
-         ORDER BY c.sort_order, c.name COLLATE NOCASE"
-    );
-    let rows = sqlx::query(&sql).bind(provider_id).fetch_all(pool).await?;
-    Ok(rows
-        .iter()
-        .map(|r| Category {
-            id: r.get("id"),
-            name: r.get("name"),
-            sort_order: r.get("sort_order"),
-        })
-        .collect())
+    catalog_page(pool, "series", &provider_ids.to_ids(), category_name, page, page_size, row_to_series).await
 }
 
 pub async fn vod_categories(
     pool: &SqlitePool,
-    provider_id: &str,
+    provider_ids: impl ProviderScope,
 ) -> Result<Vec<Category>, sqlx::Error> {
-    non_empty_categories(pool, "vod_categories", "movies", provider_id).await
+    merged_categories(pool, "vod_categories", "movies", &provider_ids.to_ids()).await
 }
 
 pub async fn series_categories(
     pool: &SqlitePool,
-    provider_id: &str,
+    provider_ids: impl ProviderScope,
 ) -> Result<Vec<Category>, sqlx::Error> {
-    non_empty_categories(pool, "series_categories", "series", provider_id).await
+    merged_categories(pool, "series_categories", "series", &provider_ids.to_ids()).await
 }
 
 pub async fn movie_by_id(
@@ -712,21 +751,28 @@ async fn search_table<T>(
     pool: &SqlitePool,
     fts_table: &str,
     content_table: &str,
-    provider_id: &str,
-    category_id: Option<&str>,
+    provider_ids: &[String],
+    category_name: Option<&str>,
     match_expr: &str,
     limit: i64,
     map: fn(&SqliteRow) -> T,
 ) -> Result<Vec<T>, sqlx::Error> {
-    let category_filter = if category_id.is_some() { " AND c.category_id = ?" } else { "" };
+    if provider_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ph = in_placeholders(provider_ids.len());
+    let category_filter = if category_name.is_some() { " AND c.category_name = ?" } else { "" };
     let sql = format!(
         "SELECT c.* FROM {fts_table}
          JOIN {content_table} c ON c.rowid = {fts_table}.rowid
-         WHERE {fts_table} MATCH ? AND c.provider_id = ?{category_filter}
-         ORDER BY rank, c.name COLLATE NOCASE, c.id LIMIT ?"
+         WHERE {fts_table} MATCH ? AND c.provider_id IN ({ph}){category_filter}
+         ORDER BY rank, c.name COLLATE NOCASE, c.provider_id, c.id LIMIT ?"
     );
-    let mut query = sqlx::query(&sql).bind(match_expr).bind(provider_id);
-    if let Some(category) = category_id {
+    let mut query = sqlx::query(&sql).bind(match_expr);
+    for id in provider_ids {
+        query = query.bind(id.as_str());
+    }
+    if let Some(category) = category_name {
         query = query.bind(category);
     }
     let rows = query.bind(limit).fetch_all(pool).await?;
@@ -738,12 +784,14 @@ async fn search_table<T>(
 /// optionally narrowed to one type and/or one category.
 pub async fn search_catalog(
     pool: &SqlitePool,
-    provider_id: &str,
+    provider_ids: impl ProviderScope,
     query: &str,
     content_type: SearchContentType,
-    category_id: Option<&str>,
+    category_name: Option<&str>,
     limit: i64,
 ) -> Result<SearchResults, sqlx::Error> {
+    let provider_ids = provider_ids.to_ids();
+    let provider_ids: &[String] = &provider_ids;
     let mut results = SearchResults::default();
     let Some(expr) = fts_match_expr(query) else {
         return Ok(results);
@@ -756,8 +804,8 @@ pub async fn search_catalog(
             pool,
             "fts_live_channels",
             "live_channels",
-            provider_id,
-            category_id,
+            provider_ids,
+            category_name,
             &expr,
             limit,
             row_to_live_channel,
@@ -769,8 +817,8 @@ pub async fn search_catalog(
             pool,
             "fts_movies",
             "movies",
-            provider_id,
-            category_id,
+            provider_ids,
+            category_name,
             &expr,
             limit,
             row_to_movie,
@@ -782,8 +830,8 @@ pub async fn search_catalog(
             pool,
             "fts_series",
             "series",
-            provider_id,
-            category_id,
+            provider_ids,
+            category_name,
             &expr,
             limit,
             row_to_series,
@@ -793,18 +841,35 @@ pub async fn search_catalog(
     Ok(results)
 }
 
-pub async fn summary(pool: &SqlitePool, provider_id: &str) -> Result<CatalogSummary, sqlx::Error> {
-    let count = |sql: &'static str| {
-        let pool = pool.clone();
-        let provider_id = provider_id.to_string();
-        async move {
-            let row = sqlx::query(sql).bind(provider_id).fetch_one(&pool).await?;
-            Ok::<i64, sqlx::Error>(row.get::<i64, _>(0))
-        }
-    };
+/// `COUNT(*)` over `table` for the merged provider set (Milestone 39).
+async fn count_in(
+    pool: &SqlitePool,
+    table: &str,
+    provider_ids: &[String],
+) -> Result<i64, sqlx::Error> {
+    let sql = format!(
+        "SELECT COUNT(*) FROM {table} WHERE provider_id IN ({})",
+        in_placeholders(provider_ids.len())
+    );
+    let mut q = sqlx::query(&sql);
+    for id in provider_ids {
+        q = q.bind(id.as_str());
+    }
+    Ok(q.fetch_one(pool).await?.get::<i64, _>(0))
+}
+
+pub async fn summary(
+    pool: &SqlitePool,
+    provider_ids: impl ProviderScope,
+) -> Result<CatalogSummary, sqlx::Error> {
+    let provider_ids = provider_ids.to_ids();
+    let provider_ids: &[String] = &provider_ids;
+    if provider_ids.is_empty() {
+        return Ok(CatalogSummary { live_channels: 0, movies: 0, series: 0 });
+    }
     Ok(CatalogSummary {
-        live_channels: count("SELECT COUNT(*) FROM live_channels WHERE provider_id = ?").await?,
-        movies: count("SELECT COUNT(*) FROM movies WHERE provider_id = ?").await?,
-        series: count("SELECT COUNT(*) FROM series WHERE provider_id = ?").await?,
+        live_channels: count_in(pool, "live_channels", provider_ids).await?,
+        movies: count_in(pool, "movies", provider_ids).await?,
+        series: count_in(pool, "series", provider_ids).await?,
     })
 }

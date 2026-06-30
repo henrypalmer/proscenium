@@ -107,6 +107,8 @@ pub fn run() {
             commands::images::clear_image_cache,
             commands::catalog::get_active_provider,
             commands::catalog::set_active_provider,
+            commands::catalog::get_enabled_providers,
+            commands::catalog::set_enabled_providers,
             commands::catalog::refresh_catalog,
             commands::catalog::get_catalog_summary,
             commands::catalog::get_live_categories,

@@ -8,8 +8,9 @@ interface CategoryPanelProps {
   categories: Category[];
   selectedId: string | null; // null = "All"
   onSelect: (id: string | null) => void;
-  /** Active provider id — scopes the custom order (spec §13, Milestone 29). */
-  providerId: string;
+  /** Enabled provider set; custom ordering applies only with a single provider
+   * (spec §13, Milestone 29 / Milestone 39). */
+  providerIds: string[];
   /** "live" | "movie" | "series" — scopes the custom order per section. */
   section: string;
 }
@@ -28,9 +29,12 @@ export default function CategoryPanel({
   categories,
   selectedId,
   onSelect,
-  providerId,
+  providerIds,
   section,
 }: CategoryPanelProps) {
+  // Custom category ordering is per-provider (spec §13, M29); with several
+  // providers merged we fall back to the default order (Milestone 39).
+  const orderProviderId = providerIds.length === 1 ? providerIds[0] : null;
   const [sort, setSort] = useState<SortMode>("alpha");
   // Defaults to expanded; collapsing is transient — the panel remounts per
   // section so it always reopens expanded (spec §5.3, Milestone 19).
@@ -40,8 +44,12 @@ export default function CategoryPanel({
   const [dragId, setDragId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!orderProviderId) {
+      setCustomOrder([]);
+      return;
+    }
     let cancelled = false;
-    void api.getCategoryOrder(providerId, section).then(
+    void api.getCategoryOrder(orderProviderId, section).then(
       (ids) => {
         if (!cancelled) setCustomOrder(ids);
       },
@@ -52,7 +60,7 @@ export default function CategoryPanel({
     return () => {
       cancelled = true;
     };
-  }, [providerId, section]);
+  }, [orderProviderId, section]);
 
   const sorted = useMemo(() => {
     if (sort === "alpha") {
@@ -70,10 +78,10 @@ export default function CategoryPanel({
     );
   }, [categories, sort, customOrder]);
 
-  const reorderable = sort === "provider";
+  const reorderable = sort === "provider" && orderProviderId !== null;
 
   const reorder = (fromId: string, toId: string) => {
-    if (fromId === toId) return;
+    if (fromId === toId || !orderProviderId) return;
     const ids = sorted.map((c) => c.id);
     const from = ids.indexOf(fromId);
     const to = ids.indexOf(toId);
@@ -81,7 +89,7 @@ export default function CategoryPanel({
     ids.splice(from, 1);
     ids.splice(to, 0, fromId);
     setCustomOrder(ids);
-    void api.setCategoryOrder(providerId, section, ids);
+    void api.setCategoryOrder(orderProviderId, section, ids);
   };
 
   const itemClass = (active: boolean) =>

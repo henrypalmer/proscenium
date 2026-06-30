@@ -5,20 +5,21 @@ import type { LiveChannel, Movie, PaginatedResult, Series } from "../types";
 export const PAGE_SIZE = 200;
 
 type PageFetcher<T> = (
-  providerId: string,
+  providerIds: string[],
   categoryId: string | undefined,
   page: number,
   pageSize: number,
 ) => Promise<PaginatedResult<T>>;
 
 /**
- * Sparse, page-on-demand item loading for virtualized lists/grids. Items are
- * fetched in PAGE_SIZE chunks as the visible range reaches them; `getItem`
- * returns undefined for rows whose page hasn't landed yet (rendered as
- * skeletons).
+ * Sparse, page-on-demand item loading for virtualized lists/grids, merged across
+ * the enabled provider set (Milestone 39). Items are fetched in PAGE_SIZE chunks
+ * as the visible range reaches them; `getItem` returns undefined for rows whose
+ * page hasn't landed yet (rendered as skeletons). `providerIds` from the catalog
+ * store is referentially stable between set changes, so it can drive invalidation.
  */
 export function usePagedItems<T>(
-  providerId: string | null,
+  providerIds: string[],
   categoryId: string | null,
   version: number,
   fetchPage: PageFetcher<T>,
@@ -27,17 +28,17 @@ export function usePagedItems<T>(
   const [, bump] = useReducer((x: number) => x + 1, 0);
   const items = useRef<(T | undefined)[]>([]);
   const pages = useRef<Map<number, "loading" | "done">>(new Map());
-  // Invalidates in-flight responses from a previous provider/category.
+  // Invalidates in-flight responses from a previous provider-set/category.
   const generation = useRef(0);
 
   const loadPage = useCallback(
     async (page: number) => {
-      if (!providerId || pages.current.has(page)) return;
+      if (providerIds.length === 0 || pages.current.has(page)) return;
       pages.current.set(page, "loading");
       const gen = generation.current;
       try {
         const result = await fetchPage(
-          providerId,
+          providerIds,
           categoryId ?? undefined,
           page,
           PAGE_SIZE,
@@ -54,7 +55,7 @@ export function usePagedItems<T>(
         if (gen === generation.current) pages.current.delete(page);
       }
     },
-    [providerId, categoryId, fetchPage],
+    [providerIds, categoryId, fetchPage],
   );
 
   useEffect(() => {
@@ -84,7 +85,7 @@ export function usePagedItems<T>(
 }
 
 export function usePagedLiveChannels(
-  providerId: string | null,
+  providerIds: string[],
   categoryId: string | null,
   version: number,
   query?: string,
@@ -93,25 +94,25 @@ export function usePagedLiveChannels(
   // `query` produces a new fetcher, which resets the paged list and refetches
   // from page 1 against the whole (filtered) category.
   const fetchPage = useCallback<PageFetcher<LiveChannel>>(
-    (providerId, categoryId, page, pageSize) =>
-      api.getLiveChannels(providerId, categoryId, query || undefined, page, pageSize),
+    (providerIds, categoryId, page, pageSize) =>
+      api.getLiveChannels(providerIds, categoryId, query || undefined, page, pageSize),
     [query],
   );
-  return usePagedItems<LiveChannel>(providerId, categoryId, version, fetchPage);
+  return usePagedItems<LiveChannel>(providerIds, categoryId, version, fetchPage);
 }
 
 export function usePagedMovies(
-  providerId: string | null,
+  providerIds: string[],
   categoryId: string | null,
   version: number,
 ) {
-  return usePagedItems<Movie>(providerId, categoryId, version, api.getMovies);
+  return usePagedItems<Movie>(providerIds, categoryId, version, api.getMovies);
 }
 
 export function usePagedSeries(
-  providerId: string | null,
+  providerIds: string[],
   categoryId: string | null,
   version: number,
 ) {
-  return usePagedItems<Series>(providerId, categoryId, version, api.getSeries);
+  return usePagedItems<Series>(providerIds, categoryId, version, api.getSeries);
 }

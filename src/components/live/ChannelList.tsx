@@ -13,7 +13,7 @@ const ROW_HEIGHT_COMPACT = 44; // h-11
 const INITIAL_SKELETON_ROWS = 14;
 
 interface ChannelListProps {
-  providerId: string;
+  providerIds: string[];
   categoryId: string | null;
   showCategory: boolean;
   version: number;
@@ -28,7 +28,7 @@ interface ChannelListProps {
  * exist in the DOM, with pages fetched on demand as the user scrolls.
  */
 export default function ChannelList({
-  providerId,
+  providerIds,
   categoryId,
   showCategory,
   version,
@@ -38,7 +38,7 @@ export default function ChannelList({
 }: ChannelListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const { total, getItem, ensureRange } = usePagedLiveChannels(
-    providerId,
+    providerIds,
     categoryId,
     version,
     query,

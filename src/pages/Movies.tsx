@@ -22,7 +22,7 @@ interface MenuState {
 }
 
 export default function Movies() {
-  const activeProvider = useCatalogStore((s) => s.activeProvider);
+  const providerIds = useCatalogStore((s) => s.providerIds);
   const refreshTick = useCatalogStore((s) => s.refreshTick);
   const notify = useCatalogStore((s) => s.notify);
 
@@ -46,9 +46,17 @@ export default function Movies() {
    * than a click within this section's grid — closing it then goes back. */
   const [detailFromNav, setDetailFromNav] = useState(navMovie !== null);
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [addTo, setAddTo] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [addTo, setAddTo] = useState<{
+    id: string;
+    providerId: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
-  const providerId = activeProvider?.id ?? null;
+  const hasProviders = providerIds.length > 0;
+  // Stable across renders (the store keeps `providerIds` stable until the set
+  // changes), so it drives effect invalidation for the merged reads.
+  const scopeKey = providerIds.join(",");
 
   // Skip the detail reset on the very first run so a nav-provided detail
   // (initialized above) survives mount; later provider/refresh changes still
@@ -61,14 +69,14 @@ export default function Movies() {
       setDetail(null);
       setDetailFromNav(false);
     }
-    if (!providerId) {
+    if (!hasProviders) {
       setCategories([]);
       return;
     }
-    // Watch progress for the movie grid overlays (spec §5.9).
-    void useProgressStore.getState().loadSection(providerId, "movie");
+    // Watch progress for the movie grid overlays (spec §5.9), merged providers.
+    void useProgressStore.getState().loadSection(providerIds, "movie");
     let cancelled = false;
-    void api.getVodCategories(providerId).then(
+    void api.getVodCategories(providerIds).then(
       (cats) => {
         if (cancelled) return;
         setCategories(cats);
@@ -84,77 +92,65 @@ export default function Movies() {
     return () => {
       cancelled = true;
     };
-  }, [providerId, refreshTick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, refreshTick]);
 
   // A search result navigated here asking for a detail view (Milestone 6).
-  // Declared after the categories effect: that one resets the detail on
-  // mount and must not clobber the requested view.
   useEffect(() => {
     const state = location.state as { openMovie?: Movie } | null;
     if (state?.openMovie) {
       setDetail(state.openMovie);
       setDetailFromNav(true);
-      // Clear the state so back/refresh doesn't reopen the detail.
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, location.pathname, navigate]);
 
   // Per-genre strip fetcher for the "All" overview (memoized so a row only
-  // refetches when the provider changes, not on every parent render).
+  // refetches when the provider set changes, not on every parent render).
   const fetchMoviePage = useCallback(
     (catId: string): Promise<Movie[]> =>
-      providerId
-        ? api.getMovies(providerId, catId, 1, 30).then((r) => r.items)
+      hasProviders
+        ? api.getMovies(providerIds, catId, 1, 30).then((r) => r.items)
         : Promise.resolve([]),
-    [providerId],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scopeKey],
   );
 
-  if (!activeProvider) {
+  if (!hasProviders) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm font-medium text-zinc-400">No provider selected</p>
+        <p className="text-sm font-medium text-zinc-400">No provider enabled</p>
         <p className="max-w-xs text-xs text-zinc-600">
-          Add or select a provider in Settings to browse movies.
+          Add or enable a provider in Settings to browse movies.
         </p>
       </div>
     );
   }
 
   // Open a detail from a grid click (closing returns to the grid). The clicked
-  // poster morphs into the detail's poster via View Transitions: the grid card
-  // is flushed to carry the shared name *before* the "before" snapshot, then the
-  // detail mount is the transitioned update.
+  // poster morphs into the detail's poster via View Transitions.
   const openDetail = (movie: Movie) => {
     setDetailFromNav(false);
     flushSync(() => setSelectedId(movie.id));
     startViewTransition(() => setDetail(movie));
   };
-  // Closing returns to the previous page when we arrived via navigation
-  // (e.g. Home or Search), otherwise it morphs back into the grid card.
   const closeDetail = () => {
     if (detailFromNav) navigate(-1);
     else startViewTransition(() => setDetail(null));
   };
 
-  // The grid card carries the shared-element name only while the detail is
-  // closed, so the name is never on two elements at once during a transition.
   const morphId = detail ? null : selectedId;
 
-  const providerIdForPlayback = activeProvider.id;
   const play = (movie: Movie) =>
     void usePlayerStore.getState().openContent({
-      providerId: providerIdForPlayback,
+      providerId: movie.providerId,
       contentType: "movie",
       contentId: movie.id,
       title: movie.name,
     });
   const openExternal = async (movie: Movie) => {
     try {
-      const url = await api.resolveStreamUrl(
-        providerIdForPlayback,
-        "movie",
-        movie.id,
-      );
+      const url = await api.resolveStreamUrl(movie.providerId, "movie", movie.id);
       await api.openInExternalPlayer(url);
     } catch (e) {
       notify(String(e), "error");
@@ -169,25 +165,21 @@ export default function Movies() {
         categories={categories ?? []}
         selectedId={selected}
         onSelect={setSelected}
-        providerId={activeProvider.id}
+        providerIds={providerIds}
         section="movie"
       />
       <div className="min-w-0 flex-1">
-        {/* While categories load, render nothing (no grey skeleton flash). Then:
-            "All Movies" → per-genre row stack (M19); a selected genre → the full
-            virtualized grid; no genres → the grid's all-movies fallback. */}
         {categories !== null &&
           (selected === null && categories.length > 0 ? (
             <GenreRows<Movie>
               categories={categories}
-              resetKey={`${activeProvider.id}:${refreshTick}`}
+              resetKey={`${scopeKey}:${refreshTick}`}
               fetchPage={fetchMoviePage}
-              getKey={(m) => m.id}
+              getKey={(m) => `${m.providerId}:${m.id}`}
               onSelectGenre={setSelected}
               renderCard={(movie) => (
                 <MovieCard
                   movie={movie}
-                  providerId={activeProvider.id}
                   onActivate={openDetail}
                   onContextMenu={(m, x, y) => setMenu({ movie: m, x, y })}
                   morphActive={morphId === movie.id}
@@ -196,7 +188,7 @@ export default function Movies() {
             />
           ) : (
             <MovieGrid
-              providerId={activeProvider.id}
+              providerIds={providerIds}
               categoryId={selected}
               version={refreshTick}
               onActivate={openDetail}
@@ -207,7 +199,7 @@ export default function Movies() {
       </div>
       {detail && (
         <MovieDetail
-          providerId={activeProvider.id}
+          providerId={detail.providerId}
           movie={detail}
           onClose={closeDetail}
         />
@@ -226,14 +218,19 @@ export default function Movies() {
             {
               label: "Add to list…",
               onSelect: () =>
-                setAddTo({ id: menu.movie.id, x: menu.x, y: menu.y }),
+                setAddTo({
+                  id: menu.movie.id,
+                  providerId: menu.movie.providerId,
+                  x: menu.x,
+                  y: menu.y,
+                }),
             },
           ]}
         />
       )}
       {addTo && (
         <AddToListMenu
-          providerId={activeProvider.id}
+          providerId={addTo.providerId}
           contentType="movie"
           contentId={addTo.id}
           x={addTo.x}

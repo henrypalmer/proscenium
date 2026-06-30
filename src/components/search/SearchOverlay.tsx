@@ -49,7 +49,7 @@ export default function SearchOverlay() {
 }
 
 function SearchPanel({ onClose }: { onClose: () => void }) {
-  const activeProvider = useCatalogStore((s) => s.activeProvider);
+  const providerIds = useCatalogStore((s) => s.providerIds);
   const navigate = useNavigate();
 
   const [query, setQuery] = useState("");
@@ -61,12 +61,13 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   /** Bumped per search so stale responses can't overwrite newer ones. */
   const requestSeq = useRef(0);
 
-  const providerId = activeProvider?.id ?? null;
+  const hasProviders = providerIds.length > 0;
+  const scopeKey = providerIds.join(",");
 
   // Genre/category options for the selected content type (spec §5.5 filters).
   useEffect(() => {
     setCategoryId(null);
-    if (!providerId || contentType === "all") {
+    if (!hasProviders || contentType === "all") {
       setCategories([]);
       return;
     }
@@ -77,7 +78,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
           ? api.getVodCategories
           : api.getSeriesCategories;
     let cancelled = false;
-    void fetchCategories(providerId).then(
+    void fetchCategories(providerIds).then(
       (cats) => {
         if (!cancelled) setCategories(cats);
       },
@@ -88,10 +89,11 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, [providerId, contentType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, contentType]);
 
   useEffect(() => {
-    if (!providerId || query === "") {
+    if (!hasProviders || query === "") {
       setResults(null);
       setLoading(false);
       return;
@@ -99,7 +101,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
     const seq = ++requestSeq.current;
     setLoading(true);
     void api
-      .search(providerId, query, contentType, categoryId ?? undefined, RESULT_LIMIT)
+      .search(providerIds, query, contentType, categoryId ?? undefined, RESULT_LIMIT)
       .then(
         (data) => {
           if (requestSeq.current !== seq) return;
@@ -112,13 +114,13 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
           setLoading(false);
         },
       );
-  }, [providerId, query, contentType, categoryId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, query, contentType, categoryId]);
 
   const playChannel = (channel: LiveChannel) => {
-    if (!providerId) return;
     onClose();
     void usePlayerStore.getState().openContent({
-      providerId,
+      providerId: channel.providerId,
       contentType: "live",
       contentId: channel.id,
       title: channel.name,
@@ -226,13 +228,12 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
           onCategoryChange={setCategoryId}
         />
         <div className="min-h-24 overflow-y-auto">
-          {!providerId ? (
+          {!hasProviders ? (
             <p className="px-4 py-10 text-center text-sm text-zinc-600">
-              Select a provider in Settings to search its catalog.
+              Enable a provider in Settings to search your catalog.
             </p>
           ) : (
             <SearchResults
-              providerId={providerId}
               query={query}
               loading={loading}
               results={results}

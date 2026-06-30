@@ -47,6 +47,7 @@ async fn make_provider(pool: &SqlitePool, name: &str) -> Provider {
 fn channel(id: &str, name: &str, category: &str) -> LiveChannel {
     LiveChannel {
         id: id.into(),
+        provider_id: String::new(),
         name: name.into(),
         category_id: category.into(),
         category_name: category.into(),
@@ -60,6 +61,7 @@ fn channel(id: &str, name: &str, category: &str) -> LiveChannel {
 fn movie(id: &str, name: &str, category: &str) -> MovieItem {
     MovieItem {
         id: id.into(),
+        provider_id: String::new(),
         name: name.into(),
         category_id: category.into(),
         category_name: category.into(),
@@ -75,6 +77,7 @@ fn movie(id: &str, name: &str, category: &str) -> MovieItem {
 fn series(id: &str, name: &str, category: &str) -> SeriesItem {
     SeriesItem {
         id: id.into(),
+        provider_id: String::new(),
         name: name.into(),
         category_id: category.into(),
         category_name: category.into(),

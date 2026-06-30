@@ -78,27 +78,31 @@ const RING_CIRC = 2 * Math.PI * RING_R;
 export default function TopNav() {
   const navigate = useNavigate();
   const providers = useProviderStore((s) => s.providers);
-  const activeProvider = useCatalogStore((s) => s.activeProvider);
+  const enabledProviders = useCatalogStore((s) => s.enabledProviders);
+  const providerIds = useCatalogStore((s) => s.providerIds);
   const refreshing = useCatalogStore((s) => s.refreshing);
   const stage = useCatalogStore((s) => s.stage);
   const progress = useCatalogStore((s) => s.progress);
   const refresh = useCatalogStore((s) => s.refresh);
-  const setActive = useCatalogStore((s) => s.setActive);
+  const toggleProvider = useCatalogStore((s) => s.toggleProvider);
   const openSearch = useSearchStore((s) => s.setOpen);
 
-  const provider = activeProvider ?? providers[0] ?? null;
+  // Pill label: the single enabled provider's name, or "N providers" when
+  // several are enabled (Milestone 39).
+  const pillLabel =
+    enabledProviders.length === 0
+      ? (providers[0]?.name ?? "No provider")
+      : enabledProviders.length === 1
+        ? enabledProviders[0].name
+        : `${enabledProviders.length} providers`;
 
-  // Provider switcher (Milestone 36): a dropdown anchored under the provider
-  // pill listing all saved providers, the active one marked. Selecting another
-  // switches the active provider; the user stays on the current section (the
-  // page remounts via the provider key in App.tsx, closing any detail overlay
-  // and resetting to that section's main screen).
+  // Provider switcher (Milestone 39): a dropdown listing every saved provider,
+  // each checked when enabled. Selecting one toggles its membership in the
+  // merged set; the user stays on the current section (the page remounts via the
+  // provider-set key in App.tsx).
   const [switcherAt, setSwitcherAt] = useState<{ x: number; y: number } | null>(
     null,
   );
-  const switchTo = (id: string) => {
-    if (id !== activeProvider?.id) void setActive(id);
-  };
 
   // The white selection pill is a single floating element that physically
   // slides between items (CSS transition on its measured geometry). It is
@@ -148,14 +152,14 @@ export default function TopNav() {
   return (
     <>
     <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex items-center justify-center gap-2 px-4">
-      {provider && (
+      {providers.length > 0 && (
         <button
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setSwitcherAt({ x: r.left, y: r.bottom + 6 });
           }}
-          title={`Provider: ${provider.name} — switch provider`}
-          aria-label={`Provider: ${provider.name}. Switch provider`}
+          title="Providers — enable or disable which catalogs are merged"
+          aria-label="Providers. Enable or disable which catalogs are merged"
           aria-haspopup="menu"
           data-testid="provider-pill"
           className={PROVIDER_BUBBLE_CLASS}
@@ -170,7 +174,7 @@ export default function TopNav() {
             <path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4" />
             <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
           </svg>
-          <span className="truncate">{provider.name}</span>
+          <span className="truncate">{pillLabel}</span>
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -268,7 +272,7 @@ export default function TopNav() {
           )}
           <button
             onClick={() => void refresh()}
-            disabled={!provider || refreshing}
+            disabled={enabledProviders.length === 0 || refreshing}
             title={refreshing ? (stage ?? "Refreshing…") : "Refresh catalog"}
             aria-label="Refresh catalog"
             data-testid="refresh-trigger"
@@ -296,8 +300,8 @@ export default function TopNav() {
         items={[
           ...providers.map((p) => ({
             label: p.name,
-            active: p.id === activeProvider?.id,
-            onSelect: () => switchTo(p.id),
+            active: providerIds.includes(p.id),
+            onSelect: () => void toggleProvider(p.id),
           })),
           { label: "Manage in Settings…", onSelect: () => navigate("/settings") },
         ]}

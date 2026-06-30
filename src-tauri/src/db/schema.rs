@@ -137,27 +137,30 @@ CREATE TABLE IF NOT EXISTS watch_progress (
   PRIMARY KEY (provider_id, content_type, content_id)
 );
 
--- Custom user lists / "playlists" (§5.11). Provider-scoped; cascade-delete with
--- the provider. A list may mix movies, series, and live channels.
+-- Custom user lists / "playlists" (§5.11). Global (Milestone 39): not scoped to
+-- a provider, so a list may mix items from several providers, movies, series,
+-- and live channels.
 CREATE TABLE IF NOT EXISTS user_lists (
   id          TEXT PRIMARY KEY,                                     -- app-generated UUID
-  provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
   sort_order  INTEGER NOT NULL DEFAULT 0,                           -- user ordering of lists
   created_at  INTEGER NOT NULL,                                     -- Unix timestamp
   updated_at  INTEGER NOT NULL                                      -- Unix timestamp (membership/name changes)
 );
 
--- Membership rows for user_lists. content_id refers to movies.id / series.id /
--- live_channels.id depending on content_type (resolved by JOIN). Orphaned rows
--- (content dropped on refresh) are retained but filtered out at read time.
+-- Membership rows for user_lists. (provider_id, content_id) addresses a catalog
+-- row in movies / series / live_channels by content_type (resolved by JOIN).
+-- provider_id is part of the key so the same content id from two providers can
+-- both be added (Milestone 39). Orphaned rows (content dropped on refresh, or
+-- its provider removed) are retained but filtered out at read time.
 CREATE TABLE IF NOT EXISTS user_list_items (
   list_id      TEXT NOT NULL REFERENCES user_lists(id) ON DELETE CASCADE,
+  provider_id  TEXT NOT NULL,
   content_type TEXT NOT NULL CHECK (content_type IN ('live', 'movie', 'series')),
   content_id   TEXT NOT NULL,
   position     INTEGER NOT NULL,            -- order within the list (newest-added last by default)
   added_at     INTEGER NOT NULL,            -- Unix timestamp
-  PRIMARY KEY (list_id, content_type, content_id)
+  PRIMARY KEY (list_id, content_type, content_id, provider_id)
 );
 
 -- Recently-watched live channels (spec §13, Milestone 29). Local-only,
@@ -190,7 +193,7 @@ CREATE INDEX IF NOT EXISTS idx_series_provider           ON series(provider_id);
 CREATE INDEX IF NOT EXISTS idx_series_category           ON series(provider_id, category_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_series           ON episodes(series_id, provider_id);
 CREATE INDEX IF NOT EXISTS idx_watch_progress_section    ON watch_progress(provider_id, content_type);
-CREATE INDEX IF NOT EXISTS idx_user_lists_provider       ON user_lists(provider_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_user_lists_order          ON user_lists(sort_order);
 CREATE INDEX IF NOT EXISTS idx_user_list_items_list      ON user_list_items(list_id, position);
 CREATE INDEX IF NOT EXISTS idx_recent_channels_recency   ON recent_channels(provider_id, watched_at DESC);
 
@@ -225,7 +228,75 @@ pub async fn apply(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     add_column_if_missing(pool, "image_cache", "size_bytes", "INTEGER NOT NULL DEFAULT 0").await?;
     add_column_if_missing(pool, "image_cache", "last_accessed", "INTEGER NOT NULL DEFAULT 0").await?;
     scrub_xtream_stream_urls(pool).await?; // M21 §5.1 — credential hardening
+    migrate_lists_multi_provider(pool).await?; // M39 — global lists + per-item provider
     Ok(())
+}
+
+/// Milestone 39: custom lists become **global** (no longer provider-scoped) and
+/// each membership row carries its own `provider_id`. When the pre-M39 shape is
+/// detected (a `provider_id` column still on `user_lists`), rebuild both tables,
+/// backfilling each item's `provider_id` from its parent list. Idempotent — a
+/// no-op once migrated (and on fresh installs, which already have the new shape).
+async fn migrate_lists_multi_provider(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let pre_m39 = sqlx::query("PRAGMA table_info(user_lists)")
+        .fetch_all(pool)
+        .await?
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "provider_id");
+    if !pre_m39 {
+        return Ok(());
+    }
+
+    // FKs are enforced (foreign_keys=ON). Renaming a referenced table updates the
+    // child's FK to the new name, so order matters: rename old → create new →
+    // copy (parent before child) → drop child before parent.
+    let mut tx = pool.begin().await?;
+    sqlx::query("ALTER TABLE user_lists RENAME TO _m39_old_user_lists")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("ALTER TABLE user_list_items RENAME TO _m39_old_user_list_items")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "CREATE TABLE user_lists (
+           id TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "CREATE TABLE user_list_items (
+           list_id TEXT NOT NULL REFERENCES user_lists(id) ON DELETE CASCADE,
+           provider_id TEXT NOT NULL,
+           content_type TEXT NOT NULL CHECK (content_type IN ('live','movie','series')),
+           content_id TEXT NOT NULL, position INTEGER NOT NULL, added_at INTEGER NOT NULL,
+           PRIMARY KEY (list_id, content_type, content_id, provider_id))",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO user_lists (id, name, sort_order, created_at, updated_at)
+         SELECT id, name, sort_order, created_at, updated_at FROM _m39_old_user_lists",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO user_list_items (list_id, provider_id, content_type, content_id, position, added_at)
+         SELECT li.list_id, ul.provider_id, li.content_type, li.content_id, li.position, li.added_at
+         FROM _m39_old_user_list_items li
+         JOIN _m39_old_user_lists ul ON ul.id = li.list_id",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DROP TABLE _m39_old_user_list_items").execute(&mut *tx).await?;
+    sqlx::query("DROP TABLE _m39_old_user_lists").execute(&mut *tx).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_user_lists_order ON user_lists(sort_order)")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_user_list_items_list ON user_list_items(list_id, position)")
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await
 }
 
 /// Milestone 21: earlier builds persisted the full Xtream stream URL with the

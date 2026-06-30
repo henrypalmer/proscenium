@@ -40,11 +40,12 @@ const noop = () => undefined;
  * can be adjusted in place.
  */
 export default function SearchResultsPage() {
-  const activeProvider = useCatalogStore((s) => s.activeProvider);
+  const providerIds = useCatalogStore((s) => s.providerIds);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const providerId = activeProvider?.id ?? null;
+  const hasProviders = providerIds.length > 0;
+  const scopeKey = providerIds.join(",");
   const query = searchParams.get("q") ?? "";
   const contentType = parseContentType(searchParams.get("type"));
   const categoryId = searchParams.get("cat");
@@ -71,7 +72,7 @@ export default function SearchResultsPage() {
 
   // Genre/category options for the selected content type (spec §5.5 filters).
   useEffect(() => {
-    if (!providerId || contentType === "all") {
+    if (!hasProviders || contentType === "all") {
       setCategories([]);
       return;
     }
@@ -82,7 +83,7 @@ export default function SearchResultsPage() {
           ? api.getVodCategories
           : api.getSeriesCategories;
     let cancelled = false;
-    void fetchCategories(providerId).then(
+    void fetchCategories(providerIds).then(
       (cats) => {
         if (!cancelled) setCategories(cats);
       },
@@ -93,15 +94,17 @@ export default function SearchResultsPage() {
     return () => {
       cancelled = true;
     };
-  }, [providerId, contentType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, contentType]);
 
   // Watch-progress markers for the movie cards (spec §5.9), mirroring Movies.
   useEffect(() => {
-    if (providerId) void useProgressStore.getState().loadSection(providerId, "movie");
-  }, [providerId]);
+    if (hasProviders) void useProgressStore.getState().loadSection(providerIds, "movie");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
   useEffect(() => {
-    if (!providerId || query === "") {
+    if (!hasProviders || query === "") {
       setResults(null);
       setLoading(false);
       return;
@@ -109,7 +112,7 @@ export default function SearchResultsPage() {
     const seq = ++requestSeq.current;
     setLoading(true);
     void api
-      .search(providerId, query, contentType, categoryId ?? undefined, RESULT_LIMIT)
+      .search(providerIds, query, contentType, categoryId ?? undefined, RESULT_LIMIT)
       .then(
         (data) => {
           if (requestSeq.current !== seq) return;
@@ -122,12 +125,12 @@ export default function SearchResultsPage() {
           setLoading(false);
         },
       );
-  }, [providerId, query, contentType, categoryId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, query, contentType, categoryId]);
 
   const playChannel = (channel: LiveChannel) => {
-    if (!providerId) return;
     void usePlayerStore.getState().openContent({
-      providerId,
+      providerId: channel.providerId,
       contentType: "live",
       contentId: channel.id,
       title: channel.name,
@@ -170,9 +173,9 @@ export default function SearchResultsPage() {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {!providerId ? (
+        {!hasProviders ? (
           <p className="py-16 text-center text-sm text-zinc-600">
-            Select a provider in Settings to search its catalog.
+            Enable a provider in Settings to search your catalog.
           </p>
         ) : query === "" ? (
           <p className="py-16 text-center text-sm text-zinc-600">
@@ -197,7 +200,7 @@ export default function SearchResultsPage() {
               layout="list"
               testId="results-page-live"
               items={results.liveChannels}
-              getKey={(c) => c.id}
+              getKey={(c) => `${c.providerId}:${c.id}`}
               renderItem={(channel) => (
                 <ChannelCard
                   channel={channel}
@@ -213,11 +216,10 @@ export default function SearchResultsPage() {
               layout="grid"
               testId="results-page-movies"
               items={results.movies}
-              getKey={(m) => m.id}
+              getKey={(m) => `${m.providerId}:${m.id}`}
               renderItem={(movie) => (
                 <MovieCard
                   movie={movie}
-                  providerId={providerId}
                   onActivate={openMovie}
                   onContextMenu={noop}
                   morphActive={morph?.type === "movie" && morph.id === movie.id}
@@ -230,7 +232,7 @@ export default function SearchResultsPage() {
               layout="grid"
               testId="results-page-series"
               items={results.series}
-              getKey={(s) => s.id}
+              getKey={(s) => `${s.providerId}:${s.id}`}
               renderItem={(series) => (
                 <SeriesCard
                   series={series}

@@ -1,4 +1,5 @@
 import { Poster } from "./PosterGrid";
+import { useProviderBadge } from "../../lib/useProviderBadge";
 import type { Series } from "../../types";
 
 interface SeriesCardProps {
@@ -17,6 +18,7 @@ export default function SeriesCard({
   onContextMenu,
   morphActive,
 }: SeriesCardProps) {
+  const badge = useProviderBadge(series.providerId);
   return (
     <button
       onClick={() => onActivate(series)}
@@ -40,8 +42,13 @@ export default function SeriesCard({
       <p className="mt-2 truncate text-sm text-zinc-200 group-hover:text-white">
         {series.name}
       </p>
-      <p className="mt-0.5 h-4 text-xs text-zinc-500">
-        {series.releaseYear ?? ""}
+      <p className="mt-0.5 flex h-4 items-center gap-1.5 text-xs text-zinc-500">
+        <span>{series.releaseYear ?? ""}</span>
+        {badge && (
+          <span className="min-w-0 truncate rounded bg-zinc-800 px-1 text-[10px] text-zinc-400">
+            {badge}
+          </span>
+        )}
       </p>
     </button>
   );

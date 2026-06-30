@@ -69,6 +69,9 @@ pub struct Category {
 #[serde(rename_all = "camelCase")]
 pub struct LiveChannel {
     pub id: String,
+    /// Origin provider (Milestone 39 multi-provider). Populated on read; empty
+    /// in the fetch structs (the persist layer binds it separately).
+    pub provider_id: String,
     pub name: String,
     pub category_id: String,
     pub category_name: String,
@@ -86,6 +89,8 @@ pub struct LiveChannel {
 #[serde(rename_all = "camelCase")]
 pub struct MovieItem {
     pub id: String,
+    /// Origin provider (Milestone 39 multi-provider).
+    pub provider_id: String,
     pub name: String,
     pub category_id: String,
     pub category_name: String,
@@ -104,6 +109,8 @@ pub struct MovieItem {
 #[serde(rename_all = "camelCase")]
 pub struct SeriesItem {
     pub id: String,
+    /// Origin provider (Milestone 39 multi-provider).
+    pub provider_id: String,
     pub name: String,
     pub category_id: String,
     pub category_name: String,
@@ -115,6 +122,8 @@ pub struct SeriesItem {
 #[serde(rename_all = "camelCase")]
 pub struct EpisodeItem {
     pub id: String,
+    /// Origin provider (Milestone 39 multi-provider).
+    pub provider_id: String,
     pub series_id: String,
     pub season: i64,
     pub episode: i64,

@@ -23,6 +23,7 @@ fn cleanup_db(path: &PathBuf) {
 fn channel(id: &str, name: &str, category_id: &str) -> LiveChannel {
     LiveChannel {
         id: id.into(),
+        provider_id: String::new(),
         name: name.into(),
         category_id: category_id.into(),
         category_name: category_id.into(),

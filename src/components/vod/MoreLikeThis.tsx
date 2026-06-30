@@ -66,7 +66,6 @@ export default function MoreLikeThis({
         renderItem={(movie) => (
           <MovieCard
             movie={movie}
-            providerId={providerId}
             onActivate={onOpenMovie}
             onContextMenu={onContextMenuMovie}
           />

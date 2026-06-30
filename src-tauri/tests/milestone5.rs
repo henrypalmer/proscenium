@@ -68,6 +68,7 @@ async fn make_xtream_provider(pool: &SqlitePool, base: &str) -> Provider {
 fn movie(id: &str, name: &str, category: &str) -> MovieItem {
     MovieItem {
         id: id.into(),
+        provider_id: String::new(),
         name: name.into(),
         category_id: category.into(),
         category_name: category.into(),
@@ -83,6 +84,7 @@ fn movie(id: &str, name: &str, category: &str) -> MovieItem {
 fn series(id: &str, name: &str, category: &str) -> SeriesItem {
     SeriesItem {
         id: id.into(),
+        provider_id: String::new(),
         name: name.into(),
         category_id: category.into(),
         category_name: category.into(),
@@ -94,6 +96,7 @@ fn series(id: &str, name: &str, category: &str) -> SeriesItem {
 fn episode(id: &str, series_id: &str, season: i64, ep: i64) -> EpisodeItem {
     EpisodeItem {
         id: id.into(),
+        provider_id: String::new(),
         series_id: series_id.into(),
         season,
         episode: ep,
@@ -275,13 +278,15 @@ async fn vod_and_series_genres_hide_empty_categories() {
         .await
         .expect("seed");
 
+    // Milestone 39: merged categories are keyed by name (the same genre across
+    // providers collapses); empty genres are still hidden (spec §12).
     let vod = db::catalog::vod_categories(&pool, &provider.id).await.expect("vod");
     let ids: Vec<&str> = vod.iter().map(|c| c.id.as_str()).collect();
-    assert_eq!(ids, ["act", "dra"]); // provider order, empty genre hidden
+    assert_eq!(ids, ["Action", "Drama"]);
 
     let ser = db::catalog::series_categories(&pool, &provider.id).await.expect("series");
     let ids: Vec<&str> = ser.iter().map(|c| c.id.as_str()).collect();
-    assert_eq!(ids, ["cri"]);
+    assert_eq!(ids, ["Crime"]);
 
     delete_provider_impl(&pool, &provider.id).await.unwrap();
     pool.close().await;

@@ -44,6 +44,7 @@ async fn seed_xtream_with_movie(pool: &SqlitePool, base: &str) -> Provider {
         vod_categories: vec![Category { id: "1".into(), name: "Action".into(), sort_order: 0 }],
         movies: vec![MovieItem {
             id: "m1".into(),
+            provider_id: String::new(),
             name: "Heat".into(),
             category_id: "1".into(),
             category_name: "Action".into(),

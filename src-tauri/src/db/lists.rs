@@ -1,8 +1,9 @@
-//! Custom user lists / "playlists" storage (spec §5.11). Provider-scoped; rows
-//! cascade-delete with their list, and lists cascade-delete with their provider.
-//! Membership references catalog rows by `(content_type, content_id)` and is
-//! resolved by JOIN; orphaned items (content dropped on refresh) are retained
-//! but filtered out at read time.
+//! Custom user lists / "playlists" storage (spec §5.11). Global since Milestone
+//! 39 (not provider-scoped): a list may mix items from several providers, and
+//! each membership row carries its own `(provider_id, content_id)` addressing a
+//! catalog row, resolved by JOIN. Items cascade-delete with their list; orphaned
+//! items (content dropped on refresh, or its provider removed) are retained but
+//! filtered out at read time.
 
 use crate::db::catalog::{row_to_live_channel, row_to_movie, row_to_series};
 use crate::models::{ListSummary, UserList, UserListItem};
@@ -27,24 +28,17 @@ fn poster_of(item: &UserListItem) -> Option<String> {
     }
 }
 
-pub async fn create(
-    pool: &SqlitePool,
-    provider_id: &str,
-    name: &str,
-    now: i64,
-) -> Result<UserList, sqlx::Error> {
+pub async fn create(pool: &SqlitePool, name: &str, now: i64) -> Result<UserList, sqlx::Error> {
     let id = uuid::Uuid::new_v4().to_string();
     let sort_order: i64 =
-        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order) + 1, 0) FROM user_lists WHERE provider_id = ?")
-            .bind(provider_id)
+        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order) + 1, 0) FROM user_lists")
             .fetch_one(pool)
             .await?;
     sqlx::query(
-        "INSERT INTO user_lists (id, provider_id, name, sort_order, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO user_lists (id, name, sort_order, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)",
     )
     .bind(&id)
-    .bind(provider_id)
     .bind(name)
     .bind(sort_order)
     .bind(now)
@@ -86,21 +80,17 @@ pub async fn delete(pool: &SqlitePool, list_id: &str) -> Result<(), sqlx::Error>
 
 pub async fn reorder(
     pool: &SqlitePool,
-    provider_id: &str,
     ordered_ids: &[String],
     now: i64,
 ) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     for (idx, id) in ordered_ids.iter().enumerate() {
-        sqlx::query(
-            "UPDATE user_lists SET sort_order = ?, updated_at = ? WHERE id = ? AND provider_id = ?",
-        )
-        .bind(idx as i64)
-        .bind(now)
-        .bind(id)
-        .bind(provider_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("UPDATE user_lists SET sort_order = ?, updated_at = ? WHERE id = ?")
+            .bind(idx as i64)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
     }
     tx.commit().await?;
     Ok(())
@@ -109,6 +99,7 @@ pub async fn reorder(
 pub async fn add_item(
     pool: &SqlitePool,
     list_id: &str,
+    provider_id: &str,
     content_type: &str,
     content_id: &str,
     now: i64,
@@ -119,10 +110,12 @@ pub async fn add_item(
             .fetch_one(pool)
             .await?;
     sqlx::query(
-        "INSERT OR IGNORE INTO user_list_items (list_id, content_type, content_id, position, added_at)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO user_list_items
+           (list_id, provider_id, content_type, content_id, position, added_at)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(list_id)
+    .bind(provider_id)
     .bind(content_type)
     .bind(content_id)
     .bind(position)
@@ -140,14 +133,17 @@ pub async fn add_item(
 pub async fn remove_item(
     pool: &SqlitePool,
     list_id: &str,
+    provider_id: &str,
     content_type: &str,
     content_id: &str,
     now: i64,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "DELETE FROM user_list_items WHERE list_id = ? AND content_type = ? AND content_id = ?",
+        "DELETE FROM user_list_items
+         WHERE list_id = ? AND provider_id = ? AND content_type = ? AND content_id = ?",
     )
     .bind(list_id)
+    .bind(provider_id)
     .bind(content_type)
     .bind(content_id)
     .execute(pool)
@@ -160,7 +156,7 @@ pub async fn remove_item(
     Ok(())
 }
 
-/// Reorder items within a list. Keys are `"<content_type>:<content_id>"`.
+/// Reorder items within a list. Keys are `"<content_type>:<provider_id>:<content_id>"`.
 pub async fn reorder_items(
     pool: &SqlitePool,
     list_id: &str,
@@ -168,13 +164,17 @@ pub async fn reorder_items(
 ) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     for (idx, key) in ordered_keys.iter().enumerate() {
-        if let Some((content_type, content_id)) = key.split_once(':') {
+        let mut parts = key.splitn(3, ':');
+        if let (Some(content_type), Some(provider_id), Some(content_id)) =
+            (parts.next(), parts.next(), parts.next())
+        {
             sqlx::query(
                 "UPDATE user_list_items SET position = ?
-                 WHERE list_id = ? AND content_type = ? AND content_id = ?",
+                 WHERE list_id = ? AND provider_id = ? AND content_type = ? AND content_id = ?",
             )
             .bind(idx as i64)
             .bind(list_id)
+            .bind(provider_id)
             .bind(content_type)
             .bind(content_id)
             .execute(&mut *tx)
@@ -186,27 +186,18 @@ pub async fn reorder_items(
 }
 
 /// The resolved items of a list, in list order. Items whose catalog row no
-/// longer exists are omitted (orphans hidden, membership retained).
+/// longer exists are omitted (orphans hidden, membership retained). Each item is
+/// joined on its own `(provider_id, content_id)` (Milestone 39).
 pub async fn items(pool: &SqlitePool, list_id: &str) -> Result<Vec<UserListItem>, sqlx::Error> {
-    let provider_id: Option<String> =
-        sqlx::query_scalar("SELECT provider_id FROM user_lists WHERE id = ?")
-            .bind(list_id)
-            .fetch_optional(pool)
-            .await?;
-    let Some(provider_id) = provider_id else {
-        return Ok(Vec::new());
-    };
-
     // (position, item) across the three content tables, merged by position.
     let mut out: Vec<(i64, UserListItem)> = Vec::new();
 
     let movie_rows = sqlx::query(
         "SELECT m.*, li.position AS li_position
          FROM user_list_items li
-         JOIN movies m ON m.provider_id = ? AND m.id = li.content_id
+         JOIN movies m ON m.provider_id = li.provider_id AND m.id = li.content_id
          WHERE li.list_id = ? AND li.content_type = 'movie'",
     )
-    .bind(&provider_id)
     .bind(list_id)
     .fetch_all(pool)
     .await?;
@@ -222,10 +213,9 @@ pub async fn items(pool: &SqlitePool, list_id: &str) -> Result<Vec<UserListItem>
     let series_rows = sqlx::query(
         "SELECT s.*, li.position AS li_position
          FROM user_list_items li
-         JOIN series s ON s.provider_id = ? AND s.id = li.content_id
+         JOIN series s ON s.provider_id = li.provider_id AND s.id = li.content_id
          WHERE li.list_id = ? AND li.content_type = 'series'",
     )
-    .bind(&provider_id)
     .bind(list_id)
     .fetch_all(pool)
     .await?;
@@ -241,10 +231,9 @@ pub async fn items(pool: &SqlitePool, list_id: &str) -> Result<Vec<UserListItem>
     let live_rows = sqlx::query(
         "SELECT c.*, li.position AS li_position
          FROM user_list_items li
-         JOIN live_channels c ON c.provider_id = ? AND c.id = li.content_id
+         JOIN live_channels c ON c.provider_id = li.provider_id AND c.id = li.content_id
          WHERE li.list_id = ? AND li.content_type = 'live'",
     )
-    .bind(&provider_id)
     .bind(list_id)
     .fetch_all(pool)
     .await?;
@@ -261,17 +250,13 @@ pub async fn items(pool: &SqlitePool, list_id: &str) -> Result<Vec<UserListItem>
     Ok(out.into_iter().map(|(_, item)| item).collect())
 }
 
-/// All of a provider's lists (in sort order) with item count and cover posters
-/// for the Home "My Lists" row (spec §5.10).
-pub async fn summaries(
-    pool: &SqlitePool,
-    provider_id: &str,
-) -> Result<Vec<ListSummary>, sqlx::Error> {
+/// All lists (in sort order) with item count and cover posters for the Home
+/// "My Lists" row (spec §5.10). Global since Milestone 39.
+pub async fn summaries(pool: &SqlitePool) -> Result<Vec<ListSummary>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, name, sort_order, created_at, updated_at
-         FROM user_lists WHERE provider_id = ? ORDER BY sort_order, created_at",
+         FROM user_lists ORDER BY sort_order, created_at",
     )
-    .bind(provider_id)
     .fetch_all(pool)
     .await?;
 
@@ -289,8 +274,8 @@ pub async fn summaries(
     Ok(out)
 }
 
-/// IDs of the provider's lists that already contain a given item — backs the
-/// "Add to list" picker checkmarks.
+/// IDs of the lists that already contain a given `(provider_id, content_id)`
+/// item — backs the "Add to list" picker checkmarks (Milestone 39: provider-aware).
 pub async fn lists_for_item(
     pool: &SqlitePool,
     provider_id: &str,
@@ -298,9 +283,8 @@ pub async fn lists_for_item(
     content_id: &str,
 ) -> Result<Vec<String>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT li.list_id FROM user_list_items li
-         JOIN user_lists l ON l.id = li.list_id
-         WHERE l.provider_id = ? AND li.content_type = ? AND li.content_id = ?",
+        "SELECT list_id FROM user_list_items
+         WHERE provider_id = ? AND content_type = ? AND content_id = ?",
     )
     .bind(provider_id)
     .bind(content_type)

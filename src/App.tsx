@@ -50,11 +50,11 @@ function Shell() {
   // selections survive) but stops painting so the native video can show
   // through the transparent page background.
   const playerOpen = usePlayerStore((s) => s.open);
-  // Switching the active provider (Milestone 36) keeps the user on the same
+  // Changing the enabled provider set (Milestone 39) keeps the user on the same
   // section but remounts its page, so per-provider state (selected genre,
   // filters, scroll) resets and any open detail overlay closes — landing on the
   // section's main screen without navigating away.
-  const activeProviderId = useCatalogStore((s) => s.activeProvider?.id ?? null);
+  const scopeKey = useCatalogStore((s) => s.providerIds.join(","));
   return (
     <div className={`flex h-full min-w-0 flex-col ${playerOpen ? "invisible" : ""}`}>
       <WarningBanner />
@@ -62,7 +62,7 @@ function Shell() {
       <div className="relative min-h-0 flex-1">
         <TopNav />
         <main className="h-full overflow-y-auto pt-16">
-          <div key={activeProviderId ?? "no-provider"} className="h-full">
+          <div key={scopeKey || "no-provider"} className="h-full">
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/live" element={<LiveTV />} />

@@ -27,6 +27,7 @@ fn cleanup_db(path: &PathBuf) {
 fn movie(id: &str, name: &str) -> MovieItem {
     MovieItem {
         id: id.into(),
+        provider_id: String::new(),
         name: name.into(),
         category_id: "cat".into(),
         category_name: "Cat".into(),
@@ -42,6 +43,7 @@ fn movie(id: &str, name: &str) -> MovieItem {
 fn series(id: &str, name: &str) -> SeriesItem {
     SeriesItem {
         id: id.into(),
+        provider_id: String::new(),
         name: name.into(),
         category_id: "cat".into(),
         category_name: "Cat".into(),
@@ -53,6 +55,7 @@ fn series(id: &str, name: &str) -> SeriesItem {
 fn episode(id: &str, series_id: &str, season: i64, ep: i64) -> EpisodeItem {
     EpisodeItem {
         id: id.into(),
+        provider_id: String::new(),
         series_id: series_id.into(),
         season,
         episode: ep,

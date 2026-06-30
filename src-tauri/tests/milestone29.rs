@@ -42,6 +42,7 @@ async fn make_provider(pool: &SqlitePool, name: &str) -> Provider {
 fn channel(id: &str, name: &str) -> LiveChannel {
     LiveChannel {
         id: id.into(),
+        provider_id: String::new(),
         name: name.into(),
         category_id: "cat".into(),
         category_name: "Cat".into(),

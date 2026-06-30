@@ -29,6 +29,10 @@ Milestone 1 (Project Scaffold & Provider Authentication) is implemented:
 - "Test Connection" validates Xtream credentials (with account status, expiry, and connection counts) and M3U playlist reachability.
 - First-launch flow shows the Add Provider form when no providers exist.
 
+## Roadmap — Media-Hub direction (post-1.0)
+
+Beyond 1.0, Proscenium is evolving from a provider-centric IPTV client into a **canonical, catalog-first media application**: browse a canonical movie/series catalog (external metadata via **Cinemeta**) and **resolve playback on click** across *all* configured IPTV providers **and** Stremio addons — adopting the Stremio addon model internally (a canonical catalog keyed by IMDB/TMDB id + a registry of stream resolvers), so "multiple active providers" and "Stremio support" become one architecture. **Milestone 39** (multiple active providers — a merged, multi-provider catalog across every section) is **implemented**; **Milestones 40–42** (the Cinemeta-backed canonical catalog + source resolution, Stremio stream addons, and polish) are planned (see [SPEC.md](SPEC.md) §19), validated by the [2026-06-29 spike](docs/spikes/2026-06-29-multi-source-and-stremio.md): stream resolution is ~100% direct URLs (no torrent engine), movie matching is near-exact via the provider's `tmdb_id`, and series uses name+year with a manual override.
+
 ## Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup, run, test, and troubleshooting instructions.

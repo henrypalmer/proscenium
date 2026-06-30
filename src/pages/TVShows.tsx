@@ -14,36 +14,32 @@ import { useCatalogStore } from "../store/catalogStore";
 import type { Category, Series } from "../types";
 
 export default function TVShows() {
-  const activeProvider = useCatalogStore((s) => s.activeProvider);
+  const providerIds = useCatalogStore((s) => s.providerIds);
   const refreshTick = useCatalogStore((s) => s.refreshTick);
 
   const location = useLocation();
   const navigate = useNavigate();
-  // Home/Search navigate here with a series to open immediately. Initialize the
-  // detail from that state so it is present on the first *synchronous* render,
-  // which is what lets the poster morph across the route change (Milestone 17).
   const navSeries =
     (location.state as { openSeries?: Series } | null)?.openSeries ?? null;
 
-  // `null` = categories not loaded yet (render nothing — avoids a grey
-  // skeleton-grid flash before GenreRows takes over); `[]` = loaded-but-empty.
   const [categories, setCategories] = useState<Category[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Series | null>(navSeries);
-  /** Card whose poster morphs in/out of the detail view (View Transitions). */
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** True when the open detail was reached by navigation (Home/Search) rather
-   * than a click within this section's grid — closing it then goes back. */
   const [detailFromNav, setDetailFromNav] = useState(navSeries !== null);
   const [menu, setMenu] = useState<{ series: Series; x: number; y: number } | null>(
     null,
   );
-  const [addTo, setAddTo] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [addTo, setAddTo] = useState<{
+    id: string;
+    providerId: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
-  const providerId = activeProvider?.id ?? null;
+  const hasProviders = providerIds.length > 0;
+  const scopeKey = providerIds.join(",");
 
-  // Skip the detail reset on the very first run so a nav-provided detail
-  // survives mount; later provider/refresh changes still close any open detail.
   const firstCatRun = useRef(true);
   useEffect(() => {
     if (firstCatRun.current) {
@@ -52,16 +48,15 @@ export default function TVShows() {
       setDetail(null);
       setDetailFromNav(false);
     }
-    if (!providerId) {
+    if (!hasProviders) {
       setCategories([]);
       return;
     }
     let cancelled = false;
-    void api.getSeriesCategories(providerId).then(
+    void api.getSeriesCategories(providerIds).then(
       (cats) => {
         if (cancelled) return;
         setCategories(cats);
-        // Drop a selection that disappeared with the latest refresh.
         setSelected((current) =>
           current && !cats.some((c) => c.id === current) ? null : current,
         );
@@ -73,59 +68,48 @@ export default function TVShows() {
     return () => {
       cancelled = true;
     };
-  }, [providerId, refreshTick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, refreshTick]);
 
-  // A search result navigated here asking for a detail view (Milestone 6).
-  // Declared after the categories effect: that one resets the detail on
-  // mount and must not clobber the requested view.
   useEffect(() => {
     const state = location.state as { openSeries?: Series } | null;
     if (state?.openSeries) {
       setDetail(state.openSeries);
       setDetailFromNav(true);
-      // Clear the state so back/refresh doesn't reopen the detail.
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, location.pathname, navigate]);
 
-  // Per-genre strip fetcher for the "All" overview (memoized so a row only
-  // refetches when the provider changes, not on every parent render).
   const fetchSeriesPage = useCallback(
     (catId: string): Promise<Series[]> =>
-      providerId
-        ? api.getSeries(providerId, catId, 1, 30).then((r) => r.items)
+      hasProviders
+        ? api.getSeries(providerIds, catId, 1, 30).then((r) => r.items)
         : Promise.resolve([]),
-    [providerId],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scopeKey],
   );
 
-  if (!activeProvider) {
+  if (!hasProviders) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm font-medium text-zinc-400">No provider selected</p>
+        <p className="text-sm font-medium text-zinc-400">No provider enabled</p>
         <p className="max-w-xs text-xs text-zinc-600">
-          Add or select a provider in Settings to browse series.
+          Add or enable a provider in Settings to browse series.
         </p>
       </div>
     );
   }
 
-  // The clicked poster morphs into the detail's poster via View Transitions:
-  // the grid card is flushed to carry the shared name *before* the snapshot,
-  // then the detail mount is the transitioned update.
   const openDetail = (series: Series) => {
     setDetailFromNav(false);
     flushSync(() => setSelectedId(series.id));
     startViewTransition(() => setDetail(series));
   };
-  // Closing returns to the previous page when we arrived via navigation
-  // (e.g. Home or Search), otherwise it morphs back into the grid card.
   const closeDetail = () => {
     if (detailFromNav) navigate(-1);
     else startViewTransition(() => setDetail(null));
   };
 
-  // The grid card carries the shared-element name only while the detail is
-  // closed, so the name is never on two elements at once during a transition.
   const morphId = detail ? null : selectedId;
 
   return (
@@ -136,20 +120,17 @@ export default function TVShows() {
         categories={categories ?? []}
         selectedId={selected}
         onSelect={setSelected}
-        providerId={activeProvider.id}
+        providerIds={providerIds}
         section="series"
       />
       <div className="min-w-0 flex-1">
-        {/* While categories load, render nothing (no grey skeleton flash). Then:
-            "All Series" → per-genre row stack (M19); a selected genre → the full
-            virtualized grid; no genres → the grid's all-series fallback. */}
         {categories !== null &&
           (selected === null && categories.length > 0 ? (
             <GenreRows<Series>
               categories={categories}
-              resetKey={`${activeProvider.id}:${refreshTick}`}
+              resetKey={`${scopeKey}:${refreshTick}`}
               fetchPage={fetchSeriesPage}
-              getKey={(s) => s.id}
+              getKey={(s) => `${s.providerId}:${s.id}`}
               onSelectGenre={setSelected}
               renderCard={(series) => (
                 <SeriesCard
@@ -162,7 +143,7 @@ export default function TVShows() {
             />
           ) : (
             <SeriesGrid
-              providerId={activeProvider.id}
+              providerIds={providerIds}
               categoryId={selected}
               version={refreshTick}
               onActivate={openDetail}
@@ -173,7 +154,7 @@ export default function TVShows() {
       </div>
       {detail && (
         <SeriesDetail
-          providerId={activeProvider.id}
+          providerId={detail.providerId}
           series={detail}
           onClose={closeDetail}
         />
@@ -188,14 +169,19 @@ export default function TVShows() {
             {
               label: "Add to list…",
               onSelect: () =>
-                setAddTo({ id: menu.series.id, x: menu.x, y: menu.y }),
+                setAddTo({
+                  id: menu.series.id,
+                  providerId: menu.series.providerId,
+                  x: menu.x,
+                  y: menu.y,
+                }),
             },
           ]}
         />
       )}
       {addTo && (
         <AddToListMenu
-          providerId={activeProvider.id}
+          providerId={addTo.providerId}
           contentType="series"
           contentId={addTo.id}
           x={addTo.x}

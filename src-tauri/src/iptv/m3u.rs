@@ -396,6 +396,7 @@ impl CatalogBuilder {
             EntryKind::Live => {
                 let category_id = self.live_cats.intern(&group);
                 self.channels.push(LiveChannel {
+                    provider_id: String::new(),
                     id: format!("live-{n}"),
                     name,
                     category_name: category_id.clone(),
@@ -409,6 +410,7 @@ impl CatalogBuilder {
             EntryKind::Movie => {
                 let category_id = self.vod_cats.intern(&group);
                 self.movies.push(MovieItem {
+                    provider_id: String::new(),
                     id: format!("movie-{n}"),
                     release_year: year_from_name(&name),
                     name,
@@ -440,6 +442,7 @@ impl CatalogBuilder {
                 self.series_map.entry(series_id.clone()).or_insert_with(|| {
                     self.series_order.push(series_id.clone());
                     SeriesItem {
+                        provider_id: String::new(),
                         id: series_id.clone(),
                         name: series_name,
                         category_id: category_id.clone(),
@@ -455,6 +458,7 @@ impl CatalogBuilder {
                     (None, None) => (1, n as i64),
                 };
                 self.episodes.push(EpisodeItem {
+                    provider_id: String::new(),
                     id: format!("ep-{n}"),
                     series_id,
                     season,

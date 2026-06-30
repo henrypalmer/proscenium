@@ -47,6 +47,11 @@ function progressRef(item: ContinueWatchingItem) {
     : { contentType: "episode" as const, contentId: item.episode.id };
 }
 
+/** The provider a Keep Watching item plays from (Milestone 39). */
+function providerOf(item: ContinueWatchingItem): string {
+  return item.kind === "movie" ? item.movie.providerId : item.episode.providerId;
+}
+
 interface MenuState {
   movie: Movie;
   x: number;
@@ -60,12 +65,13 @@ type SeriesChoice = Extract<ContinueWatchingItem, { kind: "episode" }> & {
 };
 
 export default function Home() {
-  const activeProvider = useCatalogStore((s) => s.activeProvider);
+  const providerIds = useCatalogStore((s) => s.providerIds);
   const refreshTick = useCatalogStore((s) => s.refreshTick);
   const notify = useCatalogStore((s) => s.notify);
   const navigate = useNavigate();
 
-  const providerId = activeProvider?.id ?? null;
+  const hasProviders = providerIds.length > 0;
+  const scopeKey = providerIds.join(",");
 
   const [popularMovies, setPopularMovies] = useState<Movie[]>([]);
   const [popularSeries, setPopularSeries] = useState<Series[]>([]);
@@ -95,12 +101,13 @@ export default function Home() {
   const [addTo, setAddTo] = useState<{
     contentType: ListContentType;
     id: string;
+    providerId: string;
     x: number;
     y: number;
   } | null>(null);
 
   useEffect(() => {
-    if (!providerId) {
+    if (!hasProviders) {
       setPopularMovies([]);
       setPopularSeries([]);
       setKeepWatching([]);
@@ -108,17 +115,17 @@ export default function Home() {
     }
     let cancelled = false;
 
-    // Watch-progress markers for the Popular Movies cards (spec §5.9).
-    void useProgressStore.getState().loadSection(providerId, "movie");
-    // Custom lists for the "My Lists" row (spec §5.10/§5.11).
-    void useListsStore.getState().load(providerId);
+    // Watch-progress markers for the Popular Movies cards (spec §5.9), merged.
+    void useProgressStore.getState().loadSection(providerIds, "movie");
+    // Custom lists for the "My Lists" row (spec §5.10/§5.11); global since M39.
+    void useListsStore.getState().load();
 
     void (async () => {
       try {
-        const cats = await api.getVodCategories(providerId);
+        const cats = await api.getVodCategories(providerIds);
         const cat = findPopular(cats);
         const movies = cat
-          ? (await api.getMovies(providerId, cat.id, 1, ROW_SIZE)).items
+          ? (await api.getMovies(providerIds, cat.id, 1, ROW_SIZE)).items
           : [];
         if (!cancelled) setPopularMovies(movies);
       } catch {
@@ -128,10 +135,10 @@ export default function Home() {
 
     void (async () => {
       try {
-        const cats = await api.getSeriesCategories(providerId);
+        const cats = await api.getSeriesCategories(providerIds);
         const cat = findPopular(cats);
         const series = cat
-          ? (await api.getSeries(providerId, cat.id, 1, ROW_SIZE)).items
+          ? (await api.getSeries(providerIds, cat.id, 1, ROW_SIZE)).items
           : [];
         if (!cancelled) setPopularSeries(series);
       } catch {
@@ -139,7 +146,7 @@ export default function Home() {
       }
     })();
 
-    void api.getContinueWatching(providerId, 20).then(
+    void api.getContinueWatching(providerIds, 20).then(
       (items) => {
         if (!cancelled) setKeepWatching(items);
       },
@@ -151,26 +158,23 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [providerId, refreshTick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, refreshTick]);
 
-  if (!activeProvider) {
+  if (!hasProviders) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm font-medium text-zinc-400">No provider selected</p>
+        <p className="text-sm font-medium text-zinc-400">No provider enabled</p>
         <p className="max-w-xs text-xs text-zinc-600">
-          Add or select a provider in Settings to see your Home screen.
+          Add or enable a provider in Settings to see your Home screen.
         </p>
       </div>
     );
   }
 
-  const pid = activeProvider.id;
-
   // Open the detail as an in-place overlay with the poster morph (Milestone 16
-  // pattern): flush the clicked card's shared name in *before* the snapshot,
-  // then mount the detail as the transitioned update. Because Home never
-  // unmounts, closing morphs the poster straight back into the same card with
-  // scroll preserved — unlike a route change, which would refetch and replay.
+  // pattern). Because Home never unmounts, closing morphs the poster straight
+  // back into the same card with scroll preserved.
   const openMovie = (movie: Movie) => {
     flushSync(() => setMorph({ type: "movie", id: movie.id }));
     startViewTransition(() => setDetail({ type: "movie", item: movie }));
@@ -182,26 +186,25 @@ export default function Home() {
   const closeDetail = () => startViewTransition(() => setDetail(null));
   const playMovie = (movie: Movie) =>
     void usePlayerStore.getState().openContent({
-      providerId: pid,
+      providerId: movie.providerId,
       contentType: "movie",
       contentId: movie.id,
       title: movie.name,
     });
   const playMovieExternal = async (movie: Movie) => {
     try {
-      const url = await api.resolveStreamUrl(pid, "movie", movie.id);
+      const url = await api.resolveStreamUrl(movie.providerId, "movie", movie.id);
       await api.openInExternalPlayer(url);
     } catch (e) {
       notify(String(e), "error");
     }
   };
 
-  // Resume a Keep Watching item via the standard §5.9 flow (the resume prompt
-  // always appears here because every Keep Watching item is in-progress).
+  // Resume a Keep Watching item via the standard §5.9 flow.
   const resumeItem = (item: ContinueWatchingItem) => {
     if (item.kind === "movie") {
       void usePlayerStore.getState().openContent({
-        providerId: pid,
+        providerId: item.movie.providerId,
         contentType: "movie",
         contentId: item.movie.id,
         title: item.movie.name,
@@ -209,7 +212,7 @@ export default function Home() {
     } else {
       const { episode, series } = item;
       void usePlayerStore.getState().openContent({
-        providerId: pid,
+        providerId: episode.providerId,
         contentType: "episode",
         contentId: episode.id,
         title: episodeLabel(
@@ -223,8 +226,7 @@ export default function Home() {
   };
 
   // Clicking a Keep Watching card: movies (and catalog-orphaned episodes with no
-  // known series) resume directly; series episodes open the choice popup so the
-  // user can resume the last episode or jump to the series page (spec §5.10).
+  // known series) resume directly; series episodes open the choice popup.
   const onKeepWatchingActivate = (item: ContinueWatchingItem) => {
     if (item.kind === "episode" && item.series) {
       setSeriesChoice({ ...item, series: item.series });
@@ -233,18 +235,17 @@ export default function Home() {
     }
   };
 
-  // Drop a card from the row in place (the row closes up; an empty row is
-  // omitted by MediaRow).
+  // Drop a card from the row in place (an empty row is omitted by MediaRow).
   const removeCard = (item: ContinueWatchingItem) =>
     setKeepWatching((prev) => prev.filter((it) => cwKey(it) !== cwKey(item)));
 
-  // Keep Watching → "Mark as watched" (§5.10): set the completion flag so the
-  // item leaves the row and shows the §5.9 watched checkmark in the catalog.
+  // Keep Watching → "Mark as watched" (§5.10).
   const markWatched = (item: ContinueWatchingItem) => {
     const { contentType, contentId } = progressRef(item);
+    const providerId = providerOf(item);
     const duration = item.progress.durationSeconds;
-    void api.markWatched(pid, contentType, contentId, duration);
-    useProgressStore.getState().setLocal(pid, contentType, contentId, {
+    void api.markWatched(providerId, contentType, contentId, duration);
+    useProgressStore.getState().setLocal(providerId, contentType, contentId, {
       positionSeconds: duration ?? item.progress.positionSeconds,
       durationSeconds: duration,
       completed: true,
@@ -253,12 +254,12 @@ export default function Home() {
     removeCard(item);
   };
 
-  // Keep Watching → "Remove from list" (§5.10): clear progress entirely so the
-  // item shows neither a bar nor a checkmark.
+  // Keep Watching → "Remove from list" (§5.10): clear progress entirely.
   const removeFromList = (item: ContinueWatchingItem) => {
     const { contentType, contentId } = progressRef(item);
-    void api.clearWatchProgress(pid, contentType, contentId);
-    useProgressStore.getState().setLocal(pid, contentType, contentId, null);
+    const providerId = providerOf(item);
+    void api.clearWatchProgress(providerId, contentType, contentId);
+    useProgressStore.getState().setLocal(providerId, contentType, contentId, null);
     removeCard(item);
   };
 
@@ -291,11 +292,10 @@ export default function Home() {
             title="Popular Movies"
             testId="home-popular-movies"
             items={popularMovies}
-            getKey={(m) => m.id}
+            getKey={(m) => `${m.providerId}:${m.id}`}
             renderItem={(movie) => (
               <MovieCard
                 movie={movie}
-                providerId={pid}
                 onActivate={openMovie}
                 onContextMenu={(m, x, y) => setMenu({ movie: m, x, y })}
                 morphActive={
@@ -308,7 +308,7 @@ export default function Home() {
             title="Popular Series"
             testId="home-popular-series"
             items={popularSeries}
-            getKey={(s) => s.id}
+            getKey={(s) => `${s.providerId}:${s.id}`}
             renderItem={(series) => (
               <SeriesCard
                 series={series}
@@ -333,14 +333,19 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Detail rendered like Movies/TV Shows: absolute within this relative
-          page (z-20) so it sits *below* the floating nav (z-30), keeping the nav
-          visible. Home stays mounted, so closing morphs the poster back. */}
       {detail &&
         (detail.type === "movie" ? (
-          <MovieDetail providerId={pid} movie={detail.item} onClose={closeDetail} />
+          <MovieDetail
+            providerId={detail.item.providerId}
+            movie={detail.item}
+            onClose={closeDetail}
+          />
         ) : (
-          <SeriesDetail providerId={pid} series={detail.item} onClose={closeDetail} />
+          <SeriesDetail
+            providerId={detail.item.providerId}
+            series={detail.item}
+            onClose={closeDetail}
+          />
         ))}
 
       {menu && (
@@ -357,7 +362,13 @@ export default function Home() {
             {
               label: "Add to list…",
               onSelect: () =>
-                setAddTo({ contentType: "movie", id: menu.movie.id, x: menu.x, y: menu.y }),
+                setAddTo({
+                  contentType: "movie",
+                  id: menu.movie.id,
+                  providerId: menu.movie.providerId,
+                  x: menu.x,
+                  y: menu.y,
+                }),
             },
           ]}
         />
@@ -376,6 +387,7 @@ export default function Home() {
                 setAddTo({
                   contentType: "series",
                   id: seriesMenu.series.id,
+                  providerId: seriesMenu.series.providerId,
                   x: seriesMenu.x,
                   y: seriesMenu.y,
                 }),
@@ -386,7 +398,7 @@ export default function Home() {
 
       {addTo && (
         <AddToListMenu
-          providerId={pid}
+          providerId={addTo.providerId}
           contentType={addTo.contentType}
           contentId={addTo.id}
           x={addTo.x}

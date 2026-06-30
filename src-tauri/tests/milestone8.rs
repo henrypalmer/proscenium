@@ -173,11 +173,12 @@ async fn list_returns_section_keyed_by_content_id() {
         .await
         .unwrap();
 
+    // Milestone 39: progress is keyed by "<provider_id>:<content_id>".
     let movies = db::watch::list(&pool, &provider.id, "movie").await.unwrap();
     assert_eq!(movies.len(), 2);
-    assert_eq!(movies.get("m1").unwrap().position_seconds, 100);
-    assert!(movies.get("m2").unwrap().completed);
-    assert!(!movies.contains_key("e1"));
+    assert_eq!(movies.get(&format!("{}:m1", provider.id)).unwrap().position_seconds, 100);
+    assert!(movies.get(&format!("{}:m2", provider.id)).unwrap().completed);
+    assert!(!movies.contains_key(&format!("{}:e1", provider.id)));
 
     let episodes = db::watch::list(&pool, &provider.id, "episode").await.unwrap();
     assert_eq!(episodes.len(), 1);
@@ -214,6 +215,7 @@ async fn refresh_preserves_in_progress_episode() {
     let cat = Category { id: "30".into(), name: "Crime".into(), sort_order: 0 };
     let ser = SeriesItem {
         id: "s1".into(),
+        provider_id: String::new(),
         name: "Night Watch".into(),
         category_id: "30".into(),
         category_name: "Crime".into(),
@@ -222,6 +224,7 @@ async fn refresh_preserves_in_progress_episode() {
     };
     let ep = EpisodeItem {
         id: "e1".into(),
+        provider_id: String::new(),
         series_id: "s1".into(),
         season: 1,
         episode: 1,

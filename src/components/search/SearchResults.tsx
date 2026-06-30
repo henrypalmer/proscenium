@@ -16,7 +16,6 @@ export interface ActiveResult {
 }
 
 interface SearchResultsProps {
-  providerId: string;
   query: string;
   loading: boolean;
   results: SearchResultsData | null;
@@ -31,7 +30,6 @@ const noop = () => undefined;
 /** The three content-type groups (spec §5.5), the friendly no-results
  * state, and the idle hint before anything has been typed. */
 export default function SearchResults({
-  providerId,
   query,
   loading,
   results,
@@ -81,7 +79,7 @@ export default function SearchResults({
         layout="list"
         testId="search-group-live"
         activeId={active?.kind === "live" ? active.id : undefined}
-        getKey={(c) => c.id}
+        getKey={(c) => `${c.providerId}:${c.id}`}
         renderItem={(channel) => (
           <ChannelCard
             channel={channel}
@@ -97,14 +95,9 @@ export default function SearchResults({
         layout="grid"
         testId="search-group-movies"
         activeId={active?.kind === "movie" ? active.id : undefined}
-        getKey={(m) => m.id}
+        getKey={(m) => `${m.providerId}:${m.id}`}
         renderItem={(movie) => (
-          <MovieCard
-            movie={movie}
-            providerId={providerId}
-            onActivate={onOpenMovie}
-            onContextMenu={noop}
-          />
+          <MovieCard movie={movie} onActivate={onOpenMovie} onContextMenu={noop} />
         )}
       />
       <SearchResultGroup
@@ -113,7 +106,7 @@ export default function SearchResults({
         layout="grid"
         testId="search-group-series"
         activeId={active?.kind === "series" ? active.id : undefined}
-        getKey={(s) => s.id}
+        getKey={(s) => `${s.providerId}:${s.id}`}
         renderItem={(series) => (
           <SeriesCard series={series} onActivate={onOpenSeries} />
         )}

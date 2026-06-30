@@ -45,6 +45,8 @@ export interface Category {
 
 export interface LiveChannel {
   id: string;
+  /** Origin provider (Milestone 39 multi-provider). */
+  providerId: string;
   name: string;
   categoryId: string;
   categoryName: string;
@@ -55,6 +57,8 @@ export interface LiveChannel {
 
 export interface Movie {
   id: string;
+  /** Origin provider (Milestone 39 multi-provider). */
+  providerId: string;
   name: string;
   categoryId: string;
   categoryName: string;
@@ -67,6 +71,8 @@ export interface Movie {
 
 export interface Series {
   id: string;
+  /** Origin provider (Milestone 39 multi-provider). */
+  providerId: string;
   name: string;
   categoryId: string;
   categoryName: string;
@@ -76,6 +82,8 @@ export interface Series {
 
 export interface Episode {
   id: string;
+  /** Origin provider (Milestone 39 multi-provider). */
+  providerId: string;
   seriesId: string;
   season: number;
   episode: number;

@@ -120,6 +120,7 @@ pub async fn fetch_catalog(
             };
             let category_id = value_to_string(&item["category_id"]).unwrap_or_else(|| "0".into());
             data.live_channels.push(LiveChannel {
+                provider_id: String::new(),
                 // Milestone 21: do not persist the password-bearing URL; the
                 // playable URL is composed at playback from the keychain secret.
                 stream_url: String::new(),
@@ -152,6 +153,7 @@ pub async fn fetch_catalog(
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "mp4".into());
             data.movies.push(MovieItem {
+                provider_id: String::new(),
                 // Milestone 21: id + container_ext are persisted; the URL is
                 // composed at playback from the keychain secret, never stored.
                 stream_url: String::new(),
@@ -184,6 +186,7 @@ pub async fn fetch_catalog(
             };
             let category_id = value_to_string(&item["category_id"]).unwrap_or_else(|| "0".into());
             data.series.push(SeriesItem {
+                provider_id: String::new(),
                 id,
                 name,
                 category_name: lookup(&names, &category_id),
@@ -330,6 +333,7 @@ pub async fn fetch_series_info(
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "mp4".into());
             episodes.push(EpisodeItem {
+                provider_id: String::new(),
                 // Milestone 21: id + container_ext are persisted; the URL is
                 // composed at playback from the keychain secret, never stored.
                 stream_url: String::new(),

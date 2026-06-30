@@ -82,6 +82,17 @@ const provider2: Provider = {
 
 const mockProviders: Provider[] = [provider, provider2];
 let mockActiveProviderId = provider.id;
+// Enabled provider set (Milestone 39); starts with both so the merged catalog
+// and badges are visible immediately in browser dev.
+let mockEnabledProviderIds: string[] = [provider.id, provider2.id];
+
+/** The enabled provider scope from a merged-read's args (Milestone 39). */
+function scope(a: Record<string, unknown>): string[] {
+  return (a.providerIds as string[] | undefined) ?? [];
+}
+function inScope(providerId: string, a: Record<string, unknown>): boolean {
+  return scope(a).includes(providerId);
+}
 
 function svgLogo(seed: number): string {
   const hue = (seed * 47) % 360;
@@ -106,6 +117,9 @@ function allChannels(): LiveChannel[] {
       const blankName = i % 137 === 4;
       return {
         id: `live-${i}`,
+        // A quarter belong to the second provider so the merged catalog + the
+        // per-card provider badge are demoable in dev (Milestone 39).
+        providerId: i % 4 === 0 ? provider2.id : provider.id,
         name: blankName
           ? ""
           : `${FIRST[i % FIRST.length]} ${SECOND[i % SECOND.length]} ${String(i % 997).padStart(3, "0")}`,
@@ -207,6 +221,7 @@ function allMovies(): Movie[] {
       const name = `${TITLE_A[i % TITLE_A.length]} ${TITLE_B[(i * 7) % TITLE_B.length]} ${String(i % 887).padStart(3, "0")}`;
       return {
         id: `movie-${i}`,
+        providerId: i % 4 === 0 ? provider2.id : provider.id,
         name,
         categoryId: genre,
         categoryName: genre,
@@ -229,6 +244,7 @@ function allSeries(): Series[] {
       const name = `${TITLE_A[(i * 3) % TITLE_A.length]} ${TITLE_B[i % TITLE_B.length]} ${String(i % 397).padStart(3, "0")}`;
       return {
         id: `series-${i}`,
+        providerId: i % 4 === 0 ? provider2.id : provider.id,
         name,
         categoryId: genre,
         categoryName: genre,
@@ -250,6 +266,7 @@ function episodesFor(seriesId: string): EpisodesBySeason {
       const name = TITLE_B[(n + s + e) % TITLE_B.length];
       return {
         id: `ep-${n}-${s}-${e + 1}`,
+        providerId: n % 4 === 0 ? provider2.id : provider.id,
         seriesId,
         season: s,
         episode: e + 1,
@@ -273,7 +290,7 @@ function episodesFor(seriesId: string): EpisodesBySeason {
 
 /** Shared pagination: case-insensitive alphabetical, optional genre filter
  * (mirrors the backend's ORDER BY name COLLATE NOCASE). */
-function paginateByName<T extends { name: string; categoryId: string }>(
+function paginateByName<T extends { name: string; categoryId: string; providerId: string }>(
   list: T[],
   a: Args,
 ): PaginatedResult<T> {
@@ -283,6 +300,8 @@ function paginateByName<T extends { name: string; categoryId: string }>(
   const page = Math.max(1, (a.page as number) ?? 1);
   const pageSize = Math.min(500, Math.max(1, (a.pageSize as number) ?? 200));
   const filtered = list
+    // Milestone 39: merged across the enabled provider set; category is by name.
+    .filter((item) => inScope(item.providerId, a))
     .filter((item) => !categoryId || item.categoryId === categoryId)
     .filter((item) => !query || item.name.toLowerCase().includes(query))
     .sort((x, y) => x.name.toLowerCase().localeCompare(y.name.toLowerCase()));
@@ -306,15 +325,15 @@ function mockSearch(a: Args): SearchResults {
   const categoryId = a.categoryId as string | undefined;
   const limit = Math.min(500, Math.max(1, (a.limit as number) ?? 20));
 
-  function take<T extends { name: string; categoryId: string; categoryName: string }>(
-    list: T[],
-    wanted: string,
-  ): T[] {
+  function take<
+    T extends { name: string; categoryId: string; categoryName: string; providerId: string },
+  >(list: T[], wanted: string): T[] {
     if (tokens.length === 0 || (contentType !== "all" && contentType !== wanted)) {
       return [];
     }
     return list
       .filter((item) => {
+        if (!inScope(item.providerId, a)) return false;
         if (categoryId && item.categoryId !== categoryId) return false;
         const words = `${item.name} ${item.categoryName}`.toLowerCase().split(/\s+/);
         return tokens.every((t) => words.some((w) => w.startsWith(t)));
@@ -378,13 +397,13 @@ function findEpisodeById(
 
 interface MockList {
   id: string;
-  providerId: string;
   name: string;
   sortOrder: number;
   createdAt: number;
   updatedAt: number;
 }
 interface MockListItem {
+  providerId: string;
   contentType: "live" | "movie" | "series";
   contentId: string;
   position: number;
@@ -397,15 +416,16 @@ const newListId = () => `list-${++listSeq}`;
 
 /** Resolve a list item to its catalog card, or null if the content is gone. */
 function resolveListItem(item: MockListItem): UserListItem | null {
+  const sameProvider = (x: { providerId: string }) => x.providerId === item.providerId;
   if (item.contentType === "movie") {
-    const movie = allMovies().find((m) => m.id === item.contentId);
+    const movie = allMovies().find((m) => m.id === item.contentId && sameProvider(m));
     return movie ? { kind: "movie", movie } : null;
   }
   if (item.contentType === "series") {
-    const series = allSeries().find((s) => s.id === item.contentId);
+    const series = allSeries().find((s) => s.id === item.contentId && sameProvider(s));
     return series ? { kind: "series", series } : null;
   }
-  const channel = allChannels().find((c) => c.id === item.contentId);
+  const channel = allChannels().find((c) => c.id === item.contentId && sameProvider(c));
   return channel ? { kind: "live", channel } : null;
 }
 
@@ -443,7 +463,6 @@ function listSummary(list: MockList): ListSummary {
   const nowS = Math.floor(Date.now() / 1000);
   const horror: MockList = {
     id: newListId(),
-    providerId: provider.id,
     name: "Horror movies to watch",
     sortOrder: 0,
     createdAt: nowS - 500,
@@ -451,7 +470,6 @@ function listSummary(list: MockList): ListSummary {
   };
   const binge: MockList = {
     id: newListId(),
-    providerId: provider.id,
     name: "Binge Worthy TV Shows",
     sortOrder: 1,
     createdAt: nowS - 400,
@@ -459,14 +477,15 @@ function listSummary(list: MockList): ListSummary {
   };
   userLists.set(horror.id, horror);
   userLists.set(binge.id, binge);
+  const pid = provider.id;
   userListItems.set(horror.id, [
-    { contentType: "movie", contentId: "movie-1", position: 0 },
-    { contentType: "movie", contentId: "movie-5", position: 1 },
-    { contentType: "live", contentId: "live-2", position: 2 },
+    { providerId: pid, contentType: "movie", contentId: "movie-1", position: 0 },
+    { providerId: pid, contentType: "movie", contentId: "movie-5", position: 1 },
+    { providerId: pid, contentType: "live", contentId: "live-2", position: 2 },
   ]);
   userListItems.set(binge.id, [
-    { contentType: "series", contentId: "series-1", position: 0 },
-    { contentType: "series", contentId: "series-3", position: 1 },
+    { providerId: pid, contentType: "series", contentId: "series-1", position: 0 },
+    { providerId: pid, contentType: "series", contentId: "series-3", position: 1 },
   ]);
 })();
 
@@ -569,18 +588,26 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
     case "set_active_provider":
       mockActiveProviderId = a.providerId as string;
       return undefined as T;
+    case "get_enabled_providers":
+      return mockProviders.filter((p) => mockEnabledProviderIds.includes(p.id)) as T;
+    case "set_enabled_providers":
+      mockEnabledProviderIds = (a.providerIds as string[]) ?? [];
+      if (mockEnabledProviderIds.length > 0) mockActiveProviderId = mockEnabledProviderIds[0];
+      return undefined as T;
     case "refresh_catalog": {
       // Stamp a fresh "Last refreshed" time so the timestamp update is demoable.
       const active = mockProviders.find((p) => p.id === mockActiveProviderId);
       if (active) active.lastRefreshed = Math.floor(Date.now() / 1000);
       return undefined as T;
     }
-    case "get_catalog_summary":
+    case "get_catalog_summary": {
+      const ids = scope(a);
       return {
-        liveChannels: CHANNEL_COUNT,
-        movies: MOVIE_COUNT,
-        series: SERIES_COUNT,
+        liveChannels: allChannels().filter((c) => ids.includes(c.providerId)).length,
+        movies: allMovies().filter((m) => ids.includes(m.providerId)).length,
+        series: allSeries().filter((s) => ids.includes(s.providerId)).length,
       } satisfies CatalogSummary as T;
+    }
     case "get_live_categories":
       return CATEGORY_NAMES.map((name, i) => ({
         id: name,
@@ -601,7 +628,7 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       const byId = new Map(allChannels().map((c) => [c.id, c]));
       const items = mockRecentChannelIds
         .map((id) => byId.get(id))
-        .filter((c): c is LiveChannel => !!c)
+        .filter((c): c is LiveChannel => !!c && inScope(c.providerId, a))
         .slice(0, limit);
       return items as T;
     }
@@ -783,10 +810,13 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       return undefined as T;
     }
     case "list_watch_progress": {
-      const prefix = `${a.providerId as string}|${a.contentType as string}|`;
+      // Milestone 39: keyed by "<providerId>:<contentId>" across the scope.
+      const ids = scope(a);
+      const contentType = a.contentType as string;
       const out: Record<string, WatchProgress> = {};
       for (const [key, value] of watchProgress) {
-        if (key.startsWith(prefix)) out[key.slice(prefix.length)] = value;
+        const [pid, ct, contentId] = key.split("|");
+        if (ct === contentType && ids.includes(pid)) out[`${pid}:${contentId}`] = value;
       }
       return out as T;
     }
@@ -796,12 +826,12 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       );
       return undefined as T;
     case "get_continue_watching": {
-      const providerId = a.providerId as string;
+      const ids = scope(a);
       const limit = Math.min(200, Math.max(1, (a.limit as number) ?? 20));
       const items: ContinueWatchingItem[] = [];
       for (const [k, progress] of watchProgress) {
         const [pid, contentType, contentId] = k.split("|");
-        if (pid !== providerId || progress.completed) continue;
+        if (!ids.includes(pid) || progress.completed) continue;
         if (contentType === "movie") {
           const movie = allMovies().find((mv) => mv.id === contentId);
           if (movie) items.push({ kind: "movie", movie, progress });
@@ -823,17 +853,10 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
     // --- Custom lists / playlists (Milestone 14) ---
     case "create_list": {
       const nowS = Math.floor(Date.now() / 1000);
-      const providerId = a.providerId as string;
       const nextOrder =
-        Math.max(
-          -1,
-          ...[...userLists.values()]
-            .filter((l) => l.providerId === providerId)
-            .map((l) => l.sortOrder),
-        ) + 1;
+        Math.max(-1, ...[...userLists.values()].map((l) => l.sortOrder)) + 1;
       const list: MockList = {
         id: newListId(),
-        providerId,
         name: (a.name as string).trim(),
         sortOrder: nextOrder,
         createdAt: nowS,
@@ -871,20 +894,26 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       return undefined as T;
     }
     case "get_lists": {
-      const providerId = a.providerId as string;
       return [...userLists.values()]
-        .filter((l) => l.providerId === providerId)
         .sort((x, y) => x.sortOrder - y.sortOrder || x.createdAt - y.createdAt)
         .map(listSummary) as T;
     }
     case "add_to_list": {
       const listId = a.listId as string;
       const items = userListItems.get(listId) ?? [];
+      const providerId = a.providerId as string;
       const contentType = a.contentType as MockListItem["contentType"];
       const contentId = a.contentId as string;
-      if (!items.some((i) => i.contentType === contentType && i.contentId === contentId)) {
+      if (
+        !items.some(
+          (i) =>
+            i.providerId === providerId &&
+            i.contentType === contentType &&
+            i.contentId === contentId,
+        )
+      ) {
         const nextPos = Math.max(-1, ...items.map((i) => i.position)) + 1;
-        items.push({ contentType, contentId, position: nextPos });
+        items.push({ providerId, contentType, contentId, position: nextPos });
         userListItems.set(listId, items);
       }
       const list = userLists.get(listId);
@@ -897,7 +926,12 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       userListItems.set(
         listId,
         items.filter(
-          (i) => !(i.contentType === a.contentType && i.contentId === a.contentId),
+          (i) =>
+            !(
+              i.providerId === a.providerId &&
+              i.contentType === a.contentType &&
+              i.contentId === a.contentId
+            ),
         ),
       );
       const list = userLists.get(listId);
@@ -908,8 +942,10 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       const listId = a.listId as string;
       const items = userListItems.get(listId) ?? [];
       (a.orderedItemKeys as string[]).forEach((key, idx) => {
-        const [ct, cid] = key.split(":");
-        const it = items.find((i) => i.contentType === ct && i.contentId === cid);
+        const [ct, pid, cid] = key.split(":");
+        const it = items.find(
+          (i) => i.contentType === ct && i.providerId === pid && i.contentId === cid,
+        );
         if (it) it.position = idx;
       });
       return undefined as T;
@@ -922,9 +958,15 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       const contentId = a.contentId as string;
       const out: string[] = [];
       for (const list of userLists.values()) {
-        if (list.providerId !== providerId) continue;
         const items = userListItems.get(list.id) ?? [];
-        if (items.some((i) => i.contentType === contentType && i.contentId === contentId))
+        if (
+          items.some(
+            (i) =>
+              i.providerId === providerId &&
+              i.contentType === contentType &&
+              i.contentId === contentId,
+          )
+        )
           out.push(list.id);
       }
       return out as T;

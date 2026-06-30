@@ -18,9 +18,9 @@ const key = (
 interface ProgressStoreState {
   /** Keyed by `${providerId}|${contentType}|${contentId}`. */
   entries: Record<string, WatchProgress>;
-  /** Bulk-load a whole section into the cache. */
+  /** Bulk-load a whole section across the provider set into the cache. */
   loadSection: (
-    providerId: string,
+    providerIds: string[],
     contentType: ProgressContentType,
   ) => Promise<void>;
   /** Re-fetch one item from the backend (after playback). */
@@ -41,12 +41,17 @@ interface ProgressStoreState {
 export const useProgressStore = create<ProgressStoreState>((set) => ({
   entries: {},
 
-  loadSection: async (providerId, contentType) => {
+  loadSection: async (providerIds, contentType) => {
+    if (providerIds.length === 0) return;
     try {
-      const map = await api.listWatchProgress(providerId, contentType);
+      // Backend keys each entry as "<providerId>:<contentId>" (Milestone 39).
+      const map = await api.listWatchProgress(providerIds, contentType);
       set((state) => {
         const entries = { ...state.entries };
-        for (const [contentId, progress] of Object.entries(map)) {
+        for (const [pkey, progress] of Object.entries(map)) {
+          const sep = pkey.indexOf(":");
+          const providerId = pkey.slice(0, sep);
+          const contentId = pkey.slice(sep + 1);
           entries[key(providerId, contentType, contentId)] = progress;
         }
         return { entries };

@@ -13,9 +13,9 @@ interface ProviderCardProps {
 
 export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
   const remove = useProviderStore((s) => s.remove);
-  const activeProviderId = useCatalogStore((s) => s.activeProvider?.id ?? null);
-  const setActive = useCatalogStore((s) => s.setActive);
-  const isActive = activeProviderId === provider.id;
+  const enabledIds = useCatalogStore((s) => s.providerIds);
+  const toggleProvider = useCatalogStore((s) => s.toggleProvider);
+  const isEnabled = enabledIds.includes(provider.id);
   const [status, setStatus] = useState<ConnectionTestResult | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,12 +69,12 @@ export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
             <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
               {provider.type === "xtream" ? "Xtream" : "M3U"}
             </span>
-            {isActive && (
+            {isEnabled && (
               <span
-                data-testid="provider-active-badge"
+                data-testid="provider-enabled-badge"
                 className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400"
               >
-                Active
+                Enabled
               </span>
             )}
           </div>
@@ -86,15 +86,17 @@ export default function ProviderCard({ provider, onEdit }: ProviderCardProps) {
           </p>
         </div>
         <div className="flex shrink-0 gap-1">
-          {!isActive && (
-            <button
-              onClick={() => void setActive(provider.id)}
-              data-testid="make-active"
-              className="rounded-md border border-emerald-900/60 px-2.5 py-1 text-xs text-emerald-400 hover:bg-emerald-950/40"
-            >
-              Make active
-            </button>
-          )}
+          <button
+            onClick={() => void toggleProvider(provider.id)}
+            data-testid="provider-enable-toggle"
+            className={`rounded-md border px-2.5 py-1 text-xs ${
+              isEnabled
+                ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                : "border-emerald-900/60 text-emerald-400 hover:bg-emerald-950/40"
+            }`}
+          >
+            {isEnabled ? "Disable" : "Enable"}
+          </button>
           <button
             onClick={() => void handleCheckStatus()}
             disabled={checking}

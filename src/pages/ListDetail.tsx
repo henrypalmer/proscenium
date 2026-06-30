@@ -18,17 +18,23 @@ import { usePlayerStore } from "../store/playerStore";
 import { useProgressStore } from "../store/progressStore";
 import type { LiveChannel, ListContentType, Movie, Series, UserListItem } from "../types";
 
-/** Stable membership key for a list item. */
+/** Stable membership key for a list item (provider-qualified, Milestone 39). */
 function itemKey(item: UserListItem): string {
-  if (item.kind === "movie") return `movie:${item.movie.id}`;
-  if (item.kind === "series") return `series:${item.series.id}`;
-  return `live:${item.channel.id}`;
+  if (item.kind === "movie") return `movie:${item.movie.providerId}:${item.movie.id}`;
+  if (item.kind === "series") return `series:${item.series.providerId}:${item.series.id}`;
+  return `live:${item.channel.providerId}:${item.channel.id}`;
 }
 
-function refOf(item: UserListItem): { contentType: ListContentType; contentId: string } {
-  if (item.kind === "movie") return { contentType: "movie", contentId: item.movie.id };
-  if (item.kind === "series") return { contentType: "series", contentId: item.series.id };
-  return { contentType: "live", contentId: item.channel.id };
+function refOf(item: UserListItem): {
+  providerId: string;
+  contentType: ListContentType;
+  contentId: string;
+} {
+  if (item.kind === "movie")
+    return { providerId: item.movie.providerId, contentType: "movie", contentId: item.movie.id };
+  if (item.kind === "series")
+    return { providerId: item.series.providerId, contentType: "series", contentId: item.series.id };
+  return { providerId: item.channel.providerId, contentType: "live", contentId: item.channel.id };
 }
 
 /** A poster-shaped tile for a live channel inside the list grid. */
@@ -73,12 +79,11 @@ function ChannelTile({
 export default function ListDetail() {
   const { listId } = useParams<{ listId: string }>();
   const navigate = useNavigate();
-  const activeProvider = useCatalogStore((s) => s.activeProvider);
-  const providerId = activeProvider?.id ?? null;
+  const providerIds = useCatalogStore((s) => s.providerIds);
+  const scopeKey = providerIds.join(",");
 
   const lists = useListsStore((s) => s.lists);
   const listsLoaded = useListsStore((s) => s.loaded);
-  const listsProviderId = useListsStore((s) => s.providerId);
   const loadLists = useListsStore((s) => s.load);
   const renameList = useListsStore((s) => s.rename);
   const removeList = useListsStore((s) => s.remove);
@@ -90,28 +95,24 @@ export default function ListDetail() {
   const [menu, setMenu] = useState<{ item: UserListItem; x: number; y: number } | null>(
     null,
   );
-  /** Card whose poster morphs in/out of the in-place detail overlay (kept set
-   * after close so the reverse morph lands back on the same card). */
   const [morph, setMorph] = useState<{ type: "movie" | "series"; id: string } | null>(
     null,
   );
-  /** Detail shown as an in-place overlay (not a route change) so the list stays
-   * mounted — scroll is preserved and the poster morphs back on close. */
   const [detail, setDetail] = useState<
     { type: "movie"; item: Movie } | { type: "series"; item: Series } | null
   >(null);
 
   const list = lists.find((l) => l.id === listId);
 
-  // Ensure the store has this provider's lists (for the header name/meta).
+  // Ensure the store has the (global) lists for the header name/meta.
   useEffect(() => {
-    if (providerId) void loadLists(providerId);
-  }, [providerId, loadLists]);
+    void loadLists();
+  }, [loadLists]);
 
   // Load the list's resolved items and the movie progress overlays.
   useEffect(() => {
     if (!listId) return;
-    if (providerId) void useProgressStore.getState().loadSection(providerId, "movie");
+    void useProgressStore.getState().loadSection(providerIds, "movie");
     let cancelled = false;
     void api.getListItems(listId).then(
       (its) => {
@@ -124,31 +125,20 @@ export default function ListDetail() {
     return () => {
       cancelled = true;
     };
-  }, [listId, providerId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listId, scopeKey]);
 
-  // Lists are provider-scoped, so after switching providers (Milestone 36) — or
-  // if the list was deleted — the current list won't exist. Once this provider's
-  // lists are loaded and it's confirmed absent, back out to Home.
+  // Once the (global) lists are loaded and this list is confirmed absent
+  // (deleted), back out to Home.
   useEffect(() => {
-    if (listId && listsLoaded && listsProviderId === providerId && !list) {
+    if (listId && listsLoaded && !list) {
       navigate("/", { replace: true });
     }
-  }, [listId, listsLoaded, listsProviderId, providerId, list, navigate]);
+  }, [listId, listsLoaded, list, navigate]);
 
-  if (!activeProvider) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm font-medium text-zinc-400">No provider selected</p>
-      </div>
-    );
-  }
   if (!listId) return null;
-  const pid = activeProvider.id;
 
-  // Open the detail as an in-place overlay with the poster morph (same pattern
-  // as the grids/Home): flush the clicked card's shared name before the
-  // snapshot, then mount the overlay. The list stays mounted, so closing morphs
-  // the poster back into the same card with scroll preserved.
+  // Open the detail as an in-place overlay with the poster morph.
   const openMovie = (item: Extract<UserListItem, { kind: "movie" }>) => {
     flushSync(() => setMorph({ type: "movie", id: item.movie.id }));
     startViewTransition(() => setDetail({ type: "movie", item: item.movie }));
@@ -160,15 +150,15 @@ export default function ListDetail() {
   const closeDetail = () => startViewTransition(() => setDetail(null));
   const playChannel = (channel: LiveChannel) =>
     void usePlayerStore.getState().openContent({
-      providerId: pid,
+      providerId: channel.providerId,
       contentType: "live",
       contentId: channel.id,
       title: channel.name,
     });
 
   const remove = (item: UserListItem) => {
-    const { contentType, contentId } = refOf(item);
-    void removeItem(listId, contentType, contentId);
+    const { providerId, contentType, contentId } = refOf(item);
+    void removeItem(listId, providerId, contentType, contentId);
     setItems((prev) => prev.filter((it) => itemKey(it) !== itemKey(item)));
   };
 
@@ -235,7 +225,6 @@ export default function ListDetail() {
                   {item.kind === "movie" && (
                     <MovieCard
                       movie={item.movie}
-                      providerId={pid}
                       onActivate={() => openMovie(item)}
                       onContextMenu={(_m, x, y) => setMenu({ item, x, y })}
                       morphActive={
@@ -278,14 +267,19 @@ export default function ListDetail() {
         </div>
       </div>
 
-      {/* Detail rendered like Movies/TV Shows: absolute within this relative
-          page (z-20) so it sits below the floating nav (z-30). The list stays
-          mounted, so closing morphs the poster back into its card. */}
       {detail &&
         (detail.type === "movie" ? (
-          <MovieDetail providerId={pid} movie={detail.item} onClose={closeDetail} />
+          <MovieDetail
+            providerId={detail.item.providerId}
+            movie={detail.item}
+            onClose={closeDetail}
+          />
         ) : (
-          <SeriesDetail providerId={pid} series={detail.item} onClose={closeDetail} />
+          <SeriesDetail
+            providerId={detail.item.providerId}
+            series={detail.item}
+            onClose={closeDetail}
+          />
         ))}
 
       {menu && (

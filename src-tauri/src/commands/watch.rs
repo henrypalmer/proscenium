@@ -139,11 +139,11 @@ pub async fn mark_watched(
 #[tauri::command]
 pub async fn list_watch_progress(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
     content_type: String,
 ) -> Result<HashMap<String, WatchProgress>, String> {
     validate_content_type(&content_type)?;
-    db::watch::list(&state.0, &provider_id, &content_type)
+    db::watch::list(&state.0, &provider_ids, &content_type)
         .await
         .map_err(|e| format!("Failed to list watch progress: {e}"))
 }
@@ -151,12 +151,12 @@ pub async fn list_watch_progress(
 #[tauri::command]
 pub async fn get_continue_watching(
     state: State<'_, Db>,
-    provider_id: String,
+    provider_ids: Vec<String>,
     limit: Option<i64>,
 ) -> Result<Vec<ContinueWatchingItem>, String> {
     db::watch::continue_watching(
         &state.0,
-        &provider_id,
+        &provider_ids,
         limit.unwrap_or(DEFAULT_CONTINUE_WATCHING_LIMIT),
     )
     .await

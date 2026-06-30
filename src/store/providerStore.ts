@@ -33,10 +33,10 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       .concat(saved)
       .sort((a, b) => a.createdAt - b.createdAt);
     set({ providers });
-    // The first saved provider becomes the active one (kicks off the
-    // initial catalog refresh in the background).
-    if (!useCatalogStore.getState().activeProvider) {
-      await useCatalogStore.getState().setActive(saved.id);
+    // The first saved provider becomes enabled (kicks off the initial catalog
+    // refresh in the background); later providers are enabled by the user.
+    if (useCatalogStore.getState().providerIds.length === 0) {
+      await useCatalogStore.getState().setEnabled([saved.id]);
     }
     return saved;
   },

@@ -1,6 +1,7 @@
 import CachedImage from "../common/CachedImage";
 import Placeholder from "../common/Placeholder";
 import { displayChannelName } from "../../lib/utils";
+import { useProviderBadge } from "../../lib/useProviderBadge";
 import type { LiveChannel } from "../../types";
 
 interface ChannelCardProps {
@@ -45,6 +46,7 @@ export default function ChannelCard({
   compact = false,
 }: ChannelCardProps) {
   const name = displayChannelName(channel.name);
+  const badge = useProviderBadge(channel.providerId);
   return (
     <button
       onClick={() => onActivate(channel)}
@@ -65,6 +67,11 @@ export default function ChannelCard({
       >
         {name}
       </span>
+      {badge && (
+        <span className="max-w-28 shrink-0 truncate rounded bg-zinc-800/60 px-1.5 py-0.5 text-[10px] text-zinc-500">
+          {badge}
+        </span>
+      )}
       {showCategory && (
         <span className="max-w-40 shrink-0 truncate rounded bg-zinc-800/80 px-2 py-0.5 text-[11px] text-zinc-400">
           {channel.categoryName}

@@ -72,7 +72,7 @@ export default function SeriesDetail({
         // Metadata is optional; the base row already renders.
       }
       // Watch progress for episode rows (spec §5.9).
-      void useProgressStore.getState().loadSection(providerId, "episode");
+      void useProgressStore.getState().loadSection([providerId], "episode");
       try {
         const grouped = await api.getEpisodes(providerId, series.id);
         if (cancelled) return;

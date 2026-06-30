@@ -64,7 +64,7 @@ Proscenium prioritizes performance, responsiveness, and ease of use across Windo
 ### Non-Goals (v1.0)
 
 - DVR/recording functionality.
-- Multi-provider simultaneous streaming (one active provider at a time in v1).
+- ~~Multi-provider simultaneous streaming (one active provider at a time in v1).~~ — **Lifted post-1.0:** a merged multi-provider catalog + multi-source playback is the **Media-Hub direction** (Milestones 39–42, §19).
 - Social or sharing features.
 - Mobile platform support.
 - Linux platform support (planned for a future release).
@@ -895,7 +895,7 @@ Items explicitly planned but deferred beyond v1.0:
 
 | Feature | Priority | Notes |
 |---------|----------|-------|
-| Cover art propagation (TMDB) | High | See §5.7. **Scheduled as Milestone 33** (external — needs a TMDB API key). |
+| Cover art propagation (TMDB) | High | See §5.7. **Scheduled as Milestone 33** (external — needs a TMDB API key). **Reframed by Milestone 40** — the Cinemeta canonical catalog supplies art, and M33's "match → persist tmdb id against the stream id" becomes the `content_match` index (the 2026-06-29 spike found provider VOD already carries `tmdb_id`, so the movie match is read, not searched). |
 | On-disk cover-art / backdrop cache | Medium | The §5.7 download-to-disk pipeline (download → app-data dir → `image_cache` `put` → serve via Tauri asset protocol) for **all** art (posters + backdrops). The `image_cache` table + 30-day eviction exist but are an unused stub (`image_cache::put` has no download callers and no read path); all art currently loads directly from provider URLs. Deferred out of Milestone 18 — caching one image type in isolation is low value. **Scheduled as Milestone 27** (local; adds an LRU size cap + "Clear image cache" control on top of the existing TTL). |
 | "More like this" (related titles) | Medium | A row of related titles (same genre/category) on the movie/series detail view so it doubles as a discovery surface. Needs a local `get_related` command (§16 IPC pattern, no provider request). Deferred follow-up to the Milestone 18 detail redesign. **Scheduled as Milestone 28** (local). |
 | IMDB ratings integration | High | See §5.8. **Scheduled as Milestone 34** (external — needs an OMDb API key; reuses the Milestone 33 enrichment substrate). |
@@ -905,7 +905,9 @@ Items explicitly planned but deferred beyond v1.0:
 | ~~Continue Watching~~ | — | **Promoted into scope — see §5.9 and Milestone 8.** Tracks playback position in SQLite for resume, progress bars, and watched markers. |
 | Skip Intro (TV series) | Low | Exploratory — see §14, Q5. No provider metadata exists for intro markers; only a limited hybrid (container chapters + learned-per-series + manual) is feasible, not Netflix-style auto-detection. |
 | Live TV multi-view | High | Watch up to 4 live channels at once in a grid (2×2) — for households following multiple games. Generalizes the single native-window player to N concurrent mpv instances/windows; capped by the provider's `max_connections`; one audio at a time; Even-grid + Focus (1+N) layouts; Windows-first. **Scheduled as Milestone 37** (next in line). |
-| Multiple active providers | Medium | Switch between providers without re-auth. **Scheduled as Milestone 36** (seamless *switching* of the single active provider — a nav switcher + state-clean swap; the backend already caches per provider and skips re-fetch/re-auth). Simultaneous multi-provider streaming remains a §2 non-goal. |
+| Multiple active providers | Medium | Switch between providers without re-auth. **Done as Milestone 36** (seamless *switching* of the single active provider). A **merged multi-provider catalog** (all enabled providers at once) is now **Milestone 39** (Media-Hub direction), lifting the former §2 non-goal. |
+| Canonical catalog + multi-source playback | High | Browse a canonical movie/series catalog (external metadata via **Cinemeta**) and resolve playback on click across all IPTV providers + Stremio addons — the **Media-Hub direction**. **Scheduled as Milestone 40.** Validated by the 2026-06-29 spike (`docs/spikes/2026-06-29-multi-source-and-stremio.md`). |
+| Stremio stream addons | High | Add-by-URL stream resolvers (AIOStreams/Torrentio/Comet) folded into the M40 source picker; direct/debrid URLs only (no torrent engine). **Scheduled as Milestone 41.** |
 | Time-shift / Pause Live TV | Medium | Requires provider support |
 | Parental controls / PIN lock | Medium | Per-category locking |
 | External subtitle file loading | Low | Drop `.srt` onto player to load |
@@ -2518,3 +2520,122 @@ The macOS half of M37 was implemented by **porting the Windows compositor model 
 **Known follow-ups (out of scope, not blocking M38):**
 - ~~macOS bundled-ffmpeg TLS~~ — **closed (2026-06-26):** real-provider HTTPS playback was owner-verified in the shipped app on macOS. The probe's one-off `tls: Unknown error` was stream-/probe-specific and does **not** reproduce in the player.
 - `examples/macos_video_check.rs` is **deprecated** (it verified the old `--wid`-style embedding that M38 removed; it does not exercise the render-API path). Marked deprecated in-file and **kept for reference** for now — rework or delete in a later pass.
+
+---
+
+### Milestones 39–42 — Media-Hub Direction (canonical catalog + multi-source)
+
+> **Direction note (2026-06-29).** Milestones 39–42 evolve Proscenium from a provider-centric IPTV client into a **canonical, catalog-first media application**: browse a canonical movie/series catalog (external metadata) and **resolve playback on click** across *all* configured IPTV providers **and** Stremio addons. This adopts the **Stremio addon model** internally — a canonical catalog keyed by IMDB/TMDB id plus a **registry of stream resolvers** (each IPTV provider and each Stremio addon is a resolver), so "multiple active providers" and "Stremio support" become the same architecture. Validated by the **2026-06-29 spike** (`docs/spikes/2026-06-29-multi-source-and-stremio.md`): stream resolution is ~100% direct URLs (no torrent engine), movie matching is near-exact (provider VOD carries `tmdb_id`), series is name+year (needs a manual override).
+>
+> **Decisions taken (pre/post-spike):** Cinemeta now (TMDB later) · show-all + resolve-on-click · direct/debrid URLs only (no torrent engine) · spike-first.
+>
+> **Reconciliations with the existing spec:**
+> - **Lifts a §2 non-goal.** "Multi-provider simultaneous streaming / merged cross-provider catalog" (a v1.0 non-goal, cited by M36) is **adopted post-1.0**, starting at M39.
+> - **Reframes M33 (TMDB match).** M33's core — *match a provider item to a canonical id and persist it against the stream id* — becomes the **`content_match` index** in M40. The spike found provider VOD already carries a `tmdb_id` (read from `get_vod_info`), so for movies the match is **read, not searched**; M33's name+year search survives only as the series path / fallback. M33's art-gap-fill is largely **subsumed** by Cinemeta's canonical art (the technique remains useful for provider-centric browse). M34 (IMDB ratings) still applies and can read from Cinemeta meta.
+> - **Supersedes the one-active-provider model** that M36/M37 assumed: M39 replaces it with an enabled-set. M37 multi-view continues to mean multiple *channels* (now optionally across providers).
+>
+> **Execution order:** M39 → M40 → M41 → M42 (numbers are identifiers; the arc is sequential — each builds on the prior). M40 is multi-slice.
+
+### Milestone 39 — Multiple Active Providers (Merged Catalog)
+
+**Goal:** Replace the single active provider with an **enabled set** and merge catalog reads across all enabled providers (Live TV, Movies, Series, Search, Home), tagging each item with its origin provider. **Lifts the §2 multi-provider non-goal.** No canonicalization/dedup yet — the same title from two providers appears twice, each labeled by provider (the canonical layer in M40 collapses them).
+
+**Design decisions:**
+- **Storage is already provider-scoped** (composite `(id, provider_id)` PKs, cascade deletes), so this milestone is overwhelmingly **reads + app state**, not schema. Catalog queries change from `WHERE provider_id = ?` to `WHERE provider_id IN (…enabled…)`, return `provider_id` per row, and add it to the `ORDER BY` tiebreak for stable merged pagination.
+- **Enabled set replaces `active_provider_id`.** A new settings key (e.g. `enabled_provider_ids`, JSON array); an existing `active_provider_id` migrates to a one-element set on first launch (idempotent). A "primary" provider is retained only where a single choice is still required (the M37 multi-view default; the §12 status-banner aggregation).
+- **Content identity is `(provider_id, content_id)` end-to-end.** The frontend already threads `providerId` through most calls/items (`openContent({providerId, contentType, contentId})`); merged rows must carry `providerId` so playback, watch-progress, and "add to list" address the right provider. Cards show a small **provider badge** when >1 provider is enabled.
+- **Live TV merge:** union channels + categories across providers; category-name collisions group under the provider (or namespace). Recent channels / custom category order stay provider-scoped.
+- **Lists span providers (schema change):** `user_list_items` is keyed `(list_id, content_type, content_id)` today — not unique across providers. Add `provider_id` to the PK (idempotent migration) and make `user_lists` global (drop the provider scope) so a list can mix providers. `watch_progress` is already `(provider_id, content_type, content_id)` — unchanged.
+- **Provider switcher (M36) → multi-select:** the nav pill becomes an enable/disable multi-select; Settings → `ProviderCard` gets an "Enabled" toggle instead of a single "Make active".
+- **IPC five-place** for the merged-read signatures and `provider_id`-bearing rows; the dev mock merges its sample providers.
+
+**Scope:**
+- Backend: enabled-set settings + migration; merged variants of `get_live_channels`/`get_live_categories`, `get_movies`, `get_series`, `get_vod_categories`/`get_series_categories`, `search`, Home rows, and summary — each over the enabled set, each row tagged with `provider_id`; merged pagination/ordering.
+- Lists migration (`provider_id` on `user_list_items`; `user_lists` de-scoped); merged "My Lists" + list detail.
+- Frontend: multi-select provider control (nav + Settings); provider badge on cards when multiple are enabled; thread `provider_id` through every item action; the catalog store holds an enabled set, not one `activeProvider`.
+- M37 multi-view: allow tiles from any enabled provider (the picker lists merged channels).
+
+**Out of scope:** canonical/cross-provider **dedup** (M40); external metadata; Stremio addons.
+
+**Status:** ✅ **Complete.** Backend: every catalog read merges over `provider_id IN (…)` and tags each row with `provider_id` (`db/catalog.rs`, via the `ProviderScope` trait so a single id or a set is accepted); categories merge by **name** (the same genre across providers collapses); the enabled set lives in the `enabled_provider_ids` setting (`commands/catalog.rs`, with a pre-M39 fallback to the legacy `active_provider_id`); lists became **global** with `provider_id` in the `user_list_items` PK via a rebuild migration (`db/schema.rs::migrate_lists_multi_provider`); `watch_progress` list keys became `"<provider_id>:<content_id>"`. Frontend: the catalog store holds an enabled set, every section threads `providerIds`, cards show a provider badge when >1 is enabled, the nav pill is a multi-select and Settings → `ProviderCard` an Enable/Disable toggle. Browser-preview verified (merged Home/Movies with "Second Provider" badges; disabling a provider instantly re-scoped every section with no credential prompt).
+
+**Acceptance Criteria:**
+- [x] With ≥2 providers enabled, Live TV / Movies / Series / Search / Home show a **merged** catalog; each item is attributable to its provider and plays from that provider. *(Merged `IN (…)` reads tag every row with `provider_id`; cards badge the provider when several are enabled; playback/detail/add-to-list address the item's own `provider_id`. Tests: `milestone39::merged_reads_tag_items_by_provider_and_dedupe_categories_by_name`, `search_merges_across_providers`, `continue_watching_merges_across_providers`. Browser-preview verified.)*
+- [x] Enabling/disabling a provider updates every section **without re-auth**; a stale newly-enabled provider refreshes in the background. *(`set_enabled_providers` persists the set, keeps `active_provider_id` at the first enabled, and spawns a background `run_refresh` for any newly-enabled stale provider; the page remounts on the provider-set key (`App.tsx`). The keychain holds secrets, so no credential prompt. Browser-preview verified: the second provider toggled off and the catalog re-scoped instantly.)*
+- [x] Existing single-provider installs **migrate seamlessly**; watch progress, lists, and recents survive. *(`get_enabled_provider_ids` falls back to the legacy `active_provider_id` when the M39 key is unwritten; `watch_progress`/`recent_channels` are unchanged; `migrate_lists_multi_provider` rebuilds the list tables, backfilling each item's `provider_id` from its parent list. Test: `enabled_provider_set_persists_and_migrates_from_active`; the pre-M39 milestone8/14/29 suites stay green.)*
+- [x] A custom list can contain items from **different providers**; list + detail resolve each correctly. *(Lists are global; `(provider_id, content_id)` keys each membership row. Test: `milestone14::lists_are_global_and_mix_providers` — the same content id from two providers coexists, and deleting a provider orphans but does not delete the global list.)*
+- [x] `cargo test --tests` and `npm run build` pass clean. *(All backend test binaries pass, incl. the new `milestone39` (4 tests); `npm run build` — tsc + vite — builds clean, 129 modules.)*
+
+### Milestone 40 — Canonical Catalog & Source Resolution (Cinemeta + Resolver Registry)
+
+**Goal:** Flip Movies/Series browse to a **canonical catalog** (Cinemeta-backed, keyed by IMDB id); clicking a title **resolves playback sources on demand** across the enabled IPTV providers and presents a **source picker**. Generalize `resolve_stream_url` into a **stream-resolver registry** (Stremio addons join it in M41). Provider-centric browse remains for Live TV and un-matchable VOD. **Reframes M33.** Multi-slice.
+
+**Design decisions (grounded in the 2026-06-29 spike):**
+- **Metadata backbone = Cinemeta** (`v3-cinemeta.strem.io`): zero-config, IMDB-native, *and* itself a Stremio addon — so its client plumbing is shared with M41. Home/Movies/Series rows come from Cinemeta catalogs (top/popular/genre/search); per-title meta (poster/backdrop/plot/cast/episode list) is fetched on detail open.
+- **Canonical key = IMDB id** (`tt…`). Provider movies carry `tmdb_id` (spike: 100% via `get_vod_info`) → a small **tmdb↔imdb bridge** (TMDB `/find` + `/external_ids`, free key, or Cinemeta meta) — a minimal, ID-only slice of M33's TMDB work.
+- **Storage tiers** (spike §5): durable IPTV catalog **+ a `content_match` side table** `(provider_id, content_type, content_id, imdb_id, tmdb_id, confidence, method, matched_at)` that **survives catalog refresh** (keyed on the provider's stable ids — `replace_catalog` hard-nulls the on-row `imdb_id`, so the match must **not** live on the catalog row); Tier-2 disposable Cinemeta cache (TTL); Tier-3 ephemeral resolution results (in-memory, like `DetailCache`). Images via the M27 cache.
+- **Matching, per content type:**
+  - *Movies:* Cinemeta poster → local **FTS** name shortlist over cached movies (enabled providers) → **year ±1** filter → confirm `get_vod_info.tmdb_id == target` → record in `content_match`. Reverse (provider → canonical) is the same `tmdb_id`, exact. (~95%+ combined.)
+  - *Series:* name+year only (no provider ids) → a **manual "wrong match? pick the right title" override**; episode mapping via `get_series_info` keyed on `(season, episode)`.
+- **Resolver registry:** `trait StreamResolver { async fn resolve(&self, t: &CanonicalRef) -> Vec<StreamCandidate> }`, `CanonicalRef = { imdb_id, kind, season?, episode? }`. Generalizes `resolve_stream_url_impl`; v1 impls `XtreamProviderResolver` + `M3uProviderResolver`. `StreamCandidate` carries `{ url-or-deferred, source label, quality, container, … }`.
+- **Source picker (frontend):** click → "Searching sources…" → ranked candidates (provider + quality) → select → existing `playerStore.openContent` (provider source) or `mpv_load_url` (arbitrary URL). **"No sources found"** is a first-class state.
+- **Watch-progress-by-title:** record/resume keyed on the **canonical id** when known (resume follows the title across sources), falling back to `(provider, content_id)` for un-matched content; idempotent migration where a match exists.
+- **IPC five-place** for new commands (`get_canonical_catalog`, `get_canonical_meta`, `resolve_sources`, `set_manual_match`, …) + models/types; the dev mock supplies sample Cinemeta data + fake resolvers.
+
+**Scope (slices):**
+1. Cinemeta client + Tier-2 cache + canonical Home/Movies/Series rows (browse only, no resolution).
+2. Resolver registry generalizing `resolve_stream_url`; the `content_match` side table + the tmdb↔imdb bridge.
+3. Movie resolve-on-click + source picker (IPTV resolvers only); the "no sources" state.
+4. Series matching + episode mapping + the manual-match override UI.
+5. Watch-progress-by-title (record + resume + migration).
+
+**Out of scope:** Stremio addons (M41); availability pre-indexing + cross-source dedup + ranking beyond a basic order (M42); torrent engine (deferred). Live TV is unaffected.
+
+**Acceptance Criteria:**
+- [ ] Home/Movies/Series browse a **Cinemeta-backed canonical catalog** (posters/backdrops/overviews), cached per the storage tiers; with Cinemeta unreachable, cached rows still render.
+- [ ] Clicking a movie resolves **IPTV sources across enabled providers** into a picker (provider + quality), or shows a graceful **"no sources found"**; selecting a source plays it. Matches are cached in `content_match` and not recomputed needlessly.
+- [ ] A series resolves to a provider series with **correct season/episode mapping**; a **manual override** corrects a wrong match and the correction persists.
+- [ ] Watch progress **follows the title across sources** (resume after switching source/provider lands at the saved position); un-matched content still tracks per-provider.
+- [ ] **Provider-centric browse remains** for Live TV and for VOD with no canonical match (workouts/PPV/concerts).
+- [ ] `cargo test --tests` (matching + confidence + mapping + fallback) and `npm run build` pass clean.
+
+### Milestone 41 — Stremio Stream Addons (Direct/Debrid)
+
+**Goal:** Add **Stremio stream addons** (add-by-URL; e.g. AIOStreams, Torrentio, Comet) as resolvers in the M40 registry, folding their results into the source picker. **Direct/debrid URLs only — no torrent engine** (spike: ~100% direct for the owner's Torbox setup).
+
+**Design decisions:**
+- **Addon config is durable** (Tier-1): store installed addons (manifest URL, declared name/types/resources). **Token-bearing manifest URLs → OS keychain** (like Xtream passwords), a reference in SQLite, never logged (reuse the `redact_secrets` discipline).
+- **`StremioAddonResolver`:** `GET {base}/stream/{type}/{imdb[:s:e]}.json` → parse `streams[]`; accept `url` (direct) and `externalUrl`; **flag/skip `infoHash`** (no engine) with a clear "needs a debrid service" note. Parse the rich `name`/`title` labels (quality/size/seeders/`[TB⚡]`) into candidate metadata. Results are Tier-3 ephemeral.
+- **Manifest management (Settings):** add/validate/remove addons (fetch + validate the manifest, show declared types/resources), ordering. The tmdb↔imdb bridge from M40 is reused; addons that accept a `tmdb` idPrefix can be queried directly.
+- **Picker integration:** addon candidates merge with IPTV candidates, grouped by source, with a basic quality order.
+- **IPC five-place** for addon commands/types; dev mock addon.
+
+**Scope:** addon storage (keychain for token URLs) + Settings CRUD; the `StremioAddonResolver` + manifest/stream parsing; picker integration.
+
+**Out of scope:** an **embedded torrent engine** (infoHash streaming) — deferred; Stremio **catalog** addons (Cinemeta is the catalog — possible later); Stremio **subtitles** addons (later).
+
+**Acceptance Criteria:**
+- [ ] A user can **add a Stremio stream addon by URL** in Settings; a token-bearing URL is stored in the **keychain** and never logged; the manifest is validated and its types/resources shown.
+- [ ] Clicking a canonical title shows **addon-sourced direct streams** in the picker **alongside IPTV sources**; selecting one plays it.
+- [ ] **infoHash-only** streams are handled gracefully (flagged/hidden with a "needs debrid" note), never crashing the picker; addon/network failures degrade to the other sources.
+- [ ] Addon stream results are **not persisted to disk** (Tier-3).
+- [ ] `cargo test --tests` and `npm run build` pass clean.
+
+### Milestone 42 — Multi-Source Polish: Availability, Dedup & Ranking
+
+**Goal:** Make the multi-source catalog feel finished — background **availability** badges, cross-source **dedup**, source **ranking**, sturdier series mapping, and (optionally) a richer TMDB backbone. A menu of independently-shippable slices.
+
+**Scope (menu):**
+- **Availability indexing:** a background, rate-limited pass that resolves availability for visible/likely titles so cards can badge **Available / 4K / source-count** and optionally sort available-first (still show-all by default).
+- **Cross-source dedup:** collapse the same canonical id across providers/addons into one card whose picker lists all sources — this finally hides the M39 duplicates behind the canonical id.
+- **Source ranking:** order candidates by resolution/quality, debrid-cached (`[TB⚡]`), seeders, then source preference; remember the user's pick per title.
+- **Series mapping robustness:** absolute-numbering / specials handling; persistent per-series mapping overrides.
+- **Optional richer backbone:** pull in **TMDB** (the deferred half of "Cinemeta now, TMDB later") for trending/genres/recommendations/cast and better search recall (the spike's Cinemeta recall gaps).
+
+**Out of scope:** torrent engine (deferred).
+
+**Acceptance Criteria:**
+- [ ] Cards can show an **availability badge** populated by a background, non-blocking pass; disabled, the catalog behaves as M40/M41.
+- [ ] The same title from multiple sources appears **once**, with all sources in its picker (no M39-style duplicates under the canonical catalog).
+- [ ] Picker candidates are **ranked** (quality/debrid/seeders/preference); the chosen source is remembered per title.
+- [ ] `cargo test --tests` and `npm run build` pass clean.

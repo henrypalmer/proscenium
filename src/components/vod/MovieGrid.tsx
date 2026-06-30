@@ -4,7 +4,7 @@ import PosterGrid from "./PosterGrid";
 import type { Movie } from "../../types";
 
 interface MovieGridProps {
-  providerId: string;
+  providerIds: string[];
   categoryId: string | null;
   version: number;
   onActivate: (movie: Movie) => void;
@@ -13,9 +13,9 @@ interface MovieGridProps {
   morphId?: string | null;
 }
 
-/** Virtualized grid of `MovieCard` items (spec §18). */
+/** Virtualized grid of `MovieCard` items (spec §18), merged across providers. */
 export default function MovieGrid({
-  providerId,
+  providerIds,
   categoryId,
   version,
   onActivate,
@@ -23,7 +23,7 @@ export default function MovieGrid({
   morphId,
 }: MovieGridProps) {
   const { total, getItem, ensureRange } = usePagedMovies(
-    providerId,
+    providerIds,
     categoryId,
     version,
   );
@@ -38,7 +38,6 @@ export default function MovieGrid({
       renderCard={(movie) => (
         <MovieCard
           movie={movie}
-          providerId={providerId}
           onActivate={onActivate}
           onContextMenu={onContextMenu}
           morphActive={morphId === movie.id}

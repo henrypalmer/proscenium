@@ -17,7 +17,10 @@ export interface ToastMessage {
 }
 
 interface CatalogState {
-  activeProvider: Provider | null;
+  /** The enabled providers whose catalogs are merged (Milestone 39). */
+  enabledProviders: Provider[];
+  /** Ids of `enabledProviders`, kept in sync — the merged read scope. */
+  providerIds: string[];
   refreshing: boolean;
   stage: string | null;
   progress: number;
@@ -27,15 +30,18 @@ interface CatalogState {
   providerStatus: ProviderStatus | null;
   /** Bumped after every successful refresh so views reload their data. */
   refreshTick: number;
-  /** Resolve the active provider, load cached counts, attach event listeners. */
+  /** Resolve the enabled set, load cached counts, attach event listeners. */
   init: (providers: Provider[]) => Promise<void>;
-  setActive: (providerId: string) => Promise<void>;
+  /** Replace the enabled-provider set. */
+  setEnabled: (providerIds: string[]) => Promise<void>;
+  /** Enable/disable one provider (keeping the rest). */
+  toggleProvider: (providerId: string) => Promise<void>;
   refresh: () => Promise<void>;
-  /** Post-refresh fan-out: reload counts + the active provider's timestamp. */
+  /** Post-refresh fan-out: reload counts + the providers' timestamps. */
   refreshSucceeded: () => Promise<void>;
   loadSummary: () => Promise<void>;
   handleProviderDeleted: (providerId: string) => Promise<void>;
-  /** Re-probe the active provider (banner Retry button). */
+  /** Re-probe the primary provider (banner Retry button). */
   recheckProviderStatus: () => Promise<void>;
   dismissProviderStatus: () => void;
   notify: (message: string, kind?: ToastMessage["kind"]) => void;
@@ -44,8 +50,13 @@ interface CatalogState {
 
 let listenersAttached = false;
 
+function withIds(providers: Provider[]) {
+  return { enabledProviders: providers, providerIds: providers.map((p) => p.id) };
+}
+
 export const useCatalogStore = create<CatalogState>((set, get) => ({
-  activeProvider: null,
+  enabledProviders: [],
+  providerIds: [],
   refreshing: false,
   stage: null,
   progress: 0,
@@ -79,39 +90,49 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
           });
         }
       });
-      // Spec §12: the startup probe only pushes an event when the provider is
+      // Spec §12: the startup probe only pushes an event when a provider is
       // unreachable or expired.
       await listen<ProviderStatus>("provider:status", (event) => {
         set({ providerStatus: event.payload });
       });
     }
 
-    let active = await api.getActiveProvider();
-    // Older installs (or a deleted active provider) may have providers but
-    // no active selection — default to the first profile.
-    if (!active && providers.length > 0) {
-      await api.setActiveProvider(providers[0].id);
-      active = await api.getActiveProvider();
+    let enabled = await api.getEnabledProviders();
+    // Older installs (or a deleted enabled provider) may have providers but no
+    // enabled selection — default to the first profile (mirrors pre-M39).
+    if (enabled.length === 0 && providers.length > 0) {
+      await api.setEnabledProviders([providers[0].id]);
+      enabled = await api.getEnabledProviders();
     }
-    set({ activeProvider: active });
+    set(withIds(enabled));
     await get().loadSummary();
   },
 
-  setActive: async (providerId) => {
-    await api.setActiveProvider(providerId);
-    // A different provider invalidates any banner from the previous one.
-    set({ activeProvider: await api.getActiveProvider(), providerStatus: null });
+  setEnabled: async (providerIds) => {
+    await api.setEnabledProviders(providerIds);
+    const enabled = await api.getEnabledProviders();
+    // A changed set invalidates any banner from the previous primary.
+    set({ ...withIds(enabled), providerStatus: null });
     await get().loadSummary();
+  },
+
+  toggleProvider: async (providerId) => {
+    const current = get().providerIds;
+    const next = current.includes(providerId)
+      ? current.filter((id) => id !== providerId)
+      : [...current, providerId];
+    await get().setEnabled(next);
   },
 
   refresh: async () => {
-    const provider = get().activeProvider;
-    if (!provider || get().refreshing) return;
+    const ids = get().providerIds;
+    if (ids.length === 0 || get().refreshing) return;
     set({ refreshing: true, stage: "Starting…", progress: 0 });
     try {
-      await api.refreshCatalog(provider.id);
-      // The browser dev mock emits no Tauri events, so drive the completion
-      // (timestamp + toast) inline; in Tauri the `refresh_complete` event does it.
+      // Refresh every enabled provider; in Tauri each emits its own
+      // progress/complete events that the listeners above drive.
+      for (const id of ids) await api.refreshCatalog(id);
+      // The browser dev mock emits no Tauri events, so drive completion inline.
       if (!inTauri) await get().refreshSucceeded();
     } catch {
       // The refresh_complete event already surfaced the error as a toast.
@@ -120,50 +141,47 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     }
   },
 
-  // Milestone 24: after a successful refresh, bump the reload tick, refresh the
-  // catalog counts, and re-read the active provider so its "Last refreshed"
-  // timestamp updates on the Settings card; finish with a confirmation toast.
+  // After a successful refresh, bump the reload tick, refresh the catalog counts,
+  // and re-read the providers so their "Last refreshed" timestamps update.
   refreshSucceeded: async () => {
     set({ refreshTick: get().refreshTick + 1 });
     await get().loadSummary();
-    const active = await api.getActiveProvider();
-    if (active) set({ activeProvider: active });
     await useProviderStore.getState().load();
+    const enabled = await api.getEnabledProviders();
+    set(withIds(enabled));
     get().notify("Catalog updated.");
   },
 
   loadSummary: async () => {
-    const provider = get().activeProvider;
-    if (!provider) {
+    const ids = get().providerIds;
+    if (ids.length === 0) {
       set({ summary: null });
       return;
     }
     try {
-      set({ summary: await api.getCatalogSummary(provider.id) });
+      set({ summary: await api.getCatalogSummary(ids) });
     } catch {
       set({ summary: null });
     }
   },
 
   handleProviderDeleted: async (providerId) => {
-    if (get().activeProvider?.id !== providerId) return;
-    set({ activeProvider: null, summary: null });
-    const active = await api.getActiveProvider();
-    set({ activeProvider: active });
-    if (active) await get().loadSummary();
+    if (!get().providerIds.includes(providerId)) return;
+    const enabled = await api.getEnabledProviders();
+    set(withIds(enabled));
+    await get().loadSummary();
   },
 
   recheckProviderStatus: async () => {
-    const provider = get().activeProvider;
-    if (!provider) return;
+    const primary = get().providerIds[0];
+    if (!primary) return;
     try {
-      const status = await api.checkProviderStatus(provider.id);
+      const status = await api.checkProviderStatus(primary);
       // Clear the banner when the provider recovers; otherwise refresh it.
       set({
         providerStatus: status.reachable && !status.expired ? null : status,
       });
-      // A recovered, never-refreshed (or stale) provider should refill its
-      // catalog now that it's reachable again.
+      // A recovered, never-refreshed (or stale) provider should refill now.
       if (status.reachable) await get().refresh();
     } catch {
       // Leave the existing banner in place on a transient failure.

@@ -8,7 +8,7 @@ import ScrollRow from "../common/ScrollRow";
 import type { LiveChannel } from "../../types";
 
 interface RecentChannelsRowProps {
-  providerId: string;
+  providerIds: string[];
   /** Bumped to force a re-fetch (e.g. on catalog refresh). */
   refreshKey: number;
   onActivate: (channel: LiveChannel) => void;
@@ -21,17 +21,18 @@ interface RecentChannelsRowProps {
  * channel just watched appears immediately. Omitted when there is no history.
  */
 export default function RecentChannelsRow({
-  providerId,
+  providerIds,
   refreshKey,
   onActivate,
 }: RecentChannelsRowProps) {
   const [items, setItems] = useState<LiveChannel[]>([]);
   // Re-fetch after a watch session ends (open → closed) so the row stays current.
   const playerOpen = usePlayerStore((s) => s.open);
+  const scopeKey = providerIds.join(",");
 
   useEffect(() => {
     let cancelled = false;
-    void api.getRecentChannels(providerId, 15).then(
+    void api.getRecentChannels(providerIds, 15).then(
       (channels) => {
         if (!cancelled) setItems(channels);
       },
@@ -42,7 +43,8 @@ export default function RecentChannelsRow({
     return () => {
       cancelled = true;
     };
-  }, [providerId, refreshKey, playerOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, refreshKey, playerOpen]);
 
   if (items.length === 0) return null;
 

@@ -19,7 +19,7 @@ interface MenuState {
 }
 
 export default function LiveTV() {
-  const activeProvider = useCatalogStore((s) => s.activeProvider);
+  const providerIds = useCatalogStore((s) => s.providerIds);
   const refreshTick = useCatalogStore((s) => s.refreshTick);
   const notify = useCatalogStore((s) => s.notify);
 
@@ -27,26 +27,31 @@ export default function LiveTV() {
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [addTo, setAddTo] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [addTo, setAddTo] = useState<{
+    id: string;
+    providerId: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
-  const providerId = activeProvider?.id ?? null;
+  const hasProviders = providerIds.length > 0;
+  const scopeKey = providerIds.join(",");
 
-  // Spec §5.3: the channel filter resets when the provider changes.
+  // Spec §5.3: the channel filter resets when the provider set changes.
   useEffect(() => {
     setFilter("");
-  }, [providerId]);
+  }, [scopeKey]);
 
   useEffect(() => {
-    if (!providerId) {
+    if (!hasProviders) {
       setCategories([]);
       return;
     }
     let cancelled = false;
-    void api.getLiveCategories(providerId).then(
+    void api.getLiveCategories(providerIds).then(
       (cats) => {
         if (cancelled) return;
         setCategories(cats);
-        // Drop a selection that disappeared with the latest refresh.
         setSelected((current) =>
           current && !cats.some((c) => c.id === current) ? null : current,
         );
@@ -58,34 +63,30 @@ export default function LiveTV() {
     return () => {
       cancelled = true;
     };
-  }, [providerId, refreshTick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, refreshTick]);
 
-  if (!activeProvider) {
+  if (!hasProviders) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm font-medium text-zinc-400">No provider selected</p>
+        <p className="text-sm font-medium text-zinc-400">No provider enabled</p>
         <p className="max-w-xs text-xs text-zinc-600">
-          Add or select a provider in Settings to browse live TV.
+          Add or enable a provider in Settings to browse live TV.
         </p>
       </div>
     );
   }
 
-  const providerIdForPlayback = activeProvider.id;
   const play = (channel: LiveChannel) =>
     void usePlayerStore.getState().openContent({
-      providerId: providerIdForPlayback,
+      providerId: channel.providerId,
       contentType: "live",
       contentId: channel.id,
       title: channel.name,
     });
   const openExternal = async (channel: LiveChannel) => {
     try {
-      const url = await api.resolveStreamUrl(
-        providerIdForPlayback,
-        "live",
-        channel.id,
-      );
+      const url = await api.resolveStreamUrl(channel.providerId, "live", channel.id);
       await api.openInExternalPlayer(url);
     } catch (e) {
       notify(String(e), "error");
@@ -100,23 +101,22 @@ export default function LiveTV() {
         categories={categories}
         selectedId={selected}
         onSelect={setSelected}
-        providerId={activeProvider.id}
+        providerIds={providerIds}
         section="live"
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <ChannelFilterBar key={providerId} onQueryChange={setFilter} />
+        <ChannelFilterBar key={scopeKey} onQueryChange={setFilter} />
         {/* "Recently watched" strip on the landing (All Channels, no active
-            filter) — spec §13, Milestone 29. */}
+            filter) — spec §13, Milestone 29; merged across providers. */}
         {selected === null && filter === "" && (
           <RecentChannelsRow
-            providerId={activeProvider.id}
+            providerIds={providerIds}
             refreshKey={refreshTick}
             onActivate={play}
           />
         )}
         {/* Global-scope hint (spec §13, QA §2): the filter is scoped to the
-            selected category, so offer a one-click jump to search every channel
-            without first picking "All Channels". The filter text is preserved. */}
+            selected category, so offer a one-click jump to search every channel. */}
         {selected !== null && filter !== "" && (
           <button
             onClick={() => setSelected(null)}
@@ -132,7 +132,7 @@ export default function LiveTV() {
         )}
         <div className="min-h-0 flex-1">
           <ChannelList
-            providerId={activeProvider.id}
+            providerIds={providerIds}
             categoryId={selected}
             showCategory={selected === null}
             version={refreshTick}
@@ -155,7 +155,7 @@ export default function LiveTV() {
                     label: "Add to Multi-view",
                     onSelect: () =>
                       void useMultiViewStore.getState().addFromList({
-                        providerId: activeProvider.id,
+                        providerId: menu.channel.providerId,
                         contentId: menu.channel.id,
                         title: menu.channel.name,
                         logoUrl: menu.channel.logoUrl,
@@ -170,14 +170,19 @@ export default function LiveTV() {
             {
               label: "Add to list…",
               onSelect: () =>
-                setAddTo({ id: menu.channel.id, x: menu.x, y: menu.y }),
+                setAddTo({
+                  id: menu.channel.id,
+                  providerId: menu.channel.providerId,
+                  x: menu.x,
+                  y: menu.y,
+                }),
             },
           ]}
         />
       )}
       {addTo && (
         <AddToListMenu
-          providerId={activeProvider.id}
+          providerId={addTo.providerId}
           contentType="live"
           contentId={addTo.id}
           x={addTo.x}

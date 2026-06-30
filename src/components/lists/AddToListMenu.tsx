@@ -39,9 +39,9 @@ export default function AddToListMenu({
   const [member, setMember] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
 
-  // Load the provider's lists and which already contain this item.
+  // Load all lists (global since M39) and which already contain this item.
   useEffect(() => {
-    void loadLists(providerId);
+    void loadLists();
     void api
       .getListsForItem(providerId, contentType, contentId)
       .then((ids) => setMember(new Set(ids)), () => setMember(new Set()));
@@ -82,11 +82,11 @@ export default function AddToListMenu({
     if (next.has(listId)) {
       next.delete(listId);
       setMember(next);
-      await removeItem(listId, contentType, contentId);
+      await removeItem(listId, providerId, contentType, contentId);
     } else {
       next.add(listId);
       setMember(next);
-      await addItem(listId, contentType, contentId);
+      await addItem(listId, providerId, contentType, contentId);
       // Milestone 24: confirm the add with a toast (the checkbox alone is easy
       // to miss inside the still-open picker).
       const name = lists.find((l) => l.id === listId)?.name ?? "list";
@@ -99,7 +99,7 @@ export default function AddToListMenu({
     const created = await createList(name);
     if (created) {
       setMember((m) => new Set(m).add(created.id));
-      await addItem(created.id, contentType, contentId);
+      await addItem(created.id, providerId, contentType, contentId);
       useCatalogStore.getState().notify(`Added to ${created.name}.`);
     }
     onClose();

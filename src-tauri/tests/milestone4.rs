@@ -245,6 +245,7 @@ async fn resolve_stream_url_finds_each_content_type() {
         live_categories: vec![Category { id: "c".into(), name: "c".into(), sort_order: 0 }],
         live_channels: vec![LiveChannel {
             id: "ch1".into(),
+            provider_id: String::new(),
             name: "Chan".into(),
             category_id: "c".into(),
             category_name: "c".into(),
@@ -256,6 +257,7 @@ async fn resolve_stream_url_finds_each_content_type() {
         vod_categories: vec![Category { id: "v".into(), name: "v".into(), sort_order: 0 }],
         movies: vec![MovieItem {
             id: "m1".into(),
+            provider_id: String::new(),
             name: "Movie".into(),
             category_id: "v".into(),
             category_name: "v".into(),
@@ -269,6 +271,7 @@ async fn resolve_stream_url_finds_each_content_type() {
         series_categories: vec![Category { id: "s".into(), name: "s".into(), sort_order: 0 }],
         series: vec![SeriesItem {
             id: "se1".into(),
+            provider_id: String::new(),
             name: "Show".into(),
             category_id: "s".into(),
             category_name: "s".into(),
@@ -277,6 +280,7 @@ async fn resolve_stream_url_finds_each_content_type() {
         }],
         episodes: vec![EpisodeItem {
             id: "ep1".into(),
+            provider_id: String::new(),
             series_id: "se1".into(),
             season: 1,
             episode: 1,

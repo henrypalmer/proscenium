@@ -4,7 +4,7 @@ import SeriesCard from "./SeriesCard";
 import type { Series } from "../../types";
 
 interface SeriesGridProps {
-  providerId: string;
+  providerIds: string[];
   categoryId: string | null;
   version: number;
   onActivate: (series: Series) => void;
@@ -13,9 +13,9 @@ interface SeriesGridProps {
   morphId?: string | null;
 }
 
-/** Virtualized grid of `SeriesCard` items (spec §18). */
+/** Virtualized grid of `SeriesCard` items (spec §18), merged across providers. */
 export default function SeriesGrid({
-  providerId,
+  providerIds,
   categoryId,
   version,
   onActivate,
@@ -23,7 +23,7 @@ export default function SeriesGrid({
   morphId,
 }: SeriesGridProps) {
   const { total, getItem, ensureRange } = usePagedSeries(
-    providerId,
+    providerIds,
     categoryId,
     version,
   );

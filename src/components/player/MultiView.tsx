@@ -361,14 +361,14 @@ function ChannelPicker({
         </div>
         <div className="min-h-0 flex-1">
           <ChannelList
-            providerId={providerId}
+            providerIds={[providerId]}
             categoryId={null}
             showCategory
             version={0}
             query={query}
             onActivate={(ch) =>
               onPick({
-                providerId,
+                providerId: ch.providerId,
                 contentId: ch.id,
                 title: ch.name,
                 logoUrl: ch.logoUrl,
