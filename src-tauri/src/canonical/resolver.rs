@@ -143,18 +143,24 @@ pub struct ProviderResolver {
 }
 
 impl ProviderResolver {
-    /// Xtream `get_vod_info.tmdb_id` for a candidate movie, or `None` (M3U has no
-    /// such endpoint, or the fetch failed). One network call, first match only.
-    async fn provider_tmdb(&self, movie_id: &str) -> Option<i64> {
+    /// Owned Xtream credentials, or `None` for M3U / missing fields.
+    fn xtream_creds(&self) -> Option<(String, String, String)> {
         if self.provider.provider_type != ProviderType::Xtream {
             return None;
         }
-        let server = self.provider.server_url.as_deref()?;
-        let username = self.provider.username.as_deref()?;
+        let server = self.provider.server_url.clone()?;
+        let username = self.provider.username.clone()?;
         let password = keychain::get_secret(&self.provider.id).ok()?;
+        Some((server, username, password))
+    }
+
+    /// Xtream `get_vod_info.tmdb_id` for a candidate movie, or `None` (M3U has no
+    /// such endpoint, or the fetch failed). One network call, first match only.
+    async fn provider_tmdb(&self, movie_id: &str) -> Option<i64> {
+        let (server, username, password) = self.xtream_creds()?;
         let creds = xtream::XtreamCreds {
-            server_url: server,
-            username,
+            server_url: &server,
+            username: &username,
             password: &password,
         };
         xtream::fetch_vod_info(&creds, movie_id)
@@ -238,6 +244,121 @@ impl ProviderResolver {
         }
         out
     }
+
+    /// The provider episode id + container for `(season, episode)` of a matched
+    /// provider series, fetching the episode list on demand for Xtream.
+    async fn episode_id_for(
+        &self,
+        pool: &SqlitePool,
+        series_id: &str,
+        season: i64,
+        episode: i64,
+    ) -> Option<(String, String)> {
+        let mut eps = db::catalog::episodes_for_series(pool, &self.provider.id, series_id)
+            .await
+            .unwrap_or_default();
+        if eps.is_empty() {
+            if let Some((server, username, password)) = self.xtream_creds() {
+                let creds = xtream::XtreamCreds {
+                    server_url: &server,
+                    username: &username,
+                    password: &password,
+                };
+                if let Ok(info) = xtream::fetch_series_info(&creds, series_id).await {
+                    let _ = db::catalog::replace_series_episodes(
+                        pool,
+                        &self.provider.id,
+                        series_id,
+                        &info.episodes,
+                    )
+                    .await;
+                    eps = info.episodes;
+                }
+            }
+        }
+        // Map the canonical (season, episode) numbers onto the provider's.
+        eps.into_iter()
+            .find(|e| e.season == season && e.episode == episode)
+            .map(|e| (e.id, e.container_ext))
+    }
+
+    /// Resolve one episode of a canonical series. Series carry no tmdb backstop,
+    /// so the series-level match is name+year (plus the manual override); the
+    /// episode is then addressed by `(season, episode)`.
+    async fn resolve_series(&self, pool: &SqlitePool, target: &CanonicalRef) -> Vec<StreamCandidate> {
+        let (Some(season), Some(episode)) = (target.season, target.episode) else {
+            return Vec::new(); // a specific episode is required
+        };
+        let pid = &self.provider.id;
+
+        let mut series: Vec<(String, f64)> = db::canonical::matches_for_imdb(
+            pool,
+            &target.imdb_id,
+            "series",
+            std::slice::from_ref(pid),
+        )
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| (m.content_id, m.confidence))
+        .collect();
+
+        if series.is_empty() {
+            let shortlist = db::catalog::search_catalog(
+                pool,
+                std::slice::from_ref(pid),
+                &target.name,
+                SearchContentType::Series,
+                None,
+                SHORTLIST,
+            )
+            .await
+            .map(|r| r.series)
+            .unwrap_or_default();
+            for s in shortlist {
+                if !year_ok(s.release_year, target.year) {
+                    continue;
+                }
+                let sim = title_similarity(&s.name, &target.name);
+                if let Some((confidence, method)) = classify_match(None, None, sim, true) {
+                    let _ = db::canonical::match_put(
+                        pool,
+                        &ContentMatch {
+                            provider_id: pid.clone(),
+                            content_type: "series".into(),
+                            content_id: s.id.clone(),
+                            imdb_id: target.imdb_id.clone(),
+                            tmdb_id: None,
+                            confidence,
+                            method: method.into(),
+                            matched_at: now_unix(),
+                        },
+                    )
+                    .await;
+                    series.push((s.id, confidence));
+                }
+            }
+        }
+
+        let mut out = Vec::new();
+        for (series_id, confidence) in series {
+            if let Some((episode_id, container)) =
+                self.episode_id_for(pool, &series_id, season, episode).await
+            {
+                out.push(StreamCandidate {
+                    source: self.provider.name.clone(),
+                    provider_id: Some(pid.clone()),
+                    content_type: "episode".into(),
+                    content_id: Some(episode_id),
+                    url: None,
+                    quality: None,
+                    container: Some(container),
+                    confidence,
+                });
+            }
+        }
+        out
+    }
 }
 
 impl StreamResolver for ProviderResolver {
@@ -247,7 +368,7 @@ impl StreamResolver for ProviderResolver {
     async fn resolve(&self, pool: &SqlitePool, target: &CanonicalRef) -> Vec<StreamCandidate> {
         match target.kind.as_str() {
             "movie" => self.resolve_movie(pool, target).await,
-            // Series resolution + episode mapping land in M40 slice 4.
+            "series" => self.resolve_series(pool, target).await,
             _ => Vec::new(),
         }
     }

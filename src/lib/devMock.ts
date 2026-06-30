@@ -306,9 +306,28 @@ function mockCanonicalMeta(kind: "movie" | "series", imdbId: string): CanonicalM
 
 /** Fake source resolution: candidates point at real mock movies (so the play
  * path resolves), with ~1 in 5 titles returning none to exercise "no sources". */
-function mockResolveSources(kind: "movie" | "series", imdbId: string): StreamCandidate[] {
-  if (kind !== "movie") return []; // series resolution lands in M40 slice 4
+function mockResolveSources(
+  kind: "movie" | "series",
+  imdbId: string,
+  season?: number,
+  episode?: number,
+): StreamCandidate[] {
   const seed = Number(imdbId.replace(/\D/g, "")) || 0;
+  if (kind === "series") {
+    if (season == null || episode == null) return [];
+    if ((seed + season * 10 + episode) % 5 === 0) return []; // some episodes: no source
+    const epQualities = ["1080p", "720p"];
+    return mockEnabledProviderIds.slice(0, 2).map((pid, i) => ({
+      source: mockProviders.find((p) => p.id === pid)?.name ?? pid,
+      providerId: pid,
+      contentType: "episode" as const,
+      contentId: `ep-${seed % 50}-${season}-${episode}`,
+      url: null,
+      quality: epQualities[i] ?? null,
+      container: "mkv",
+      confidence: 1 - i * 0.1,
+    }));
+  }
   if (seed % 5 === 0) return [];
   const movies = allMovies().filter((m) => mockEnabledProviderIds.includes(m.providerId));
   if (movies.length === 0) return [];
@@ -795,7 +814,11 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       return mockResolveSources(
         a.kind as "movie" | "series",
         a.imdbId as string,
+        a.season as number | undefined,
+        a.episode as number | undefined,
       ) satisfies StreamCandidate[] as T;
+    case "set_manual_match":
+      return undefined as T;
     case "get_episodes":
       return episodesFor(a.seriesId as string) satisfies EpisodesBySeason as T;
     case "get_movie_detail": {

@@ -11,10 +11,12 @@ use proscenium_lib::commands::canonical::cached_or_fetch;
 use proscenium_lib::commands::providers::upsert_provider_impl;
 use proscenium_lib::db;
 use proscenium_lib::db::canonical::{
-    cache_get, cache_put, match_get, match_put, matches_for_imdb, ContentMatch,
+    cache_get, cache_put, match_get, match_put, matches_for_imdb, set_manual_match, ContentMatch,
 };
 use proscenium_lib::iptv::xtream;
-use proscenium_lib::models::{CatalogData, MovieItem, Provider, ProviderInput, ProviderType};
+use proscenium_lib::models::{
+    CatalogData, EpisodeItem, MovieItem, Provider, ProviderInput, ProviderType, SeriesItem,
+};
 use serde_json::json;
 use sqlx::SqlitePool;
 use std::path::PathBuf;
@@ -379,6 +381,188 @@ async fn resolve_sources_matches_by_name_year_across_providers() {
 
     // The match was recorded — a second resolve is a cheap index read.
     assert!(match_get(&pool, &a.id, "movie", "a1").await.unwrap().is_some());
+    pool.close().await;
+    cleanup_db(&path);
+}
+
+// --- Slice 4: series matching + episode mapping + manual override ---
+
+fn series_row(id: &str, name: &str, year: i64) -> SeriesItem {
+    SeriesItem {
+        id: id.into(),
+        provider_id: String::new(),
+        name: name.into(),
+        category_id: "Series".into(),
+        category_name: "Series".into(),
+        poster_url: None,
+        release_year: Some(year),
+    }
+}
+
+fn episode_row(id: &str, series_id: &str, season: i64, episode: i64) -> EpisodeItem {
+    EpisodeItem {
+        id: id.into(),
+        provider_id: String::new(),
+        series_id: series_id.into(),
+        season,
+        episode,
+        title: format!("S{season}E{episode}"),
+        stream_url: "http://example.local/e.mp4".into(),
+        container_ext: "mkv".into(),
+        duration_seconds: None,
+        poster_url: None,
+        overview: None,
+    }
+}
+
+async fn seed_series_multi(
+    pool: &SqlitePool,
+    provider_id: &str,
+    series: Vec<SeriesItem>,
+    eps: Vec<(&str, Vec<EpisodeItem>)>,
+) {
+    let data = CatalogData {
+        series,
+        ..Default::default()
+    };
+    db::catalog::replace_catalog(pool, provider_id, &data, 0)
+        .await
+        .expect("seed series");
+    for (sid, episodes) in eps {
+        db::catalog::replace_series_episodes(pool, provider_id, sid, &episodes)
+            .await
+            .expect("seed episodes");
+    }
+}
+
+fn series_target(season: i64, episode: i64) -> CanonicalRef {
+    CanonicalRef {
+        imdb_id: "tt0903747".into(),
+        kind: "series".into(),
+        tmdb_id: None,
+        name: "Breaking Bad".into(),
+        year: Some(2008),
+        season: Some(season),
+        episode: Some(episode),
+    }
+}
+
+#[tokio::test]
+async fn resolve_series_maps_canonical_episode_to_provider_episode() {
+    let path = temp_path("series-map");
+    let pool = db::init(&path).await.expect("init");
+    let p = m3u_provider(&pool, "P").await;
+    seed_series_multi(
+        &pool,
+        &p.id,
+        vec![series_row("s1", "Breaking Bad", 2008)],
+        vec![(
+            "s1",
+            vec![
+                episode_row("e11", "s1", 1, 1),
+                episode_row("e12", "s1", 1, 2),
+                episode_row("e21", "s1", 2, 1),
+            ],
+        )],
+    )
+    .await;
+
+    // Canonical S1:E2 → the provider's S1E2 episode id.
+    let s1e2 = resolve_sources(&pool, &series_target(1, 2), &[p.clone()]).await;
+    assert_eq!(s1e2.len(), 1);
+    assert_eq!(s1e2[0].content_type, "episode");
+    assert_eq!(s1e2[0].content_id.as_deref(), Some("e12"));
+    assert_eq!(s1e2[0].provider_id.as_deref(), Some(p.id.as_str()));
+    // The series-level match was recorded (name+year, no tmdb backstop).
+    let m = match_get(&pool, &p.id, "series", "s1").await.unwrap().expect("series match");
+    assert_eq!(m.method, "name_year");
+
+    // A different canonical episode maps to a different provider episode.
+    let s2e1 = resolve_sources(&pool, &series_target(2, 1), &[p.clone()]).await;
+    assert_eq!(s2e1[0].content_id.as_deref(), Some("e21"));
+
+    // An episode the provider doesn't carry yields no source.
+    let missing = resolve_sources(&pool, &series_target(9, 9), &[p.clone()]).await;
+    assert!(missing.is_empty());
+    pool.close().await;
+    cleanup_db(&path);
+}
+
+#[tokio::test]
+async fn manual_match_overrides_wrong_auto_match_and_persists() {
+    let path = temp_path("manual");
+    let pool = db::init(&path).await.expect("init");
+    let p = m3u_provider(&pool, "P").await;
+    // Two same-named series — the auto-match could pick the wrong one.
+    seed_series_multi(
+        &pool,
+        &p.id,
+        vec![
+            series_row("wrong", "Sherlock", 2002),
+            series_row("right", "Sherlock", 2010),
+        ],
+        vec![],
+    )
+    .await;
+
+    // A wrong auto-match exists for the canonical id.
+    match_put(
+        &pool,
+        &ContentMatch {
+            provider_id: p.id.clone(),
+            content_type: "series".into(),
+            content_id: "wrong".into(),
+            imdb_id: "tt1475582".into(),
+            tmdb_id: None,
+            confidence: 0.7,
+            method: "name_year".into(),
+            matched_at: 1,
+        },
+    )
+    .await
+    .unwrap();
+
+    // The user overrides to the correct series.
+    set_manual_match(
+        &pool,
+        &ContentMatch {
+            provider_id: p.id.clone(),
+            content_type: "series".into(),
+            content_id: "right".into(),
+            imdb_id: "tt1475582".into(),
+            tmdb_id: None,
+            confidence: 1.0,
+            method: "manual".into(),
+            matched_at: 2,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Only the manual match remains for this canonical id on the provider.
+    let rev = matches_for_imdb(&pool, "tt1475582", "series", std::slice::from_ref(&p.id))
+        .await
+        .unwrap();
+    assert_eq!(rev.len(), 1, "the wrong auto-match was cleared");
+    assert_eq!(rev[0].content_id, "right");
+    assert_eq!(rev[0].method, "manual");
+
+    // And the correction survives a catalog refresh.
+    seed_series_multi(
+        &pool,
+        &p.id,
+        vec![
+            series_row("right", "Sherlock", 2010),
+            series_row("wrong", "Sherlock", 2002),
+        ],
+        vec![],
+    )
+    .await;
+    let after = match_get(&pool, &p.id, "series", "right")
+        .await
+        .unwrap()
+        .expect("manual match survives refresh");
+    assert_eq!(after.method, "manual");
     pool.close().await;
     cleanup_db(&path);
 }

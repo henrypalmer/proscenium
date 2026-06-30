@@ -133,6 +133,8 @@ pub async fn resolve_sources(
     state: State<'_, Db>,
     kind: String,
     imdb_id: String,
+    season: Option<i64>,
+    episode: Option<i64>,
 ) -> Result<Vec<StreamCandidate>, String> {
     let meta = fetch_canonical_meta(&state.0, &kind, &imdb_id).await?;
     let target = CanonicalRef {
@@ -141,8 +143,8 @@ pub async fn resolve_sources(
         tmdb_id: meta.tmdb_id,
         name: meta.name,
         year: meta.release_year,
-        season: None,
-        episode: None,
+        season,
+        episode,
     };
     let ids = get_enabled_provider_ids(&state.0).await?;
     let mut providers = Vec::with_capacity(ids.len());
@@ -155,4 +157,33 @@ pub async fn resolve_sources(
         }
     }
     Ok(resolver::resolve_sources(&state.0, &target, &providers).await)
+}
+
+/// Persist a manual canonical↔provider match (Milestone 40 slice 4 override):
+/// the user picks the correct provider title when the auto-match is wrong. The
+/// correction clears any prior (auto) match for this canonical id on that
+/// provider and survives catalog refresh like any other match.
+#[tauri::command]
+pub async fn set_manual_match(
+    state: State<'_, Db>,
+    provider_id: String,
+    content_type: String,
+    content_id: String,
+    imdb_id: String,
+) -> Result<(), String> {
+    db::canonical::set_manual_match(
+        &state.0,
+        &db::canonical::ContentMatch {
+            provider_id,
+            content_type,
+            content_id,
+            imdb_id,
+            tmdb_id: None,
+            confidence: 1.0,
+            method: "manual".into(),
+            matched_at: now_unix(),
+        },
+    )
+    .await
+    .map_err(|e| format!("Failed to save the match: {e}"))
 }

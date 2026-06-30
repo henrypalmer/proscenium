@@ -14,6 +14,9 @@ interface Props {
   imdbId: string;
   /** Title used for the player's now-playing label. */
   title: string;
+  /** Series episode addressing (M40 slice 4); omitted for movies. */
+  season?: number;
+  episode?: number;
 }
 
 /**
@@ -22,13 +25,13 @@ interface Props {
  * Selecting a provider source plays it through the existing player path.
  * **"No sources found"** is a first-class state.
  */
-export default function SourcePicker({ kind, imdbId, title }: Props) {
+export default function SourcePicker({ kind, imdbId, title, season, episode }: Props) {
   const [state, setState] = useState<Phase>({ phase: "idle" });
 
   const search = async () => {
     setState({ phase: "searching" });
     try {
-      const sources = await api.resolveSources(kind, imdbId);
+      const sources = await api.resolveSources(kind, imdbId, season, episode);
       setState({ phase: "results", sources });
     } catch (e) {
       setState({ phase: "error", message: String(e) });

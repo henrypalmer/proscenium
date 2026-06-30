@@ -137,3 +137,16 @@ pub async fn matches_for_imdb(
     }
     Ok(q.fetch_all(pool).await?.iter().map(row_to_match).collect())
 }
+
+/// Persist a manual override: first clear any existing match for this canonical
+/// id on the provider (the wrong auto-match), then upsert the user's pick. So a
+/// provider has exactly one match per canonical id afterward.
+pub async fn set_manual_match(pool: &SqlitePool, m: &ContentMatch) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM content_match WHERE provider_id = ? AND content_type = ? AND imdb_id = ?")
+        .bind(&m.provider_id)
+        .bind(&m.content_type)
+        .bind(&m.imdb_id)
+        .execute(pool)
+        .await?;
+    match_put(pool, m).await
+}

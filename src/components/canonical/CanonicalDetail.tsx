@@ -5,6 +5,7 @@ import CachedImage from "../common/CachedImage";
 import HeroBackdrop from "../vod/HeroBackdrop";
 import { Poster } from "../vod/PosterGrid";
 import SeasonSelect from "../vod/SeasonSelect";
+import ManualMatch from "./ManualMatch";
 import SourcePicker from "./SourcePicker";
 import type { CanonicalItem, CanonicalMeta, CanonicalVideo } from "../../types";
 
@@ -23,6 +24,8 @@ interface Props {
 export default function CanonicalDetail({ item, onClose }: Props) {
   const [meta, setMeta] = useState<CanonicalMeta | null>(null);
   const [season, setSeason] = useState<number | null>(null);
+  /** Episode whose source picker is expanded (series). */
+  const [activeEp, setActiveEp] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -112,13 +115,7 @@ export default function CanonicalDetail({ item, onClose }: Props) {
               {item.kind === "movie" ? (
                 <SourcePicker kind="movie" imdbId={item.imdbId} title={item.name} />
               ) : (
-                // Per-episode resolution lands in M40 slice 4.
-                <span
-                  data-testid="canonical-sources-pending"
-                  className="inline-block rounded-md border border-zinc-700 bg-zinc-900/60 px-4 py-2 text-xs text-zinc-400"
-                >
-                  Episode playback across your providers is coming next.
-                </span>
+                <ManualMatch imdbId={item.imdbId} name={item.name} />
               )}
             </div>
           </div>
@@ -152,23 +149,42 @@ export default function CanonicalDetail({ item, onClose }: Props) {
                 />
                 <ul className="mt-4 space-y-2">
                   {(bySeason.get(season ?? seasons[0]) ?? []).map((ep) => (
-                    <li key={ep.id} className="flex gap-3 rounded-lg bg-zinc-900/50 p-2">
-                      <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded bg-zinc-800">
-                        <CachedImage
-                          url={ep.thumbnail}
-                          className="absolute inset-0 h-full w-full object-cover"
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-zinc-200">
-                          S{ep.season}:E{ep.episode} · {ep.name}
-                        </p>
-                        {ep.overview && (
-                          <p className="mt-1 line-clamp-2 text-xs text-zinc-500">
-                            {ep.overview}
+                    <li key={ep.id} className="rounded-lg bg-zinc-900/50 p-2">
+                      <button
+                        onClick={() =>
+                          setActiveEp((id) => (id === ep.id ? null : ep.id))
+                        }
+                        data-testid="canonical-episode"
+                        className="flex w-full gap-3 text-left"
+                      >
+                        <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded bg-zinc-800">
+                          <CachedImage
+                            url={ep.thumbnail}
+                            className="absolute inset-0 h-full w-full object-cover"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-zinc-200">
+                            S{ep.season}:E{ep.episode} · {ep.name}
                           </p>
-                        )}
-                      </div>
+                          {ep.overview && (
+                            <p className="mt-1 line-clamp-2 text-xs text-zinc-500">
+                              {ep.overview}
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                      {activeEp === ep.id && (
+                        <div className="mt-2 border-t border-zinc-800 pt-2">
+                          <SourcePicker
+                            kind="series"
+                            imdbId={item.imdbId}
+                            season={ep.season}
+                            episode={ep.episode}
+                            title={`${item.name} — S${ep.season}:E${ep.episode}`}
+                          />
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

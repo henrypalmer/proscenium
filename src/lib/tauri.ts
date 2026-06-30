@@ -292,8 +292,21 @@ export function getCanonicalMeta(
 export function resolveSources(
   kind: "movie" | "series",
   imdbId: string,
+  season?: number,
+  episode?: number,
 ): Promise<StreamCandidate[]> {
-  return invoke("resolve_sources", { kind, imdbId });
+  return invoke("resolve_sources", { kind, imdbId, season, episode });
+}
+
+/** Persist a manual canonical↔provider match override (M40 slice 4): the user
+ * picks the correct provider title when the auto-match is wrong. */
+export function setManualMatch(
+  providerId: string,
+  contentType: "movie" | "series",
+  contentId: string,
+  imdbId: string,
+): Promise<void> {
+  return invoke("set_manual_match", { providerId, contentType, contentId, imdbId });
 }
 
 export function resolveStreamUrl(

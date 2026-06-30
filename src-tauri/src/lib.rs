@@ -110,6 +110,7 @@ pub fn run() {
             commands::canonical::get_canonical_catalog,
             commands::canonical::get_canonical_meta,
             commands::canonical::resolve_sources,
+            commands::canonical::set_manual_match,
             commands::catalog::get_active_provider,
             commands::catalog::set_active_provider,
             commands::catalog::get_enabled_providers,
