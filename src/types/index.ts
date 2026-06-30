@@ -121,6 +121,49 @@ export interface RelatedResults {
   series: Series[];
 }
 
+// --- Canonical catalog (Milestone 40: Cinemeta-backed) ---
+
+/** One canonical catalog card (a Cinemeta meta preview), keyed by IMDB id. */
+export interface CanonicalItem {
+  imdbId: string;
+  kind: "movie" | "series";
+  name: string;
+  posterUrl: string | null;
+  releaseYear: number | null;
+}
+
+/** One canonical episode (Cinemeta `videos[]`). Season 0 = specials. */
+export interface CanonicalVideo {
+  id: string; // "tt…:season:episode"
+  season: number;
+  episode: number;
+  name: string;
+  overview: string | null;
+  thumbnail: string | null;
+  released: string | null;
+}
+
+/** Full canonical title metadata (Cinemeta `/meta`), loaded on detail open. */
+export interface CanonicalMeta {
+  imdbId: string;
+  kind: "movie" | "series";
+  name: string;
+  posterUrl: string | null;
+  backdropUrl: string | null;
+  description: string | null;
+  releaseYear: number | null;
+  /** Raw release info ("1999" or a range "2011–2019"). */
+  releaseInfo: string | null;
+  genres: string[];
+  cast: string[];
+  director: string[];
+  runtime: string | null;
+  imdbRating: number | null;
+  /** TMDB id (Cinemeta `moviedb_id`) — the tmdb↔imdb bridge (M40 slice 2). */
+  tmdbId: number | null;
+  videos: CanonicalVideo[];
+}
+
 export interface PaginatedResult<T> {
   items: T[];
   total: number;

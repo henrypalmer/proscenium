@@ -1,3 +1,4 @@
+pub mod canonical;
 pub mod catalog;
 pub mod images;
 pub mod lists;

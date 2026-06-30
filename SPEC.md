@@ -2591,8 +2591,10 @@ The macOS half of M37 was implemented by **porting the Windows compositor model 
 
 **Out of scope:** Stremio addons (M41); availability pre-indexing + cross-source dedup + ranking beyond a basic order (M42); torrent engine (deferred). Live TV is unaffected.
 
+**Slice status:** Slice 1 ✅ (canonical browse). Slices 2–5 pending.
+
 **Acceptance Criteria:**
-- [ ] Home/Movies/Series browse a **Cinemeta-backed canonical catalog** (posters/backdrops/overviews), cached per the storage tiers; with Cinemeta unreachable, cached rows still render.
+- [x] Home/Movies/Series browse a **Cinemeta-backed canonical catalog** (posters/backdrops/overviews), cached per the storage tiers; with Cinemeta unreachable, cached rows still render. *(Slice 1: `canonical/cinemeta.rs` client + `db/canonical.rs` Tier-2 cache (`canonical_cache`) with a **stale-on-failure** fallback (`commands/canonical.rs::cached_or_fetch`); commands `get_canonical_catalog`/`get_canonical_meta`/`get_canonical_genres`; frontend `CanonicalBrowse`/`CanonicalGrid`/`CanonicalDetail` flip Home Popular + Movies/Series browse to canonical (provider-agnostic). The tmdb↔imdb bridge falls out for free — Cinemeta returns `moviedb_id` inline (no TMDB key needed). Tests: `milestone40` (8 — parsing incl. the tmdb bridge + episode sort/specials, cache round-trip, fresh-hit/stale-fallback/miss). Live Cinemeta URL path validated; browser-preview verified canonical Home + Movies/Series browse and movie & series detail.)*
 - [ ] Clicking a movie resolves **IPTV sources across enabled providers** into a picker (provider + quality), or shows a graceful **"no sources found"**; selecting a source plays it. Matches are cached in `content_match` and not recomputed needlessly.
 - [ ] A series resolves to a provider series with **correct season/episode mapping**; a **manual override** corrects a wrong match and the correction persists.
 - [ ] Watch progress **follows the title across sources** (resume after switching source/provider lands at the saved position); un-matched content still tracks per-provider.

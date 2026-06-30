@@ -288,6 +288,66 @@ pub struct RelatedResults {
     pub series: Vec<SeriesItem>,
 }
 
+// --- Canonical catalog (Milestone 40: Cinemeta-backed) ---
+
+/// One canonical catalog card (a Cinemeta meta preview), keyed by IMDB id.
+/// Browse rows (Home/Movies/Series) are lists of these; clicking one resolves
+/// playback sources across the enabled providers (M40 slice 3). `Deserialize`
+/// so cached rows round-trip through the Tier-2 cache.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalItem {
+    /// IMDB id (`tt…`) — the canonical key.
+    pub imdb_id: String,
+    /// "movie" | "series".
+    pub kind: String,
+    pub name: String,
+    pub poster_url: Option<String>,
+    pub release_year: Option<i64>,
+}
+
+/// Full canonical title metadata (Cinemeta `/meta`), loaded on detail open.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalMeta {
+    pub imdb_id: String,
+    pub kind: String,
+    pub name: String,
+    pub poster_url: Option<String>,
+    /// Wide hero backdrop; falls back to the poster.
+    pub backdrop_url: Option<String>,
+    pub description: Option<String>,
+    pub release_year: Option<i64>,
+    /// Raw Cinemeta release info ("1999" or a range like "2011–2019").
+    pub release_info: Option<String>,
+    pub genres: Vec<String>,
+    pub cast: Vec<String>,
+    pub director: Vec<String>,
+    /// Human-readable runtime ("136 min").
+    pub runtime: Option<String>,
+    pub imdb_rating: Option<f64>,
+    /// TMDB id when Cinemeta exposes `moviedb_id` — the tmdb↔imdb bridge used to
+    /// confirm provider matches (M40 slice 2). `None` when absent.
+    pub tmdb_id: Option<i64>,
+    /// Series episodes (Cinemeta `videos`); empty for movies.
+    pub videos: Vec<CanonicalVideo>,
+}
+
+/// One canonical episode (Cinemeta `videos[]`). Season 0 = specials.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalVideo {
+    /// "tt…:season:episode".
+    pub id: String,
+    pub season: i64,
+    pub episode: i64,
+    pub name: String,
+    pub overview: Option<String>,
+    pub thumbnail: Option<String>,
+    /// ISO release date when known.
+    pub released: Option<String>,
+}
+
 /// Payload for the `catalog:refresh_progress` event (spec §16).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

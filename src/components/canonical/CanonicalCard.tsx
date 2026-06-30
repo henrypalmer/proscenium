@@ -1,0 +1,37 @@
+import { Poster } from "../vod/PosterGrid";
+import type { CanonicalItem } from "../../types";
+
+interface Props {
+  item: CanonicalItem;
+  onActivate: (item: CanonicalItem) => void;
+  /** When true, this poster carries the shared-element name so it morphs into
+   * the detail view on open (and back on close). */
+  morphActive?: boolean;
+}
+
+/**
+ * Canonical (Cinemeta) browse card: poster, title, year. No provider badge — a
+ * canonical title is provider-agnostic until its sources are resolved (M40).
+ */
+export default function CanonicalCard({ item, onActivate, morphActive }: Props) {
+  return (
+    <button
+      onClick={() => onActivate(item)}
+      data-testid="canonical-card"
+      title={item.name}
+      className="group relative block w-full text-left transition-transform duration-200 ease-out hover:z-10 hover:scale-[1.04] active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:scale-100"
+    >
+      <Poster
+        url={item.posterUrl}
+        title={item.name}
+        vtName={morphActive ? "vt-poster" : undefined}
+      />
+      <p className="mt-2 truncate text-sm text-zinc-200 group-hover:text-white">
+        {item.name}
+      </p>
+      <p className="mt-0.5 flex h-4 items-center text-xs text-zinc-500">
+        {item.releaseYear ?? ""}
+      </p>
+    </button>
+  );
+}

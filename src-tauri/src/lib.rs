@@ -1,3 +1,4 @@
+pub mod canonical;
 pub mod commands;
 pub mod db;
 pub mod iptv;
@@ -105,6 +106,9 @@ pub fn run() {
             commands::images::cache_image,
             commands::images::image_cache_size,
             commands::images::clear_image_cache,
+            commands::canonical::get_canonical_genres,
+            commands::canonical::get_canonical_catalog,
+            commands::canonical::get_canonical_meta,
             commands::catalog::get_active_provider,
             commands::catalog::set_active_provider,
             commands::catalog::get_enabled_providers,

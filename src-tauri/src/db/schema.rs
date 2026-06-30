@@ -124,6 +124,17 @@ CREATE TABLE IF NOT EXISTS image_cache (
   last_accessed INTEGER NOT NULL DEFAULT 0
 );
 
+-- Tier-2 disposable cache for canonical (Cinemeta) catalog/meta responses
+-- (Milestone 40). Throwaway: a miss re-fetches, and on a Cinemeta failure a
+-- stale row is still served so browse works offline. Not provider-scoped and
+-- untouched by catalog refresh. Keyed by the request (kind + params).
+CREATE TABLE IF NOT EXISTS canonical_cache (
+  cache_key  TEXT PRIMARY KEY,
+  body       TEXT NOT NULL,          -- JSON payload (app Canonical* models)
+  cached_at  INTEGER NOT NULL,       -- Unix timestamp
+  expires_at INTEGER NOT NULL        -- Unix timestamp
+);
+
 -- Watch progress (§5.9). Resume position + completion for VOD only; live TV is
 -- never tracked. Rows cascade-delete with their provider.
 CREATE TABLE IF NOT EXISTS watch_progress (

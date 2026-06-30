@@ -2,6 +2,8 @@ import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { mockInvoke } from "./devMock";
 import type {
   AppSettings,
+  CanonicalItem,
+  CanonicalMeta,
   CatalogSummary,
   Category,
   ConnectionTestResult,
@@ -255,6 +257,33 @@ export function search(
   limit?: number,
 ): Promise<SearchResults> {
   return invoke("search", { providerIds, query, contentType, categoryId, limit });
+}
+
+// --- Canonical catalog (Cinemeta-backed, spec §19 Milestone 40) ---
+
+/** Cinemeta's accepted genre options for a content kind (static; offline-safe). */
+export function getCanonicalGenres(kind: "movie" | "series"): Promise<string[]> {
+  return invoke("get_canonical_genres", { kind });
+}
+
+/** A page of the canonical catalog, optionally narrowed by genre or search and
+ * paged by `skip`. Served from a Tier-2 cache that falls back to stale rows when
+ * Cinemeta is unreachable. */
+export function getCanonicalCatalog(
+  kind: "movie" | "series",
+  genre?: string,
+  search?: string,
+  skip?: number,
+): Promise<CanonicalItem[]> {
+  return invoke("get_canonical_catalog", { kind, genre, search, skip });
+}
+
+/** Full canonical metadata for one title (long-TTL cached). */
+export function getCanonicalMeta(
+  kind: "movie" | "series",
+  imdbId: string,
+): Promise<CanonicalMeta> {
+  return invoke("get_canonical_meta", { kind, imdbId });
 }
 
 export function resolveStreamUrl(

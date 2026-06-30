@@ -8,6 +8,9 @@
 
 import type {
   AppSettings,
+  CanonicalItem,
+  CanonicalMeta,
+  CanonicalVideo,
   CatalogSummary,
   Category,
   ConnectionTestResult,
@@ -211,6 +214,93 @@ function posterFor(i: number, title: string): string | null {
     : i % 3 === 1
       ? `http://invalid.local/poster-${i}.jpg`
       : null;
+}
+
+// --- Canonical catalog (Milestone 40 dev stand-in for Cinemeta) ---
+
+const CANONICAL_GENRES_MOVIE = [
+  "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime",
+  "Documentary", "Drama", "Family", "Fantasy", "History", "Horror", "Mystery",
+  "Romance", "Sci-Fi", "Sport", "Thriller", "War", "Western",
+];
+const CANONICAL_GENRES_SERIES = [
+  ...CANONICAL_GENRES_MOVIE, "Reality-TV", "Talk-Show", "Game-Show",
+];
+
+function canonicalName(seed: number): string {
+  return `${TITLE_A[seed % TITLE_A.length]} ${TITLE_B[(seed * 7) % TITLE_B.length]}`;
+}
+
+function canonicalImdbId(kind: "movie" | "series", seed: number): string {
+  return `tt${kind === "series" ? "9" : "1"}${String(seed).padStart(6, "0")}`;
+}
+
+/** A deterministic canonical page (~24 per page, 3 pages deep so "load more"
+ * terminates). Mirrors the real Cinemeta catalog shape. */
+function mockCanonicalCatalog(
+  kind: "movie" | "series",
+  genre: string | undefined,
+  search: string | undefined,
+  skip: number,
+): CanonicalItem[] {
+  const PAGE = 24;
+  if (skip >= PAGE * 3) return [];
+  const base =
+    (genre ? genre.length * 31 + genre.charCodeAt(0) : 0) +
+    (kind === "series" ? 5000 : 0);
+  const items: CanonicalItem[] = [];
+  for (let n = 0; n < PAGE; n++) {
+    const seed = base + skip + n;
+    const name = canonicalName(seed);
+    if (search && !name.toLowerCase().includes(search.toLowerCase())) continue;
+    items.push({
+      imdbId: canonicalImdbId(kind, seed),
+      kind,
+      name,
+      posterUrl: posterFor(seed, name),
+      releaseYear: 1990 + (seed % 35),
+    });
+  }
+  return items;
+}
+
+function mockCanonicalMeta(kind: "movie" | "series", imdbId: string): CanonicalMeta {
+  const seed = Number(imdbId.replace(/\D/g, "")) || 1;
+  const name = canonicalName(seed);
+  const videos: CanonicalVideo[] = [];
+  if (kind === "series") {
+    for (let s = 1; s <= 2; s++) {
+      for (let e = 1; e <= 6; e++) {
+        videos.push({
+          id: `${imdbId}:${s}:${e}`,
+          season: s,
+          episode: e,
+          name: `Episode ${e}`,
+          overview: "Mock episode synopsis from the dev backend.",
+          thumbnail: svgBackdrop(seed + s * 7 + e, name),
+          released: null,
+        });
+      }
+    }
+  }
+  return {
+    imdbId,
+    kind,
+    name,
+    posterUrl: svgPoster(seed, name),
+    backdropUrl: svgBackdrop(seed, name),
+    description:
+      "A canonical title resolved from the dev mock's Cinemeta stand-in. Source resolution across providers arrives in a later M40 slice.",
+    releaseYear: 1990 + (seed % 35),
+    releaseInfo: String(1990 + (seed % 35)),
+    genres: [kind === "series" ? "Drama" : "Action", "Adventure"],
+    cast: ["A. Mock", "B. Stand-in", "C. Placeholder"],
+    director: ["D. Devmock"],
+    runtime: kind === "movie" ? "118 min" : null,
+    imdbRating: Math.round((6 + (seed % 40) / 10) * 10) / 10,
+    tmdbId: 100000 + seed,
+    videos,
+  };
 }
 
 let movieCache: Movie[] | null = null;
@@ -654,6 +744,22 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       })) satisfies Category[] as T;
     case "get_series":
       return paginateByName(allSeries(), a) satisfies PaginatedResult<Series> as T;
+    case "get_canonical_genres":
+      return (a.kind === "series"
+        ? CANONICAL_GENRES_SERIES
+        : CANONICAL_GENRES_MOVIE) as T;
+    case "get_canonical_catalog":
+      return mockCanonicalCatalog(
+        a.kind as "movie" | "series",
+        a.genre as string | undefined,
+        a.search as string | undefined,
+        (a.skip as number) ?? 0,
+      ) satisfies CanonicalItem[] as T;
+    case "get_canonical_meta":
+      return mockCanonicalMeta(
+        a.kind as "movie" | "series",
+        a.imdbId as string,
+      ) satisfies CanonicalMeta as T;
     case "get_episodes":
       return episodesFor(a.seriesId as string) satisfies EpisodesBySeason as T;
     case "get_movie_detail": {
