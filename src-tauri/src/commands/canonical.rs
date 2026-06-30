@@ -4,8 +4,10 @@
 //! spec §19 M40 AC1).
 
 use crate::canonical::cinemeta;
+use crate::canonical::resolver::{self, CanonicalRef};
+use crate::commands::catalog::get_enabled_provider_ids;
 use crate::db::{self, Db};
-use crate::models::{CanonicalItem, CanonicalMeta};
+use crate::models::{CanonicalItem, CanonicalMeta, StreamCandidate};
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::SqlitePool;
 use std::future::Future;
@@ -99,15 +101,58 @@ pub async fn get_canonical_catalog(
 
 /// Full canonical metadata for one title (poster/backdrop/overview/cast and, for
 /// series, the episode list). Long-TTL cached.
+/// Cached canonical meta fetch — the shared path behind `get_canonical_meta` and
+/// source resolution.
+pub async fn fetch_canonical_meta(
+    pool: &SqlitePool,
+    kind: &str,
+    imdb_id: &str,
+) -> Result<CanonicalMeta, String> {
+    let key = format!("meta:{kind}:{imdb_id}");
+    let (k, id) = (kind.to_string(), imdb_id.to_string());
+    cached_or_fetch(pool, &key, META_TTL_SECS, || async move {
+        cinemeta::fetch_meta(&k, &id).await
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn get_canonical_meta(
     state: State<'_, Db>,
     kind: String,
     imdb_id: String,
 ) -> Result<CanonicalMeta, String> {
-    let key = format!("meta:{kind}:{imdb_id}");
-    cached_or_fetch(&state.0, &key, META_TTL_SECS, || async move {
-        cinemeta::fetch_meta(&kind, &imdb_id).await
-    })
-    .await
+    fetch_canonical_meta(&state.0, &kind, &imdb_id).await
+}
+
+/// Resolve playback sources for a canonical title across the enabled providers
+/// (Milestone 40 slice 3). Returns ranked `StreamCandidate`s for the source
+/// picker; an **empty vec is the first-class "no sources found"** state.
+#[tauri::command]
+pub async fn resolve_sources(
+    state: State<'_, Db>,
+    kind: String,
+    imdb_id: String,
+) -> Result<Vec<StreamCandidate>, String> {
+    let meta = fetch_canonical_meta(&state.0, &kind, &imdb_id).await?;
+    let target = CanonicalRef {
+        imdb_id: meta.imdb_id,
+        kind: meta.kind,
+        tmdb_id: meta.tmdb_id,
+        name: meta.name,
+        year: meta.release_year,
+        season: None,
+        episode: None,
+    };
+    let ids = get_enabled_provider_ids(&state.0).await?;
+    let mut providers = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(p) = db::providers::get(&state.0, &id)
+            .await
+            .map_err(|e| format!("Failed to load provider: {e}"))?
+        {
+            providers.push(p);
+        }
+    }
+    Ok(resolver::resolve_sources(&state.0, &target, &providers).await)
 }

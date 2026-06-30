@@ -25,6 +25,7 @@ import type {
   SearchResults,
   Series,
   SeriesDetail,
+  StreamCandidate,
   TileRect,
   ProgressContentType,
   UserList,
@@ -284,6 +285,15 @@ export function getCanonicalMeta(
   imdbId: string,
 ): Promise<CanonicalMeta> {
   return invoke("get_canonical_meta", { kind, imdbId });
+}
+
+/** Resolve playback sources for a canonical title across the enabled providers
+ * (M40 slice 3). An empty array is the first-class "no sources found" state. */
+export function resolveSources(
+  kind: "movie" | "series",
+  imdbId: string,
+): Promise<StreamCandidate[]> {
+  return invoke("resolve_sources", { kind, imdbId });
 }
 
 export function resolveStreamUrl(

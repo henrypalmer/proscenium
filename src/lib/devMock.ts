@@ -28,6 +28,7 @@ import type {
   SearchResults,
   Series,
   SeriesDetail,
+  StreamCandidate,
   UserList,
   UserListItem,
   WatchProgress,
@@ -301,6 +302,36 @@ function mockCanonicalMeta(kind: "movie" | "series", imdbId: string): CanonicalM
     tmdbId: 100000 + seed,
     videos,
   };
+}
+
+/** Fake source resolution: candidates point at real mock movies (so the play
+ * path resolves), with ~1 in 5 titles returning none to exercise "no sources". */
+function mockResolveSources(kind: "movie" | "series", imdbId: string): StreamCandidate[] {
+  if (kind !== "movie") return []; // series resolution lands in M40 slice 4
+  const seed = Number(imdbId.replace(/\D/g, "")) || 0;
+  if (seed % 5 === 0) return [];
+  const movies = allMovies().filter((m) => mockEnabledProviderIds.includes(m.providerId));
+  if (movies.length === 0) return [];
+  const qualities = ["2160p", "1080p", "720p"];
+  const seen = new Set<string>();
+  const out: StreamCandidate[] = [];
+  [seed, seed * 7 + 1, seed * 13 + 2].forEach((n, i) => {
+    const m = movies[n % movies.length];
+    const key = `${m.providerId}:${m.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      source: mockProviders.find((p) => p.id === m.providerId)?.name ?? m.providerId,
+      providerId: m.providerId,
+      contentType: "movie",
+      contentId: m.id,
+      url: null,
+      quality: qualities[i] ?? null,
+      container: m.containerExt,
+      confidence: 1 - i * 0.1,
+    });
+  });
+  return out;
 }
 
 let movieCache: Movie[] | null = null;
@@ -760,6 +791,11 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
         a.kind as "movie" | "series",
         a.imdbId as string,
       ) satisfies CanonicalMeta as T;
+    case "resolve_sources":
+      return mockResolveSources(
+        a.kind as "movie" | "series",
+        a.imdbId as string,
+      ) satisfies StreamCandidate[] as T;
     case "get_episodes":
       return episodesFor(a.seriesId as string) satisfies EpisodesBySeason as T;
     case "get_movie_detail": {

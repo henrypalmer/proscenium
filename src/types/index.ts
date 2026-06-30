@@ -164,6 +164,20 @@ export interface CanonicalMeta {
   videos: CanonicalVideo[];
 }
 
+/** One playable source for a canonical title (M40 source picker). A provider
+ * source addresses `(providerId, contentType, contentId)` and plays through the
+ * existing player path; a direct-URL source (Stremio addons, M41) carries `url`. */
+export interface StreamCandidate {
+  source: string;
+  providerId: string | null;
+  contentType: "movie" | "episode";
+  contentId: string | null;
+  url: string | null;
+  quality: string | null;
+  container: string | null;
+  confidence: number;
+}
+
 export interface PaginatedResult<T> {
   items: T[];
   total: number;

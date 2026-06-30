@@ -5,6 +5,7 @@ import CachedImage from "../common/CachedImage";
 import HeroBackdrop from "../vod/HeroBackdrop";
 import { Poster } from "../vod/PosterGrid";
 import SeasonSelect from "../vod/SeasonSelect";
+import SourcePicker from "./SourcePicker";
 import type { CanonicalItem, CanonicalMeta, CanonicalVideo } from "../../types";
 
 interface Props {
@@ -107,14 +108,18 @@ export default function CanonicalDetail({ item, onClose }: Props) {
                 </span>
               ))}
             </div>
-            {/* Source resolution + Play/source picker arrive in M40 slice 3. */}
             <div className="mt-6">
-              <span
-                data-testid="canonical-sources-pending"
-                className="inline-block rounded-md border border-zinc-700 bg-zinc-900/60 px-4 py-2 text-xs text-zinc-400"
-              >
-                Finding sources across your providers is coming next.
-              </span>
+              {item.kind === "movie" ? (
+                <SourcePicker kind="movie" imdbId={item.imdbId} title={item.name} />
+              ) : (
+                // Per-episode resolution lands in M40 slice 4.
+                <span
+                  data-testid="canonical-sources-pending"
+                  className="inline-block rounded-md border border-zinc-700 bg-zinc-900/60 px-4 py-2 text-xs text-zinc-400"
+                >
+                  Episode playback across your providers is coming next.
+                </span>
+              )}
             </div>
           </div>
         </div>
