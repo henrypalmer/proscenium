@@ -3,3 +3,4 @@
 //! registry here. See SPEC.md §19 M40 and docs/spikes/2026-06-29-….
 
 pub mod cinemeta;
+pub mod resolver;

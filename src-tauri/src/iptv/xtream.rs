@@ -279,18 +279,29 @@ pub struct VodInfo {
     pub genre: Option<String>,
     pub duration_seconds: Option<i64>,
     pub backdrop_url: Option<String>,
+    /// The provider's TMDB id from `get_vod_info.info.tmdb_id` (spike: ~100% for
+    /// movies). The canonical match anchor — confirmed against Cinemeta's
+    /// `moviedb_id` (Milestone 40).
+    pub tmdb_id: Option<i64>,
+}
+
+/// Parse a `get_vod_info` body into `VodInfo` (pure; unit-tested). `info` holds
+/// the movie metadata; `tmdb_id` is the Milestone 40 canonical match anchor.
+pub fn parse_vod_info(body: &Value) -> VodInfo {
+    let info = &body["info"];
+    VodInfo {
+        description: description_from(info),
+        genre: value_to_string(&info["genre"]).filter(|s| !s.is_empty()),
+        duration_seconds: value_to_i64(&info["duration_secs"]),
+        backdrop_url: backdrop_from(info, &["cover_big", "movie_image"]),
+        tmdb_id: value_to_i64(&info["tmdb_id"]),
+    }
 }
 
 pub async fn fetch_vod_info(creds: &XtreamCreds<'_>, vod_id: &str) -> Result<VodInfo, String> {
     let client = super::http_client()?;
     let body = get_action_with_id(&client, creds, "get_vod_info", "vod_id", vod_id).await?;
-    let info = &body["info"];
-    Ok(VodInfo {
-        description: description_from(info),
-        genre: value_to_string(&info["genre"]).filter(|s| !s.is_empty()),
-        duration_seconds: value_to_i64(&info["duration_secs"]),
-        backdrop_url: backdrop_from(info, &["cover_big", "movie_image"]),
-    })
+    Ok(parse_vod_info(&body))
 }
 
 /// On-demand series metadata and episode list (spec §6 `get_series_info`,

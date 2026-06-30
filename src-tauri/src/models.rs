@@ -348,6 +348,30 @@ pub struct CanonicalVideo {
     pub released: Option<String>,
 }
 
+/// One playable source for a canonical title (Milestone 40 source picker). An
+/// IPTV provider source addresses `(provider_id, content_type, content_id)` and
+/// plays through the existing player path; a direct-URL source (Stremio addons,
+/// M41) instead carries `url`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamCandidate {
+    /// Display label for the source (the provider or addon name).
+    pub source: String,
+    /// Provider source: the origin provider id (`None` for a direct-URL source).
+    pub provider_id: Option<String>,
+    /// "movie" | "episode".
+    pub content_type: String,
+    /// Provider source: the provider content id (`None` for a direct-URL source).
+    pub content_id: Option<String>,
+    /// Direct-URL source (addons): the playable URL (`None` for a provider source).
+    pub url: Option<String>,
+    /// Parsed quality tag ("2160p"/"1080p"/…) when known.
+    pub quality: Option<String>,
+    pub container: Option<String>,
+    /// Match confidence 0..1 — drives picker ordering and a low-confidence hint.
+    pub confidence: f64,
+}
+
 /// Payload for the `catalog:refresh_progress` event (spec §16).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

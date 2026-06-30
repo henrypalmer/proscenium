@@ -135,6 +135,24 @@ CREATE TABLE IF NOT EXISTS canonical_cache (
   expires_at INTEGER NOT NULL        -- Unix timestamp
 );
 
+-- Canonical↔provider match index (Milestone 40). Maps a provider's stable
+-- catalog item to a canonical IMDB id. Expensive to derive (name+year +
+-- tmdb confirm), so it lives in this side table that catalog refresh does NOT
+-- touch: refresh deletes+reinserts catalog rows by their stable ids, so the
+-- match stays valid across refreshes. Cascade-deletes with the provider.
+CREATE TABLE IF NOT EXISTS content_match (
+  provider_id  TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK (content_type IN ('movie', 'series')),
+  content_id   TEXT NOT NULL,
+  imdb_id      TEXT NOT NULL,
+  tmdb_id      INTEGER,
+  confidence   REAL NOT NULL DEFAULT 0,
+  method       TEXT NOT NULL,          -- 'tmdb' | 'name_year' | 'manual'
+  matched_at   INTEGER NOT NULL,       -- Unix timestamp
+  PRIMARY KEY (provider_id, content_type, content_id)
+);
+CREATE INDEX IF NOT EXISTS idx_content_match_imdb ON content_match(imdb_id, content_type);
+
 -- Watch progress (§5.9). Resume position + completion for VOD only; live TV is
 -- never tracked. Rows cascade-delete with their provider.
 CREATE TABLE IF NOT EXISTS watch_progress (
