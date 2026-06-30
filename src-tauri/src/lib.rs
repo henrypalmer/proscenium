@@ -152,6 +152,7 @@ pub fn run() {
             commands::multiview::mv_set_volume,
             commands::multiview::mv_close,
             commands::watch::get_watch_progress,
+            commands::watch::get_canonical_progress,
             commands::watch::set_watch_progress,
             commands::watch::mark_watched,
             commands::watch::list_watch_progress,

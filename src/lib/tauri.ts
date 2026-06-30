@@ -309,6 +309,18 @@ export function setManualMatch(
   return invoke("set_manual_match", { providerId, contentType, contentId, imdbId });
 }
 
+/** Resume position for a canonical title across *all* its sources (M40 slice 5),
+ * so resume follows the title when switching source/provider. `null` when the
+ * title has no matched progress. */
+export function getCanonicalProgress(
+  kind: "movie" | "series",
+  imdbId: string,
+  season?: number,
+  episode?: number,
+): Promise<WatchProgress | null> {
+  return invoke("get_canonical_progress", { kind, imdbId, season, episode });
+}
+
 export function resolveStreamUrl(
   providerId: string,
   contentType: PlayableContentType,

@@ -47,6 +47,62 @@ pub async fn get(
     Ok(row.as_ref().map(row_to_progress))
 }
 
+/// The most-recent watch progress for a canonical title across **all** its
+/// matched provider sources (Milestone 40 slice 5) — so resume follows the title
+/// when the user switches source/provider. Movies join `content_match` to
+/// `watch_progress` on the matched content id directly; episodes resolve each
+/// matched provider series → its `(season, episode)` episode row → that row's
+/// progress. Returns the freshest across sources, or `None` (un-matched content
+/// then falls back to its own per-provider progress).
+pub async fn canonical_progress(
+    pool: &SqlitePool,
+    imdb_id: &str,
+    content_type: &str,
+    season: i64,
+    episode: i64,
+) -> Result<Option<WatchProgress>, sqlx::Error> {
+    let row = match content_type {
+        "movie" => {
+            sqlx::query(
+                "SELECT wp.position_seconds, wp.duration_seconds, wp.completed, wp.updated_at
+                 FROM content_match cm
+                 JOIN watch_progress wp
+                   ON wp.provider_id = cm.provider_id
+                  AND wp.content_type = 'movie'
+                  AND wp.content_id = cm.content_id
+                 WHERE cm.imdb_id = ? AND cm.content_type = 'movie'
+                 ORDER BY wp.updated_at DESC LIMIT 1",
+            )
+            .bind(imdb_id)
+            .fetch_optional(pool)
+            .await?
+        }
+        "episode" => {
+            sqlx::query(
+                "SELECT wp.position_seconds, wp.duration_seconds, wp.completed, wp.updated_at
+                 FROM content_match cm
+                 JOIN episodes e
+                   ON e.provider_id = cm.provider_id
+                  AND e.series_id = cm.content_id
+                  AND e.season = ? AND e.episode = ?
+                 JOIN watch_progress wp
+                   ON wp.provider_id = e.provider_id
+                  AND wp.content_type = 'episode'
+                  AND wp.content_id = e.id
+                 WHERE cm.imdb_id = ? AND cm.content_type = 'series'
+                 ORDER BY wp.updated_at DESC LIMIT 1",
+            )
+            .bind(season)
+            .bind(episode)
+            .bind(imdb_id)
+            .fetch_optional(pool)
+            .await?
+        }
+        _ => None,
+    };
+    Ok(row.as_ref().map(row_to_progress))
+}
+
 /// Every in-progress / completed item for one section, keyed by content id.
 /// Every in-progress / completed item for one section across the given
 /// providers (Milestone 39), keyed by `"<provider_id>:<content_id>"` so markers

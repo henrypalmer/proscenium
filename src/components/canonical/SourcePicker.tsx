@@ -38,16 +38,24 @@ export default function SourcePicker({ kind, imdbId, title, season, episode }: P
     }
   };
 
-  const play = (c: StreamCandidate) => {
-    if (c.providerId && c.contentId) {
-      void usePlayerStore.getState().openContent({
-        providerId: c.providerId,
-        contentType: c.contentType,
-        contentId: c.contentId,
-        title,
-      });
+  const play = async (c: StreamCandidate) => {
+    if (!c.providerId || !c.contentId) return; // direct-URL (addon) sources: M41
+    const args = {
+      providerId: c.providerId,
+      contentType: c.contentType,
+      contentId: c.contentId,
+      title,
+    };
+    // Resume from the title's saved position across *any* source (M40 slice 5);
+    // an un-matched title returns null and the player resumes per-item as usual.
+    const prog = await api
+      .getCanonicalProgress(kind, imdbId, season, episode)
+      .catch(() => null);
+    if (prog && !prog.completed && prog.positionSeconds >= 5) {
+      void usePlayerStore.getState().playDirect(args, prog.positionSeconds);
+    } else {
+      void usePlayerStore.getState().openContent(args);
     }
-    // Direct-URL (addon) sources arrive in M41.
   };
 
   if (state.phase === "idle") {
@@ -103,7 +111,7 @@ export default function SourcePicker({ kind, imdbId, title, season, episode }: P
       {state.sources.map((c, i) => (
         <button
           key={`${c.providerId ?? c.url}:${c.contentId}:${i}`}
-          onClick={() => play(c)}
+          onClick={() => void play(c)}
           data-testid="source-option"
           className="flex w-full items-center justify-between rounded-md border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-800"
         >

@@ -70,6 +70,30 @@ pub async fn get_watch_progress(
         .map_err(|e| format!("Failed to read watch progress: {e}"))
 }
 
+/// Resume position for a canonical title across **all** its sources (Milestone
+/// 40 slice 5). `kind` is "movie" | "series"; series pass `season`/`episode`.
+/// Returns `None` when the title has no matched progress, so the player falls
+/// back to the played item's own per-provider progress.
+#[tauri::command]
+pub async fn get_canonical_progress(
+    state: State<'_, Db>,
+    kind: String,
+    imdb_id: String,
+    season: Option<i64>,
+    episode: Option<i64>,
+) -> Result<Option<WatchProgress>, String> {
+    let content_type = if kind == "series" { "episode" } else { "movie" };
+    db::watch::canonical_progress(
+        &state.0,
+        &imdb_id,
+        content_type,
+        season.unwrap_or(0),
+        episode.unwrap_or(0),
+    )
+    .await
+    .map_err(|e| format!("Failed to read progress: {e}"))
+}
+
 #[tauri::command]
 pub async fn set_watch_progress(
     state: State<'_, Db>,

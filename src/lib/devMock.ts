@@ -819,6 +819,10 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       ) satisfies StreamCandidate[] as T;
     case "set_manual_match":
       return undefined as T;
+    case "get_canonical_progress":
+      // The browser mock doesn't track cross-source progress; resume falls back
+      // to the per-item flow (covered by the backend milestone40 tests).
+      return null as T;
     case "get_episodes":
       return episodesFor(a.seriesId as string) satisfies EpisodesBySeason as T;
     case "get_movie_detail": {

@@ -566,3 +566,106 @@ async fn manual_match_overrides_wrong_auto_match_and_persists() {
     pool.close().await;
     cleanup_db(&path);
 }
+
+// --- Slice 5: watch progress follows the canonical title across sources ---
+
+#[tokio::test]
+async fn canonical_progress_follows_a_movie_across_providers() {
+    let path = temp_path("cprog-movie");
+    let pool = db::init(&path).await.expect("init");
+    let a = m3u_provider(&pool, "A").await;
+    let b = m3u_provider(&pool, "B").await;
+    seed_movies(&pool, &a.id, vec![movie_row("a1", "Heat", 1995)]).await;
+    seed_movies(&pool, &b.id, vec![movie_row("b1", "Heat", 1995)]).await;
+    for (pid, cid) in [(&a.id, "a1"), (&b.id, "b1")] {
+        match_put(
+            &pool,
+            &ContentMatch {
+                provider_id: pid.clone(),
+                content_type: "movie".into(),
+                content_id: cid.into(),
+                imdb_id: "tt0113277".into(),
+                tmdb_id: None,
+                confidence: 1.0,
+                method: "tmdb".into(),
+                matched_at: 0,
+            },
+        )
+        .await
+        .unwrap();
+    }
+    // Watched 100s on A (older), then 600s on B (newer).
+    db::watch::upsert(&pool, &a.id, "movie", "a1", 100, Some(3600), false, 10).await.unwrap();
+    db::watch::upsert(&pool, &b.id, "movie", "b1", 600, Some(3600), false, 20).await.unwrap();
+
+    // Resume follows the title — the freshest position across sources.
+    let prog = db::watch::canonical_progress(&pool, "tt0113277", "movie", 0, 0)
+        .await
+        .unwrap()
+        .expect("progress");
+    assert_eq!(prog.position_seconds, 600);
+
+    // Un-matched canonical id → none (the player falls back to per-item).
+    assert!(db::watch::canonical_progress(&pool, "tt9999999", "movie", 0, 0)
+        .await
+        .unwrap()
+        .is_none());
+    pool.close().await;
+    cleanup_db(&path);
+}
+
+#[tokio::test]
+async fn canonical_progress_follows_an_episode_across_providers() {
+    let path = temp_path("cprog-ep");
+    let pool = db::init(&path).await.expect("init");
+    let a = m3u_provider(&pool, "A").await;
+    let b = m3u_provider(&pool, "B").await;
+    seed_series_multi(
+        &pool,
+        &a.id,
+        vec![series_row("sa", "Fargo", 2014)],
+        vec![("sa", vec![episode_row("a-s2e3", "sa", 2, 3)])],
+    )
+    .await;
+    seed_series_multi(
+        &pool,
+        &b.id,
+        vec![series_row("sb", "Fargo", 2014)],
+        vec![("sb", vec![episode_row("b-s2e3", "sb", 2, 3)])],
+    )
+    .await;
+    for (pid, cid) in [(&a.id, "sa"), (&b.id, "sb")] {
+        match_put(
+            &pool,
+            &ContentMatch {
+                provider_id: pid.clone(),
+                content_type: "series".into(),
+                content_id: cid.into(),
+                imdb_id: "tt2802850".into(),
+                tmdb_id: None,
+                confidence: 0.7,
+                method: "name_year".into(),
+                matched_at: 0,
+            },
+        )
+        .await
+        .unwrap();
+    }
+    // S2E3 watched on B (older) then A (newer).
+    db::watch::upsert(&pool, &b.id, "episode", "b-s2e3", 200, Some(2400), false, 5).await.unwrap();
+    db::watch::upsert(&pool, &a.id, "episode", "a-s2e3", 800, Some(2400), false, 50).await.unwrap();
+
+    let prog = db::watch::canonical_progress(&pool, "tt2802850", "episode", 2, 3)
+        .await
+        .unwrap()
+        .expect("progress");
+    assert_eq!(prog.position_seconds, 800, "freshest S2E3 across providers");
+
+    // A different episode of the same title has no progress yet.
+    assert!(db::watch::canonical_progress(&pool, "tt2802850", "episode", 1, 1)
+        .await
+        .unwrap()
+        .is_none());
+    pool.close().await;
+    cleanup_db(&path);
+}
