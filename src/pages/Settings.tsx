@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import ProviderList from "../components/providers/ProviderList";
 import * as api from "../lib/tauri";
 import { useSettingsStore } from "../store/settingsStore";
-import type { ExternalPlayer, UiDensity } from "../types";
+import type { ExternalPlayer, StremioAddon, UiDensity } from "../types";
 
 const SECTIONS = [
   { key: "providers", label: "Providers" },
+  { key: "addons", label: "Addons" },
   { key: "playback", label: "Playback" },
   { key: "appearance", label: "Appearance" },
   { key: "storage", label: "Storage" },
@@ -36,6 +37,7 @@ export default function Settings() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-3xl">
           {section === "providers" && <ProviderList />}
+          {section === "addons" && <StremioAddonSettings />}
           {section === "playback" && <PlaybackSettings />}
           {section === "appearance" && <AppearanceSettings />}
           {section === "storage" && <ImageCacheSettings />}
@@ -238,6 +240,105 @@ function ImageCacheSettings() {
             </button>
           </div>
         </Row>
+      </div>
+    </div>
+  );
+}
+
+/** Stremio stream addons (Milestone 41): add-by-URL, list, remove. Token-bearing
+ * manifest URLs are stored in the OS keychain by the backend, never here. */
+function StremioAddonSettings() {
+  const [addons, setAddons] = useState<StremioAddon[]>([]);
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () =>
+    void api.listStremioAddons().then(setAddons, () => setAddons([]));
+  useEffect(load, []);
+
+  const add = async () => {
+    if (!url.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.addStremioAddon(url.trim());
+      setUrl("");
+      load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    await api.removeStremioAddon(id);
+    load();
+  };
+
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-semibold text-zinc-200">Stremio Addons</h3>
+      <p className="mb-3 text-xs text-zinc-500">
+        Add a Stremio stream addon (e.g. AIOStreams, Torrentio, Comet) by its
+        manifest URL to fold its sources into the picker. Token-bearing URLs are
+        stored in your OS keychain and never logged.
+      </p>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-5 py-4">
+        <div className="flex gap-2">
+          <input
+            type="url"
+            spellCheck={false}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void add();
+            }}
+            placeholder="https://…/manifest.json"
+            data-testid="addon-url-input"
+            className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600"
+          />
+          <button
+            onClick={() => void add()}
+            disabled={busy || !url.trim()}
+            data-testid="addon-add"
+            className="shrink-0 rounded-md bg-zinc-100 px-4 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+          >
+            {busy ? "Adding…" : "Add"}
+          </button>
+        </div>
+        {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+
+        <div className="mt-4 space-y-2">
+          {addons.length === 0 ? (
+            <p className="text-xs text-zinc-600">
+              No addons yet — streams resolve from your IPTV providers only.
+            </p>
+          ) : (
+            addons.map((addon) => (
+              <div
+                key={addon.id}
+                data-testid="addon-row"
+                className="flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm text-zinc-200">{addon.name}</div>
+                  <div className="mt-0.5 truncate text-xs text-zinc-500">
+                    {addon.types.join(", ") || "—"} · {addon.resources.join(", ")}
+                  </div>
+                </div>
+                <button
+                  onClick={() => void remove(addon.id)}
+                  data-testid="addon-remove"
+                  className="shrink-0 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700"
+                >
+                  Remove
+                </button>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

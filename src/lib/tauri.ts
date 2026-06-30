@@ -26,6 +26,7 @@ import type {
   Series,
   SeriesDetail,
   StreamCandidate,
+  StremioAddon,
   TileRect,
   ProgressContentType,
   UserList,
@@ -319,6 +320,22 @@ export function getCanonicalProgress(
   episode?: number,
 ): Promise<WatchProgress | null> {
   return invoke("get_canonical_progress", { kind, imdbId, season, episode });
+}
+
+// --- Stremio stream addons (spec §19 Milestone 41) ---
+
+/** Add a Stremio stream addon by manifest URL. A token-bearing URL is stored in
+ * the OS keychain (never returned/logged); the manifest is validated server-side. */
+export function addStremioAddon(manifestUrl: string): Promise<StremioAddon> {
+  return invoke("add_stremio_addon", { manifestUrl });
+}
+
+export function listStremioAddons(): Promise<StremioAddon[]> {
+  return invoke("list_stremio_addons");
+}
+
+export function removeStremioAddon(id: string): Promise<void> {
+  return invoke("remove_stremio_addon", { id });
 }
 
 export function resolveStreamUrl(

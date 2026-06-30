@@ -239,6 +239,7 @@ impl ProviderResolver {
                     quality: parse_quality(&movie.name),
                     container: Some(movie.container_ext),
                     confidence,
+                    needs_debrid: false,
                 });
             }
         }
@@ -354,6 +355,7 @@ impl ProviderResolver {
                     quality: None,
                     container: Some(container),
                     confidence,
+                    needs_debrid: false,
                 });
             }
         }

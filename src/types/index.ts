@@ -176,6 +176,21 @@ export interface StreamCandidate {
   quality: string | null;
   container: string | null;
   confidence: number;
+  /** Addon stream that is infoHash-only (no direct/debrid URL): "needs a debrid
+   * service", not directly playable (M41). */
+  needsDebrid: boolean;
+}
+
+/** An installed Stremio stream addon (M41). The token-bearing manifest URL is
+ * the secret — kept in the OS keychain, never sent to the frontend. */
+export interface StremioAddon {
+  id: string;
+  name: string;
+  types: string[];
+  resources: string[];
+  idPrefixes: string[];
+  position: number;
+  createdAt: number;
 }
 
 export interface PaginatedResult<T> {

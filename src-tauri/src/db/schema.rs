@@ -153,6 +153,22 @@ CREATE TABLE IF NOT EXISTS content_match (
 );
 CREATE INDEX IF NOT EXISTS idx_content_match_imdb ON content_match(imdb_id, content_type);
 
+-- Installed Stremio stream addons (Milestone 41). Durable Tier-1 metadata only:
+-- the token-bearing manifest URL is a secret and lives in the OS keychain
+-- (account `addon:{id}`), never here — `manifest_ref` is just the keychain
+-- reference. `types`/`resources`/`id_prefixes` are JSON arrays of the addon's
+-- declared (non-secret) manifest metadata.
+CREATE TABLE IF NOT EXISTS stremio_addons (
+  id           TEXT PRIMARY KEY,        -- app-generated UUID
+  name         TEXT NOT NULL,
+  manifest_ref TEXT NOT NULL,           -- keychain reference key, never the URL
+  types        TEXT NOT NULL,           -- JSON array
+  resources    TEXT NOT NULL,           -- JSON array
+  id_prefixes  TEXT NOT NULL,           -- JSON array
+  position     INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL
+);
+
 -- Watch progress (§5.9). Resume position + completion for VOD only; live TV is
 -- never tracked. Rows cascade-delete with their provider.
 CREATE TABLE IF NOT EXISTS watch_progress (

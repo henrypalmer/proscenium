@@ -370,6 +370,28 @@ pub struct StreamCandidate {
     pub container: Option<String>,
     /// Match confidence 0..1 — drives picker ordering and a low-confidence hint.
     pub confidence: f64,
+    /// True for an addon stream that is `infoHash`-only (no direct/debrid URL):
+    /// surfaced as "needs a debrid service", not directly playable (M41).
+    #[serde(default)]
+    pub needs_debrid: bool,
+}
+
+/// An installed Stremio stream addon (Milestone 41). The token-bearing manifest
+/// URL is the secret — it lives in the OS keychain, never in this struct or in
+/// SQLite. `Deserialize` so the dev mock and tests can build one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioAddon {
+    pub id: String,
+    pub name: String,
+    /// Declared content types ("movie"/"series"/…).
+    pub types: Vec<String>,
+    /// Declared resources ("stream"/…).
+    pub resources: Vec<String>,
+    /// Accepted id prefixes ("tt"/"tmdb"/…).
+    pub id_prefixes: Vec<String>,
+    pub position: i64,
+    pub created_at: i64,
 }
 
 /// Payload for the `catalog:refresh_progress` event (spec §16).

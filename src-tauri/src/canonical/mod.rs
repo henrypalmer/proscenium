@@ -4,3 +4,4 @@
 
 pub mod cinemeta;
 pub mod resolver;
+pub mod stremio;

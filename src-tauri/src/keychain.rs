@@ -22,9 +22,18 @@ fn account(provider_id: &str) -> String {
     format!("provider:{provider_id}")
 }
 
+/// Milestone 41: Stremio addon manifest URLs (token-bearing → secret) live under
+/// a separate `addon:` namespace, never in SQLite.
+fn account_addon(addon_id: &str) -> String {
+    format!("addon:{addon_id}")
+}
+
+fn entry_for(account: &str) -> Result<Entry, String> {
+    Entry::new(SERVICE, account).map_err(|e| format!("Could not access the OS keychain: {e}"))
+}
+
 fn entry(provider_id: &str) -> Result<Entry, String> {
-    Entry::new(SERVICE, &account(provider_id))
-        .map_err(|e| format!("Could not access the OS keychain: {e}"))
+    entry_for(&account(provider_id))
 }
 
 /// The opaque value stored in the database's `password` column.
@@ -56,5 +65,32 @@ pub fn delete_secret(provider_id: &str) -> Result<(), String> {
         Err(e) => Err(format!(
             "Failed to remove credentials from the OS keychain: {e}"
         )),
+    }
+}
+
+// --- Stremio addon manifest URLs (Milestone 41). The URL embeds an access token
+// (e.g. AIOStreams/Torbox), so it is a secret: stored in the keychain only, with
+// just a reference key in SQLite, and never logged. ---
+
+pub fn store_addon_secret(addon_id: &str, manifest_url: &str) -> Result<String, String> {
+    let _guard = lock();
+    entry_for(&account_addon(addon_id))?
+        .set_password(manifest_url)
+        .map_err(|e| format!("Failed to store the addon URL in the OS keychain: {e}"))?;
+    Ok(format!("keyring:{SERVICE}/{}", account_addon(addon_id)))
+}
+
+pub fn get_addon_secret(addon_id: &str) -> Result<String, String> {
+    let _guard = lock();
+    entry_for(&account_addon(addon_id))?
+        .get_password()
+        .map_err(|e| format!("Failed to read the addon URL from the OS keychain: {e}"))
+}
+
+pub fn delete_addon_secret(addon_id: &str) -> Result<(), String> {
+    let _guard = lock();
+    match entry_for(&account_addon(addon_id))?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("Failed to remove the addon URL from the OS keychain: {e}")),
     }
 }

@@ -29,6 +29,7 @@ import type {
   Series,
   SeriesDetail,
   StreamCandidate,
+  StremioAddon,
   UserList,
   UserListItem,
   WatchProgress,
@@ -326,6 +327,7 @@ function mockResolveSources(
       quality: epQualities[i] ?? null,
       container: "mkv",
       confidence: 1 - i * 0.1,
+      needsDebrid: false,
     }));
   }
   if (seed % 5 === 0) return [];
@@ -348,6 +350,7 @@ function mockResolveSources(
       quality: qualities[i] ?? null,
       container: m.containerExt,
       confidence: 1 - i * 0.1,
+      needsDebrid: false,
     });
   });
   return out;
@@ -715,6 +718,9 @@ type Args = Record<string, unknown>;
 // stream, so it just hands out tile ids so the grid UI can be exercised.
 let mockMvNextId = 0;
 
+// Installed Stremio addons (Milestone 41) — in-memory for the browser mock.
+let mockAddons: StremioAddon[] = [];
+
 export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
   // Search is a local FTS query in the real backend (~1ms); the simulated
   // network latency would misrepresent it (spec §10: results < 300ms).
@@ -823,6 +829,32 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       // The browser mock doesn't track cross-source progress; resume falls back
       // to the per-item flow (covered by the backend milestone40 tests).
       return null as T;
+    case "add_stremio_addon": {
+      const url = ((a.manifestUrl as string) ?? "").trim();
+      if (!url) throw new Error("Enter an addon manifest URL.");
+      if (!/manifest\.json/i.test(url)) throw new Error("That doesn't look like a Stremio manifest URL.");
+      const name = /torrentio/i.test(url)
+        ? "Torrentio"
+        : /comet/i.test(url)
+          ? "Comet"
+          : "AIOStreams (dev)";
+      const addon: StremioAddon = {
+        id: `addon-${Date.now()}`,
+        name,
+        types: ["movie", "series"],
+        resources: ["stream"],
+        idPrefixes: ["tt", "tmdb"],
+        position: mockAddons.length,
+        createdAt: Math.floor(Date.now() / 1000),
+      };
+      mockAddons.push(addon);
+      return addon as T;
+    }
+    case "list_stremio_addons":
+      return mockAddons as T;
+    case "remove_stremio_addon":
+      mockAddons = mockAddons.filter((x) => x.id !== a.id);
+      return undefined as T;
     case "get_episodes":
       return episodesFor(a.seriesId as string) satisfies EpisodesBySeason as T;
     case "get_movie_detail": {

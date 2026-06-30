@@ -5,6 +5,7 @@ pub mod lists;
 pub mod providers;
 pub mod schema;
 pub mod settings;
+pub mod stremio;
 pub mod watch;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};

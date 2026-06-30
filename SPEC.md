@@ -2616,8 +2616,10 @@ The macOS half of M37 was implemented by **porting the Windows compositor model 
 
 **Out of scope:** an **embedded torrent engine** (infoHash streaming) — deferred; Stremio **catalog** addons (Cinemeta is the catalog — possible later); Stremio **subtitles** addons (later).
 
+**Slice status:** Slice 1 ✅ (addon storage + Settings CRUD). Slice 2 pending (resolver + picker integration).
+
 **Acceptance Criteria:**
-- [ ] A user can **add a Stremio stream addon by URL** in Settings; a token-bearing URL is stored in the **keychain** and never logged; the manifest is validated and its types/resources shown.
+- [x] A user can **add a Stremio stream addon by URL** in Settings; a token-bearing URL is stored in the **keychain** and never logged; the manifest is validated and its types/resources shown. *(Slice 1: `add_stremio_addon` fetches + validates the manifest (`canonical/stremio.rs::{parse_manifest,validate}` — handles string- and object-form `resources` + id prefixes), stores the URL via `keychain::store_addon_secret` (account `addon:{id}`, never returned to the frontend or logged), and persists only non-secret metadata to the `stremio_addons` table. Settings → Addons adds/lists/removes. Tests: `milestone41` (5 — manifest parsing both forms, stream-resource validation, base-url derivation, storage CRUD). Browser-preview verified add/list/remove.)*
 - [ ] Clicking a canonical title shows **addon-sourced direct streams** in the picker **alongside IPTV sources**; selecting one plays it.
 - [ ] **infoHash-only** streams are handled gracefully (flagged/hidden with a "needs debrid" note), never crashing the picker; addon/network failures degrade to the other sources.
 - [ ] Addon stream results are **not persisted to disk** (Tier-3).
