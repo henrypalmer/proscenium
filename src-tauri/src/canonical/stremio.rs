@@ -137,6 +137,20 @@ fn quality_confidence(quality: &Option<String>) -> f64 {
     }
 }
 
+/// Debrid-cached / instant tag in an addon label (e.g. `[TB⚡]`, "cached") —
+/// a ranking signal (Milestone 42).
+fn parse_cached(label: &str) -> bool {
+    label.contains('⚡') || label.to_ascii_lowercase().contains("cached")
+}
+
+/// Seeders from an addon label's `👤 N` annotation, when present (M42 ranking).
+fn parse_seeders(label: &str) -> Option<i64> {
+    let idx = label.find('👤')?;
+    let rest = label[idx + '👤'.len_utf8()..].trim_start();
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
 /// Parse a Stremio `/stream` body into candidates (pure; unit-tested). `url`
 /// (or `externalUrl`) → a directly playable source; `infoHash`-only (no engine)
 /// → a `needs_debrid` marker. `content_type` is the player kind ("movie" |
@@ -159,6 +173,8 @@ pub fn parse_streams(body: &Value, source: &str, content_type: &str) -> Vec<Stre
             .and_then(parse_container)
             .or_else(|| parse_container(&label));
         let url = non_empty_str(&s["url"]).or_else(|| non_empty_str(&s["externalUrl"]));
+        let cached = parse_cached(&label);
+        let seeders = parse_seeders(&label);
 
         if let Some(url) = url {
             if direct < CAP_DIRECT {
@@ -173,6 +189,8 @@ pub fn parse_streams(body: &Value, source: &str, content_type: &str) -> Vec<Stre
                     container,
                     confidence: quality_confidence(&quality),
                     needs_debrid: false,
+                    cached,
+                    seeders,
                 });
             }
         } else if non_empty_str(&s["infoHash"]).is_some() && debrid < CAP_DEBRID {
@@ -187,6 +205,8 @@ pub fn parse_streams(body: &Value, source: &str, content_type: &str) -> Vec<Stre
                 container,
                 confidence: 0.05,
                 needs_debrid: true,
+                cached,
+                seeders,
             });
         }
     }

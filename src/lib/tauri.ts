@@ -322,6 +322,16 @@ export function getCanonicalProgress(
   return invoke("get_canonical_progress", { kind, imdbId, season, episode });
 }
 
+/** Remember the source the user chose for a canonical title (M42), so it floats
+ * to the top of the picker next time. */
+export function recordSourcePick(
+  kind: "movie" | "series",
+  imdbId: string,
+  source: string,
+): Promise<void> {
+  return invoke("record_source_pick", { kind, imdbId, source });
+}
+
 // --- Stremio stream addons (spec §19 Milestone 41) ---
 
 /** Add a Stremio stream addon by manifest URL. A token-bearing URL is stored in

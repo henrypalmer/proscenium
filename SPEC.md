@@ -2638,8 +2638,10 @@ The macOS half of M37 was implemented by **porting the Windows compositor model 
 
 **Out of scope:** torrent engine (deferred).
 
+**Slice status:** Slice 1 ✅ (ranking + dedup + remember-pick). Slice 2 pending (availability badges).
+
 **Acceptance Criteria:**
 - [ ] Cards can show an **availability badge** populated by a background, non-blocking pass; disabled, the catalog behaves as M40/M41.
-- [ ] The same title from multiple sources appears **once**, with all sources in its picker (no M39-style duplicates under the canonical catalog).
-- [ ] Picker candidates are **ranked** (quality/debrid/seeders/preference); the chosen source is remembered per title.
+- [x] The same title from multiple sources appears **once**, with all sources in its picker (no M39-style duplicates under the canonical catalog). *(The canonical Discover browse already shows one card per Cinemeta title; `resolve_sources` merges every provider + addon source into that one title's picker, and `resolver::dedupe` drops exact-duplicate candidates so a source never appears twice. M39-style duplicates remain only in the explicit "My Providers" provider-centric browse. Test: `dedupe_drops_exact_duplicates_only`.)*
+- [x] Picker candidates are **ranked** (quality/debrid/seeders/preference); the chosen source is remembered per title. *(Slice 1: `resolver::rank_candidates` orders by playable → remembered-source → resolution → debrid-cached → seeders → confidence; addon `[TB⚡]`/`👤 N` labels are parsed into `cached`/`seeders` (`canonical/stremio.rs`). The user's pick is saved per title via `record_source_pick` → the `source_preference` table and floated to the top on the next resolve. Tests: `rank_orders_by_quality_cached_seeders_then_preference`, `parse_streams_reads_cached_and_seeders`, `source_pref_roundtrips_and_is_kind_scoped`. Browser-preview verified ⚡/seeders badges and the ranked picker.)*
 - [ ] `cargo test --tests` and `npm run build` pass clean.

@@ -39,6 +39,8 @@ export default function SourcePicker({ kind, imdbId, title, season, episode }: P
   };
 
   const play = async (c: StreamCandidate) => {
+    // Remember this source for the title so it floats up next time (M42).
+    void api.recordSourcePick(kind, imdbId, c.source).catch(() => {});
     if (c.providerId && c.contentId) {
       const args = {
         providerId: c.providerId,
@@ -126,10 +128,16 @@ export default function SourcePicker({ kind, imdbId, title, season, episode }: P
         >
           <span className="truncate">{c.source}</span>
           <span className="ml-3 flex shrink-0 items-center gap-2 text-xs text-zinc-400">
+            {c.cached && (
+              <span className="rounded bg-emerald-900/50 px-1.5 py-0.5 text-emerald-300">
+                ⚡
+              </span>
+            )}
             {c.quality && (
               <span className="rounded bg-zinc-800 px-1.5 py-0.5">{c.quality}</span>
             )}
             {c.container && <span className="uppercase">{c.container}</span>}
+            {c.seeders != null && <span>👤 {c.seeders}</span>}
           </span>
         </button>
       ))}

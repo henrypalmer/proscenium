@@ -150,3 +150,40 @@ pub async fn set_manual_match(pool: &SqlitePool, m: &ContentMatch) -> Result<(),
         .await?;
     match_put(pool, m).await
 }
+
+// --- per-title source preference (Milestone 42 "remember the pick") ---
+
+pub async fn source_pref_get(
+    pool: &SqlitePool,
+    imdb_id: &str,
+    kind: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row = sqlx::query("SELECT source FROM source_preference WHERE imdb_id = ? AND kind = ?")
+        .bind(imdb_id)
+        .bind(kind)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.get("source")))
+}
+
+pub async fn source_pref_set(
+    pool: &SqlitePool,
+    imdb_id: &str,
+    kind: &str,
+    source: &str,
+    now: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO source_preference (imdb_id, kind, source, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(imdb_id, kind) DO UPDATE SET
+           source = excluded.source, updated_at = excluded.updated_at",
+    )
+    .bind(imdb_id)
+    .bind(kind)
+    .bind(source)
+    .bind(now)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

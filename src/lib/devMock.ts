@@ -320,15 +320,18 @@ function mockAddonCandidates(
         source: addon.name, providerId: null, contentType, contentId: null,
         url: `https://addon.example/${addon.id}/${seed}-2160.mkv`,
         quality: "2160p", container: "mkv", confidence: 0.97, needsDebrid: false,
+        cached: true, seeders: 120,
       },
       {
         source: addon.name, providerId: null, contentType, contentId: null,
         url: `https://addon.example/${addon.id}/${seed}-1080.mkv`,
         quality: "1080p", container: "mkv", confidence: 0.95, needsDebrid: false,
+        cached: true, seeders: 80,
       },
       {
         source: addon.name, providerId: null, contentType, contentId: null,
         url: null, quality: "720p", container: null, confidence: 0.05, needsDebrid: true,
+        cached: false, seeders: 8,
       },
     );
   }
@@ -358,6 +361,8 @@ function mockResolveSources(
         container: "mkv",
         confidence: 1 - i * 0.1,
         needsDebrid: false,
+        cached: false,
+        seeders: null,
       }));
     }
   } else if (seed % 5 !== 0) {
@@ -380,6 +385,8 @@ function mockResolveSources(
         container: m.containerExt,
         confidence: 1 - i * 0.1,
         needsDebrid: false,
+        cached: false,
+        seeders: null,
       });
     });
   }
@@ -387,7 +394,14 @@ function mockResolveSources(
   // Addons query movies, or series only with a specific episode (mirrors backend).
   const queryAddons = kind !== "series" || (season != null && episode != null);
   const addons = queryAddons ? mockAddonCandidates(contentType, seed) : [];
-  return [...iptv, ...addons].sort((a, b) => b.confidence - a.confidence);
+  // Float the remembered source first, then by confidence (mirrors the backend
+  // rank's preference key; full ranking is covered by the backend tests).
+  const pref = mockSourcePref[`${kind}:${imdbId}`];
+  return [...iptv, ...addons].sort((a, b) => {
+    const pa = a.source === pref ? 1 : 0;
+    const pb = b.source === pref ? 1 : 0;
+    return pb - pa || b.confidence - a.confidence;
+  });
 }
 
 let movieCache: Movie[] | null = null;
@@ -754,6 +768,8 @@ let mockMvNextId = 0;
 
 // Installed Stremio addons (Milestone 41) — in-memory for the browser mock.
 let mockAddons: StremioAddon[] = [];
+// Per-title source preference (Milestone 42), keyed by `${kind}:${imdbId}`.
+const mockSourcePref: Record<string, string> = {};
 
 export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
   // Search is a local FTS query in the real backend (~1ms); the simulated
@@ -858,6 +874,9 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
         a.episode as number | undefined,
       ) satisfies StreamCandidate[] as T;
     case "set_manual_match":
+      return undefined as T;
+    case "record_source_pick":
+      mockSourcePref[`${a.kind}:${a.imdbId}`] = a.source as string;
       return undefined as T;
     case "get_canonical_progress":
       // The browser mock doesn't track cross-source progress; resume falls back

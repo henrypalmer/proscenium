@@ -169,6 +169,29 @@ CREATE TABLE IF NOT EXISTS stremio_addons (
   created_at   INTEGER NOT NULL
 );
 
+-- Per-title source preference (Milestone 42): the source the user last chose for
+-- a canonical title, floated to the top of the picker next time. Keyed by the
+-- canonical id + kind ("movie"/"series"; episodes share the series preference).
+CREATE TABLE IF NOT EXISTS source_preference (
+  imdb_id    TEXT NOT NULL,
+  kind       TEXT NOT NULL,             -- 'movie' | 'series'
+  source     TEXT NOT NULL,             -- chosen source label (provider/addon name)
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (imdb_id, kind)
+);
+
+-- Tier-2 availability cache (Milestone 42): a background, opt-in pass records
+-- whether a canonical title resolves to any source (+ best quality + count), so
+-- cards can badge it. Disposable — re-derived from the resolvers.
+CREATE TABLE IF NOT EXISTS availability (
+  imdb_id      TEXT NOT NULL,
+  kind         TEXT NOT NULL,           -- 'movie' | 'series'
+  source_count INTEGER NOT NULL,        -- playable sources found
+  best_quality TEXT,                    -- '2160p'/'1080p'/… when known
+  checked_at   INTEGER NOT NULL,        -- Unix timestamp
+  PRIMARY KEY (imdb_id, kind)
+);
+
 -- Watch progress (§5.9). Resume position + completion for VOD only; live TV is
 -- never tracked. Rows cascade-delete with their provider.
 CREATE TABLE IF NOT EXISTS watch_progress (

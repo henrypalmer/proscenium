@@ -374,6 +374,13 @@ pub struct StreamCandidate {
     /// surfaced as "needs a debrid service", not directly playable (M41).
     #[serde(default)]
     pub needs_debrid: bool,
+    /// Debrid-cached / instantly playable (an addon `[TB⚡]`-style tag); ranks
+    /// above un-cached at the same resolution (Milestone 42).
+    #[serde(default)]
+    pub cached: bool,
+    /// Torrent seeders parsed from the addon label, when present (M42 ranking).
+    #[serde(default)]
+    pub seeders: Option<i64>,
 }
 
 /// An installed Stremio stream addon (Milestone 41). The token-bearing manifest

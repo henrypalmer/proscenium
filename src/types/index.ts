@@ -179,6 +179,10 @@ export interface StreamCandidate {
   /** Addon stream that is infoHash-only (no direct/debrid URL): "needs a debrid
    * service", not directly playable (M41). */
   needsDebrid: boolean;
+  /** Debrid-cached / instantly playable (an addon `[TB⚡]`-style tag); M42 ranking. */
+  cached: boolean;
+  /** Torrent seeders parsed from the addon label, when present (M42 ranking). */
+  seeders: number | null;
 }
 
 /** An installed Stremio stream addon (M41). The token-bearing manifest URL is

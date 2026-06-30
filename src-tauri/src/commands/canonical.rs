@@ -170,7 +170,28 @@ pub async fn resolve_sources(
         }
     }
 
-    Ok(resolver::resolve_sources(&state.0, &target, &providers, &addons).await)
+    let mut candidates = resolver::resolve_sources(&state.0, &target, &providers, &addons).await;
+    // Float the source the user last chose for this title to the top (M42).
+    let preferred = db::canonical::source_pref_get(&state.0, &target.imdb_id, &target.kind)
+        .await
+        .ok()
+        .flatten();
+    resolver::rank_candidates(&mut candidates, preferred.as_deref());
+    Ok(candidates)
+}
+
+/// Remember the source the user chose for a canonical title (Milestone 42), so it
+/// floats to the top of the picker next time. `kind` is "movie" | "series".
+#[tauri::command]
+pub async fn record_source_pick(
+    state: State<'_, Db>,
+    kind: String,
+    imdb_id: String,
+    source: String,
+) -> Result<(), String> {
+    db::canonical::source_pref_set(&state.0, &imdb_id, &kind, &source, now_unix())
+        .await
+        .map_err(|e| format!("Failed to save the source preference: {e}"))
 }
 
 /// Persist a manual canonical↔provider match (Milestone 40 slice 4 override):

@@ -240,6 +240,8 @@ impl ProviderResolver {
                     container: Some(movie.container_ext),
                     confidence,
                     needs_debrid: false,
+                    cached: false,
+                    seeders: None,
                 });
             }
         }
@@ -356,6 +358,8 @@ impl ProviderResolver {
                     container: Some(container),
                     confidence,
                     needs_debrid: false,
+                    cached: false,
+                    seeders: None,
                 });
             }
         }
@@ -428,10 +432,51 @@ pub async fn resolve_sources(
         }
     }
 
-    out.sort_by(|a, b| {
-        b.confidence
-            .partial_cmp(&a.confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    dedupe(&mut out);
+    rank_candidates(&mut out, None);
     out
+}
+
+// --- candidate dedup + ranking (Milestone 42) ---
+
+fn resolution_rank(quality: &Option<String>) -> i32 {
+    match quality.as_deref() {
+        Some("2160p") => 4,
+        Some("1080p") => 3,
+        Some("720p") => 2,
+        Some("480p") => 1,
+        _ => 0,
+    }
+}
+
+/// Sort key for a candidate (higher is better): playable before needs-debrid,
+/// then the user's remembered source, resolution, debrid-cached, seeders, and
+/// the base match confidence.
+fn rank_key(c: &StreamCandidate, preferred: Option<&str>) -> (i32, i32, i32, i32, i64, i64) {
+    (
+        if c.needs_debrid { 0 } else { 1 },
+        i32::from(preferred == Some(c.source.as_str())),
+        resolution_rank(&c.quality),
+        i32::from(c.cached),
+        c.seeders.unwrap_or(0),
+        (c.confidence * 1000.0) as i64,
+    )
+}
+
+/// Rank picker candidates in place (Milestone 42). `preferred` is the source the
+/// user last chose for this title, floated to the top.
+pub fn rank_candidates(candidates: &mut [StreamCandidate], preferred: Option<&str>) {
+    candidates.sort_by(|a, b| rank_key(b, preferred).cmp(&rank_key(a, preferred)));
+}
+
+/// Drop exact-duplicate candidates (same source + addressing + quality), keeping
+/// the first — so one title's picker never lists the same source twice.
+pub fn dedupe(candidates: &mut Vec<StreamCandidate>) {
+    let mut seen = std::collections::HashSet::new();
+    candidates.retain(|c| {
+        seen.insert(format!(
+            "{}|{:?}|{:?}|{:?}|{:?}",
+            c.source, c.provider_id, c.content_id, c.url, c.quality
+        ))
+    });
 }
