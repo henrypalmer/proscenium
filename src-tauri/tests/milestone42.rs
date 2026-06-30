@@ -119,3 +119,46 @@ async fn source_pref_roundtrips_and_is_kind_scoped() {
     pool.close().await;
     cleanup_db(&path);
 }
+
+// --- Slice 2: availability cache ---
+
+#[tokio::test]
+async fn availability_cache_roundtrips_and_is_kind_scoped() {
+    let path = temp_path("avail");
+    let pool = db::init(&path).await.expect("init");
+    let ids = vec!["tt1".to_string(), "tt2".to_string()];
+
+    assert!(db::canonical::availability_get_many(&pool, &ids, "movie")
+        .await
+        .unwrap()
+        .is_empty());
+    db::canonical::availability_put(&pool, "tt1", "movie", 3, Some("2160p"), 100)
+        .await
+        .unwrap();
+    db::canonical::availability_put(&pool, "tt2", "movie", 0, None, 100)
+        .await
+        .unwrap();
+
+    let map = db::canonical::availability_get_many(&pool, &ids, "movie").await.unwrap();
+    assert_eq!(map.len(), 2);
+    assert_eq!(map["tt1"].source_count, 3);
+    assert_eq!(map["tt1"].best_quality.as_deref(), Some("2160p"));
+    assert_eq!(map["tt2"].source_count, 0);
+    assert!(map["tt2"].best_quality.is_none());
+
+    // Kind-scoped, and the latest write upserts.
+    assert!(db::canonical::availability_get_many(&pool, &ids, "series")
+        .await
+        .unwrap()
+        .is_empty());
+    db::canonical::availability_put(&pool, "tt1", "movie", 5, Some("1080p"), 200)
+        .await
+        .unwrap();
+    let map = db::canonical::availability_get_many(&pool, &["tt1".to_string()], "movie")
+        .await
+        .unwrap();
+    assert_eq!(map["tt1"].source_count, 5);
+    assert_eq!(map["tt1"].best_quality.as_deref(), Some("1080p"));
+    pool.close().await;
+    cleanup_db(&path);
+}

@@ -8,9 +8,10 @@ use crate::canonical::{cinemeta, stremio};
 use crate::commands::catalog::get_enabled_provider_ids;
 use crate::db::{self, Db};
 use crate::keychain;
-use crate::models::{CanonicalItem, CanonicalMeta, StreamCandidate};
+use crate::models::{AvailabilityInfo, CanonicalItem, CanonicalMeta, StreamCandidate};
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 use std::future::Future;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
@@ -147,29 +148,7 @@ pub async fn resolve_sources(
         season,
         episode,
     };
-    let ids = get_enabled_provider_ids(&state.0).await?;
-    let mut providers = Vec::with_capacity(ids.len());
-    for id in ids {
-        if let Some(p) = db::providers::get(&state.0, &id)
-            .await
-            .map_err(|e| format!("Failed to load provider: {e}"))?
-        {
-            providers.push(p);
-        }
-    }
-
-    // Stremio addons (M41): each installed addon's base URL comes from the
-    // keychain (the token-bearing URL is never logged).
-    let mut addons = Vec::new();
-    for a in db::stremio::list(&state.0).await.unwrap_or_default() {
-        if let Ok(url) = keychain::get_addon_secret(&a.id) {
-            addons.push(AddonSource {
-                name: a.name,
-                base_url: stremio::base_url(&url),
-            });
-        }
-    }
-
+    let (providers, addons) = resolvers_for(&state.0).await;
     let mut candidates = resolver::resolve_sources(&state.0, &target, &providers, &addons).await;
     // Float the source the user last chose for this title to the top (M42).
     let preferred = db::canonical::source_pref_get(&state.0, &target.imdb_id, &target.kind)
@@ -192,6 +171,148 @@ pub async fn record_source_pick(
     db::canonical::source_pref_set(&state.0, &imdb_id, &kind, &source, now_unix())
         .await
         .map_err(|e| format!("Failed to save the source preference: {e}"))
+}
+
+/// The enabled IPTV providers + installed Stremio addons (base URLs read from the
+/// keychain, never logged) that the resolver registry queries. Shared by
+/// `resolve_sources` and the availability index.
+async fn resolvers_for(pool: &SqlitePool) -> (Vec<crate::models::Provider>, Vec<AddonSource>) {
+    let mut providers = Vec::new();
+    if let Ok(ids) = get_enabled_provider_ids(pool).await {
+        for id in ids {
+            if let Ok(Some(p)) = db::providers::get(pool, &id).await {
+                providers.push(p);
+            }
+        }
+    }
+    let mut addons = Vec::new();
+    if let Ok(list) = db::stremio::list(pool).await {
+        for a in list {
+            if let Ok(url) = keychain::get_addon_secret(&a.id) {
+                addons.push(AddonSource {
+                    name: a.name,
+                    base_url: stremio::base_url(&url),
+                });
+            }
+        }
+    }
+    (providers, addons)
+}
+
+/// Cached availability for the given canonical titles (Milestone 42). Read-only —
+/// returns whatever the background index has resolved; computes nothing.
+#[tauri::command]
+pub async fn get_availability(
+    state: State<'_, Db>,
+    kind: String,
+    imdb_ids: Vec<String>,
+) -> Result<HashMap<String, AvailabilityInfo>, String> {
+    let map = db::canonical::availability_get_many(&state.0, &imdb_ids, &kind)
+        .await
+        .map_err(|e| format!("Failed to read availability: {e}"))?;
+    Ok(map
+        .into_iter()
+        .map(|(id, a)| {
+            (
+                id,
+                AvailabilityInfo {
+                    source_count: a.source_count,
+                    best_quality: a.best_quality,
+                },
+            )
+        })
+        .collect())
+}
+
+const AVAILABILITY_TTL_SECS: i64 = 6 * 3600;
+/// Titles resolved per `index_availability` call — the rate limit on the pass.
+const AVAILABILITY_BATCH: usize = 8;
+
+/// Background availability pass (Milestone 42, opt-in): resolve sources for the
+/// given titles whose cache is missing/stale (capped per call), cache the count
+/// + best quality, and return the now-known availability. Series probe S1:E1 as a
+/// representative episode. Non-blocking — the frontend calls this for the cards
+/// in view when the badge setting is on.
+#[tauri::command]
+pub async fn index_availability(
+    state: State<'_, Db>,
+    kind: String,
+    imdb_ids: Vec<String>,
+) -> Result<HashMap<String, AvailabilityInfo>, String> {
+    let now = now_unix();
+    let cached = db::canonical::availability_get_many(&state.0, &imdb_ids, &kind)
+        .await
+        .unwrap_or_default();
+    let (providers, addons) = resolvers_for(&state.0).await;
+
+    let mut out: HashMap<String, AvailabilityInfo> = HashMap::new();
+    let mut resolved = 0usize;
+    for imdb_id in &imdb_ids {
+        // Serve a fresh cache entry without spending the rate-limit budget.
+        if let Some(a) = cached.get(imdb_id) {
+            if now - a.checked_at < AVAILABILITY_TTL_SECS {
+                out.insert(
+                    imdb_id.clone(),
+                    AvailabilityInfo {
+                        source_count: a.source_count,
+                        best_quality: a.best_quality.clone(),
+                    },
+                );
+                continue;
+            }
+        }
+        if resolved >= AVAILABILITY_BATCH {
+            break;
+        }
+        resolved += 1;
+
+        let Ok(meta) = fetch_canonical_meta(&state.0, &kind, imdb_id).await else {
+            continue;
+        };
+        let (season, episode) = if kind == "series" {
+            (Some(1), Some(1))
+        } else {
+            (None, None)
+        };
+        let target = CanonicalRef {
+            imdb_id: meta.imdb_id.clone(),
+            kind: meta.kind,
+            tmdb_id: meta.tmdb_id,
+            name: meta.name,
+            year: meta.release_year,
+            season,
+            episode,
+        };
+        let candidates = resolver::resolve_sources(&state.0, &target, &providers, &addons).await;
+        let playable: Vec<&StreamCandidate> =
+            candidates.iter().filter(|c| !c.needs_debrid).collect();
+        let source_count = playable.len() as i64;
+        let best_quality = playable
+            .iter()
+            .max_by_key(|c| resolver::resolution_rank(&c.quality))
+            .and_then(|c| c.quality.clone())
+            .filter(|q| resolver::resolution_rank(&Some(q.clone())) > 0);
+        let _ = db::canonical::availability_put(
+            &state.0,
+            imdb_id,
+            &kind,
+            source_count,
+            best_quality.as_deref(),
+            now,
+        )
+        .await;
+        out.insert(
+            imdb_id.clone(),
+            AvailabilityInfo {
+                source_count,
+                best_quality,
+            },
+        );
+
+        // Gentle on providers/addons — the "rate-limited" part of the pass.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    Ok(out)
 }
 
 /// Persist a manual canonical↔provider match (Milestone 40 slice 4 override):

@@ -17,6 +17,7 @@ const WRITABLE_KEYS: &[&str] = &[
     "ui_theme",
     "hw_decode_enabled",
     "image_cache_max_mb",
+    "availability_badges_enabled",
 ];
 
 fn now_unix() -> i64 {
@@ -59,6 +60,9 @@ pub async fn get_settings_impl(pool: &SqlitePool) -> Result<AppSettings, String>
         if let Ok(n) = v.parse() {
             settings.image_cache_max_mb = n;
         }
+    }
+    if let Some(v) = read("availability_badges_enabled").await? {
+        settings.availability_badges_enabled = v == "true";
     }
     Ok(settings)
 }

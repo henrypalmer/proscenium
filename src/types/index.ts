@@ -272,6 +272,14 @@ export interface AppSettings {
   hwDecodeEnabled: boolean;
   /** Image cache ceiling in MB (spec §5.7, Milestone 27). */
   imageCacheMaxMb: number;
+  /** Opt-in background availability badges on canonical cards (Milestone 42). */
+  availabilityBadgesEnabled: boolean;
+}
+
+/** Cached availability for a canonical title (M42 badge). */
+export interface AvailabilityInfo {
+  sourceCount: number;
+  bestQuality: string | null;
 }
 
 export type ExternalPlayer = "mpv" | "vlc" | "custom";

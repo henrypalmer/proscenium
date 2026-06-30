@@ -112,6 +112,8 @@ pub fn run() {
             commands::canonical::resolve_sources,
             commands::canonical::set_manual_match,
             commands::canonical::record_source_pick,
+            commands::canonical::get_availability,
+            commands::canonical::index_availability,
             commands::stremio::add_stremio_addon,
             commands::stremio::list_stremio_addons,
             commands::stremio::remove_stremio_addon,

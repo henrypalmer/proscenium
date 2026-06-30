@@ -187,3 +187,70 @@ pub async fn source_pref_set(
     .await?;
     Ok(())
 }
+
+// --- availability cache (Milestone 42 badges) ---
+
+pub struct Availability {
+    pub source_count: i64,
+    pub best_quality: Option<String>,
+    pub checked_at: i64,
+}
+
+pub async fn availability_get_many(
+    pool: &SqlitePool,
+    imdb_ids: &[String],
+    kind: &str,
+) -> Result<std::collections::HashMap<String, Availability>, sqlx::Error> {
+    if imdb_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let ph = vec!["?"; imdb_ids.len()].join(", ");
+    let sql = format!(
+        "SELECT imdb_id, source_count, best_quality, checked_at
+         FROM availability WHERE kind = ? AND imdb_id IN ({ph})"
+    );
+    let mut q = sqlx::query(&sql).bind(kind);
+    for id in imdb_ids {
+        q = q.bind(id.as_str());
+    }
+    Ok(q
+        .fetch_all(pool)
+        .await?
+        .iter()
+        .map(|r| {
+            (
+                r.get::<String, _>("imdb_id"),
+                Availability {
+                    source_count: r.get("source_count"),
+                    best_quality: r.get("best_quality"),
+                    checked_at: r.get("checked_at"),
+                },
+            )
+        })
+        .collect())
+}
+
+pub async fn availability_put(
+    pool: &SqlitePool,
+    imdb_id: &str,
+    kind: &str,
+    source_count: i64,
+    best_quality: Option<&str>,
+    now: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO availability (imdb_id, kind, source_count, best_quality, checked_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(imdb_id, kind) DO UPDATE SET
+           source_count = excluded.source_count, best_quality = excluded.best_quality,
+           checked_at = excluded.checked_at",
+    )
+    .bind(imdb_id)
+    .bind(kind)
+    .bind(source_count)
+    .bind(best_quality)
+    .bind(now)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

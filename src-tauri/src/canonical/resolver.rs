@@ -439,7 +439,7 @@ pub async fn resolve_sources(
 
 // --- candidate dedup + ranking (Milestone 42) ---
 
-fn resolution_rank(quality: &Option<String>) -> i32 {
+pub fn resolution_rank(quality: &Option<String>) -> i32 {
     match quality.as_deref() {
         Some("2160p") => 4,
         Some("1080p") => 3,

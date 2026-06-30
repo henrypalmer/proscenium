@@ -170,6 +170,17 @@ function AppearanceSettings() {
             <span className="text-xs text-zinc-600">· only theme</span>
           </span>
         </Row>
+
+        <Row
+          label="Availability badges"
+          description="Badge canonical cards when sources are found across your providers and addons. Resolved in the background; off by default."
+        >
+          <Toggle
+            testId="availability-toggle"
+            checked={settings.availabilityBadgesEnabled}
+            onChange={(v) => void update("availabilityBadgesEnabled", v)}
+          />
+        </Row>
       </div>
     </div>
   );

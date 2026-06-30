@@ -8,6 +8,7 @@
 
 import type {
   AppSettings,
+  AvailabilityInfo,
   CanonicalItem,
   CanonicalMeta,
   CanonicalVideo,
@@ -153,6 +154,7 @@ const mockSettings: AppSettings = {
   uiTheme: "dark",
   hwDecodeEnabled: true,
   imageCacheMaxMb: 500,
+  availabilityBadgesEnabled: false,
 };
 
 // Browser dev has no on-disk cache; expose a demoable size so the Settings
@@ -402,6 +404,22 @@ function mockResolveSources(
     const pb = b.source === pref ? 1 : 0;
     return pb - pa || b.confidence - a.confidence;
   });
+}
+
+/** Deterministic availability per title (M42): ~4 of 5 titles available with a
+ *  quality, the rest none — exercises both badge states. */
+function mockAvailability(imdbIds: string[]): Record<string, AvailabilityInfo> {
+  const out: Record<string, AvailabilityInfo> = {};
+  for (const id of imdbIds ?? []) {
+    const seed = Number(id.replace(/\D/g, "")) || 0;
+    if (seed % 5 === 0) {
+      out[id] = { sourceCount: 0, bestQuality: null };
+      continue;
+    }
+    const bestQuality = seed % 3 === 0 ? "2160p" : seed % 3 === 1 ? "1080p" : "720p";
+    out[id] = { sourceCount: 1 + (seed % 4), bestQuality };
+  }
+  return out;
 }
 
 let movieCache: Movie[] | null = null;
@@ -878,6 +896,13 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
     case "record_source_pick":
       mockSourcePref[`${a.kind}:${a.imdbId}`] = a.source as string;
       return undefined as T;
+    case "get_availability":
+      return {} as T; // nothing cached until indexed (mirrors the real flow)
+    case "index_availability":
+      return mockAvailability(a.imdbIds as string[]) satisfies Record<
+        string,
+        AvailabilityInfo
+      > as T;
     case "get_canonical_progress":
       // The browser mock doesn't track cross-source progress; resume falls back
       // to the per-item flow (covered by the backend milestone40 tests).
@@ -957,8 +982,8 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
       const key = a.key as string;
       const value = a.value as string;
       const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-      if (camel === "hwDecodeEnabled") {
-        mockSettings.hwDecodeEnabled = value !== "false";
+      if (camel === "hwDecodeEnabled" || camel === "availabilityBadgesEnabled") {
+        (mockSettings as unknown as Record<string, boolean>)[camel] = value !== "false";
       } else if (camel === "cacheTtlHours" || camel === "imageCacheMaxMb") {
         (mockSettings as unknown as Record<string, number>)[camel] = Number(value);
       } else {

@@ -2,6 +2,7 @@ import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { mockInvoke } from "./devMock";
 import type {
   AppSettings,
+  AvailabilityInfo,
   CanonicalItem,
   CanonicalMeta,
   CatalogSummary,
@@ -330,6 +331,23 @@ export function recordSourcePick(
   source: string,
 ): Promise<void> {
   return invoke("record_source_pick", { kind, imdbId, source });
+}
+
+/** Cached availability for canonical titles (M42), keyed by imdb id. Read-only. */
+export function getAvailability(
+  kind: "movie" | "series",
+  imdbIds: string[],
+): Promise<Record<string, AvailabilityInfo>> {
+  return invoke("get_availability", { kind, imdbIds });
+}
+
+/** Background availability pass (M42, opt-in): resolve missing/stale titles
+ * (rate-limited) and return the now-known availability. */
+export function indexAvailability(
+  kind: "movie" | "series",
+  imdbIds: string[],
+): Promise<Record<string, AvailabilityInfo>> {
+  return invoke("index_availability", { kind, imdbIds });
 }
 
 // --- Stremio stream addons (spec §19 Milestone 41) ---

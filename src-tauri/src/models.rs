@@ -401,6 +401,15 @@ pub struct StremioAddon {
     pub created_at: i64,
 }
 
+/// Cached availability for a canonical title (Milestone 42): how many playable
+/// sources resolved and the best quality among them, for the card badge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvailabilityInfo {
+    pub source_count: i64,
+    pub best_quality: Option<String>,
+}
+
 /// Payload for the `catalog:refresh_progress` event (spec §16).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -528,6 +537,8 @@ pub struct AppSettings {
     pub hw_decode_enabled: bool,
     /// Image cache ceiling in MB (spec §5.7, Milestone 27); LRU-evicted past this.
     pub image_cache_max_mb: i64,
+    /// Opt-in background availability badges on canonical cards (Milestone 42).
+    pub availability_badges_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -542,6 +553,7 @@ impl Default for AppSettings {
             ui_theme: "dark".into(),
             hw_decode_enabled: true,
             image_cache_max_mb: crate::commands::images::DEFAULT_MAX_MB,
+            availability_badges_enabled: false,
         }
     }
 }

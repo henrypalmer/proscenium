@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../../lib/tauri";
+import { useSettingsStore } from "../../store/settingsStore";
 import CanonicalCard from "./CanonicalCard";
-import type { CanonicalItem } from "../../types";
+import type { AvailabilityInfo, CanonicalItem } from "../../types";
 
 interface Props {
   kind: "movie" | "series";
@@ -33,6 +34,10 @@ export default function CanonicalGrid({
   const skipRef = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const availabilityEnabled = useSettingsStore(
+    (s) => s.settings?.availabilityBadgesEnabled ?? false,
+  );
+  const [availability, setAvailability] = useState<Record<string, AvailabilityInfo>>({});
 
   // Reset + first page whenever the kind or genre changes.
   useEffect(() => {
@@ -94,6 +99,28 @@ export default function CanonicalGrid({
     return () => obs.disconnect();
   }, [loadMore]);
 
+  // Opt-in availability badges (M42): when enabled, read cached availability for
+  // the loaded cards and kick the rate-limited background index for the rest.
+  // Disabled → no badges and no background work (behaves as M40/M41).
+  const idsKey = useMemo(() => (items ?? []).map((i) => i.imdbId).join(","), [items]);
+  useEffect(() => {
+    if (!availabilityEnabled || !items || items.length === 0) {
+      setAvailability({});
+      return;
+    }
+    let cancelled = false;
+    const ids = items.map((i) => i.imdbId);
+    const merge = (m: Record<string, AvailabilityInfo>) => {
+      if (!cancelled) setAvailability((prev) => ({ ...prev, ...m }));
+    };
+    void api.getAvailability(kind, ids).then(merge, () => {});
+    void api.indexAvailability(kind, ids).then(merge, () => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availabilityEnabled, idsKey, kind]);
+
   if (items !== null && items.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -128,6 +155,7 @@ export default function CanonicalGrid({
                 item={it}
                 onActivate={onActivate}
                 morphActive={morphId === it.imdbId}
+                availability={availability[it.imdbId]}
               />
             </div>
           ) : (
