@@ -132,6 +132,15 @@ export interface CanonicalItem {
   releaseYear: number | null;
 }
 
+/** Canonical (Cinemeta) search hits, split by kind (M43): folded into the global
+ * search alongside the local provider catalog so addon-/multi-source titles are
+ * findable from search, not only Browse. Both empty = graceful degradation when
+ * Cinemeta is unreachable. */
+export interface CanonicalSearchResults {
+  movies: CanonicalItem[];
+  series: CanonicalItem[];
+}
+
 /** One canonical episode (Cinemeta `videos[]`). Season 0 = specials. */
 export interface CanonicalVideo {
   id: string; // "tt…:season:episode"

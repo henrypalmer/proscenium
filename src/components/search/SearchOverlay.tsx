@@ -9,6 +9,8 @@ import SearchBar from "./SearchBar";
 import SearchResults, { type ActiveResult } from "./SearchResults";
 import { INLINE_LIMIT } from "./SearchResultGroup";
 import type {
+  CanonicalItem,
+  CanonicalSearchResults,
   Category,
   LiveChannel,
   Movie,
@@ -57,6 +59,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [results, setResults] = useState<SearchResultsData | null>(null);
+  const [canonical, setCanonical] = useState<CanonicalSearchResults | null>(null);
   const [loading, setLoading] = useState(false);
   /** Bumped per search so stale responses can't overwrite newer ones. */
   const requestSeq = useRef(0);
@@ -93,29 +96,49 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   }, [scopeKey, contentType]);
 
   useEffect(() => {
-    if (!hasProviders || query === "") {
+    if (query === "") {
       setResults(null);
+      setCanonical(null);
       setLoading(false);
       return;
     }
     const seq = ++requestSeq.current;
     setLoading(true);
+    // Local provider catalog (FTS5) — instant, but only meaningful with providers.
+    if (hasProviders) {
+      void api
+        .search(providerIds, query, contentType, categoryId ?? undefined, RESULT_LIMIT)
+        .then(
+          (data) => {
+            if (requestSeq.current === seq) setResults(data);
+          },
+          () => {
+            if (requestSeq.current === seq)
+              setResults({ liveChannels: [], movies: [], series: [] });
+          },
+        );
+    } else {
+      setResults({ liveChannels: [], movies: [], series: [] });
+    }
+    // Canonical (Cinemeta) search runs regardless of providers (M43) so
+    // addon-/multi-source titles are findable; the network call may trail the
+    // local results, folding in progressively. It owns the loading flag since
+    // it's the slower of the two.
     void api
-      .search(providerIds, query, contentType, categoryId ?? undefined, RESULT_LIMIT)
+      .searchCanonical(query)
       .then(
         (data) => {
-          if (requestSeq.current !== seq) return;
-          setResults(data);
-          setLoading(false);
+          if (requestSeq.current === seq) setCanonical(data);
         },
         () => {
-          if (requestSeq.current !== seq) return;
-          setResults({ liveChannels: [], movies: [], series: [] });
-          setLoading(false);
+          if (requestSeq.current === seq) setCanonical({ movies: [], series: [] });
         },
-      );
+      )
+      .finally(() => {
+        if (requestSeq.current === seq) setLoading(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, query, contentType, categoryId]);
+  }, [scopeKey, query, contentType, categoryId, hasProviders]);
 
   const playChannel = (channel: LiveChannel) => {
     onClose();
@@ -134,6 +157,23 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
     onClose();
     navigate("/shows", { state: { openSeries: series } });
   };
+  // A canonical hit routes to its kind's page, which opens the canonical detail
+  // (+ source picker) from nav state (M43).
+  const openCanonical = (item: CanonicalItem) => {
+    onClose();
+    navigate(item.kind === "movie" ? "/movies" : "/shows", {
+      state: { openCanonical: item },
+    });
+  };
+
+  // Canonical hits shown under "All Sources", filtered by the content-type tab
+  // (Live has no canonical equivalent).
+  const canonicalItems = useMemo<CanonicalItem[]>(() => {
+    if (!canonical || contentType === "live") return [];
+    if (contentType === "movies") return canonical.movies;
+    if (contentType === "series") return canonical.series;
+    return [...canonical.movies, ...canonical.series];
+  }, [canonical, contentType]);
 
   // Spec §5.5: Enter commits the search — close the overlay and navigate to
   // the full, sectioned results screen, carrying the active filters in the URL.
@@ -153,22 +193,25 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   type NavItem =
     | { kind: "live"; item: LiveChannel }
     | { kind: "movie"; item: Movie }
-    | { kind: "series"; item: Series };
+    | { kind: "series"; item: Series }
+    | { kind: "canonical"; item: CanonicalItem };
 
   const navItems = useMemo<NavItem[]>(() => {
-    if (!results) return [];
     return [
-      ...results.liveChannels
+      ...(results?.liveChannels ?? [])
         .slice(0, INLINE_LIMIT)
         .map((item): NavItem => ({ kind: "live", item })),
-      ...results.movies
+      ...(results?.movies ?? [])
         .slice(0, INLINE_LIMIT)
         .map((item): NavItem => ({ kind: "movie", item })),
-      ...results.series
+      ...(results?.series ?? [])
         .slice(0, INLINE_LIMIT)
         .map((item): NavItem => ({ kind: "series", item })),
+      ...canonicalItems
+        .slice(0, INLINE_LIMIT)
+        .map((item): NavItem => ({ kind: "canonical", item })),
     ];
-  }, [results]);
+  }, [results, canonicalItems]);
 
   const [activeIndex, setActiveIndex] = useState(-1);
   // Reset the highlight whenever the result set changes (new query/filter).
@@ -177,7 +220,8 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   const activateNav = (nav: NavItem) => {
     if (nav.kind === "live") playChannel(nav.item);
     else if (nav.kind === "movie") openMovie(nav.item);
-    else openSeries(nav.item);
+    else if (nav.kind === "series") openSeries(nav.item);
+    else openCanonical(nav.item);
   };
 
   // Combobox keys on the input: ↑/↓ move the highlight, Enter opens the
@@ -205,7 +249,13 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   const activeItem =
     activeIndex >= 0 && activeIndex < navItems.length ? navItems[activeIndex] : null;
   const activeResult: ActiveResult | null = activeItem
-    ? { kind: activeItem.kind, id: activeItem.item.id }
+    ? {
+        kind: activeItem.kind,
+        id:
+          activeItem.kind === "canonical"
+            ? activeItem.item.imdbId
+            : activeItem.item.id,
+      }
     : null;
 
   return (
@@ -228,21 +278,19 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
           onCategoryChange={setCategoryId}
         />
         <div className="min-h-24 overflow-y-auto">
-          {!hasProviders ? (
-            <p className="px-4 py-10 text-center text-sm text-zinc-600">
-              Enable a provider in Settings to search your catalog.
-            </p>
-          ) : (
-            <SearchResults
-              query={query}
-              loading={loading}
-              results={results}
-              onPlayChannel={playChannel}
-              onOpenMovie={openMovie}
-              onOpenSeries={openSeries}
-              active={activeResult}
-            />
-          )}
+          {/* Canonical (Cinemeta) search runs without providers, so the overlay
+              no longer hard-gates on having one (M43). */}
+          <SearchResults
+            query={query}
+            loading={loading}
+            results={results}
+            canonicalItems={canonicalItems}
+            onPlayChannel={playChannel}
+            onOpenMovie={openMovie}
+            onOpenSeries={openSeries}
+            onOpenCanonical={openCanonical}
+            active={activeResult}
+          />
         </div>
       </div>
     </div>

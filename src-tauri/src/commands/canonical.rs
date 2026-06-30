@@ -8,7 +8,9 @@ use crate::canonical::{cinemeta, stremio};
 use crate::commands::catalog::get_enabled_provider_ids;
 use crate::db::{self, Db};
 use crate::keychain;
-use crate::models::{AvailabilityInfo, CanonicalItem, CanonicalMeta, StreamCandidate};
+use crate::models::{
+    AvailabilityInfo, CanonicalItem, CanonicalMeta, CanonicalSearchResults, StreamCandidate,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -78,6 +80,32 @@ pub async fn get_canonical_genres(kind: String) -> Result<Vec<String>, String> {
     Ok(cinemeta::genres(&kind))
 }
 
+/// One page of the canonical catalog, served through the Tier-2 cache (keyed by
+/// kind/genre/search/skip). Shared by `get_canonical_catalog` (browse) and
+/// `search_canonical` (M43), so both hit the same cache rows.
+async fn canonical_catalog_page(
+    pool: &SqlitePool,
+    kind: &str,
+    genre: Option<&str>,
+    search: Option<&str>,
+    skip: i64,
+) -> Result<Vec<CanonicalItem>, String> {
+    let key = format!(
+        "cat:{kind}:{}:{}:{skip}",
+        genre.unwrap_or(""),
+        search.unwrap_or("")
+    );
+    let (k, g, s) = (
+        kind.to_string(),
+        genre.map(str::to_string),
+        search.map(str::to_string),
+    );
+    cached_or_fetch(pool, &key, CATALOG_TTL_SECS, || async move {
+        cinemeta::fetch_catalog(&k, g.as_deref(), s.as_deref(), skip).await
+    })
+    .await
+}
+
 /// A page of the canonical catalog (`kind` = "movie" | "series"), optionally
 /// narrowed by `genre` or `search`, paged by `skip` (Cinemeta returns ~50–100
 /// per page). Cached per (kind, genre, search, skip).
@@ -89,16 +117,40 @@ pub async fn get_canonical_catalog(
     search: Option<String>,
     skip: Option<i64>,
 ) -> Result<Vec<CanonicalItem>, String> {
-    let skip = skip.unwrap_or(0);
-    let key = format!(
-        "cat:{kind}:{}:{}:{skip}",
-        genre.as_deref().unwrap_or(""),
-        search.as_deref().unwrap_or("")
-    );
-    cached_or_fetch(&state.0, &key, CATALOG_TTL_SECS, || async move {
-        cinemeta::fetch_catalog(&kind, genre.as_deref(), search.as_deref(), skip).await
-    })
+    canonical_catalog_page(
+        &state.0,
+        &kind,
+        genre.as_deref(),
+        search.as_deref(),
+        skip.unwrap_or(0),
+    )
     .await
+}
+
+/// Canonical (Cinemeta) search (M43): the title-find half of the global search,
+/// folded in alongside the local provider catalog so addon-/multi-source titles
+/// are reachable from search, not only Browse. Movies and series are fetched
+/// concurrently through the same cached path. A failure in either kind degrades
+/// to empty rather than failing the whole search (Cinemeta unreachable → the
+/// local provider results still stand).
+#[tauri::command]
+pub async fn search_canonical(
+    state: State<'_, Db>,
+    query: String,
+) -> Result<CanonicalSearchResults, String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(CanonicalSearchResults::default());
+    }
+    let pool = &state.0;
+    let (movies, series) = tokio::join!(
+        canonical_catalog_page(pool, "movie", None, Some(q), 0),
+        canonical_catalog_page(pool, "series", None, Some(q), 0),
+    );
+    Ok(CanonicalSearchResults {
+        movies: movies.unwrap_or_default(),
+        series: series.unwrap_or_default(),
+    })
 }
 
 /// Full canonical metadata for one title (poster/backdrop/overview/cast and, for

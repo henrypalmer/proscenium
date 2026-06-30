@@ -11,6 +11,7 @@ import type {
   AvailabilityInfo,
   CanonicalItem,
   CanonicalMeta,
+  CanonicalSearchResults,
   CanonicalVideo,
   CatalogSummary,
   Category,
@@ -970,6 +971,15 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
     }
     case "search":
       return mockSearch(a) satisfies SearchResults as T;
+    case "search_canonical": {
+      const q = ((a.query as string) ?? "").trim();
+      if (q === "")
+        return { movies: [], series: [] } satisfies CanonicalSearchResults as T;
+      return {
+        movies: mockCanonicalCatalog("movie", undefined, q, 0),
+        series: mockCanonicalCatalog("series", undefined, q, 0),
+      } satisfies CanonicalSearchResults as T;
+    }
     case "test_provider_connection":
       return {
         success: true,

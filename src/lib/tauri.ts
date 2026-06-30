@@ -5,6 +5,7 @@ import type {
   AvailabilityInfo,
   CanonicalItem,
   CanonicalMeta,
+  CanonicalSearchResults,
   CatalogSummary,
   Category,
   ConnectionTestResult,
@@ -279,6 +280,13 @@ export function getCanonicalCatalog(
   skip?: number,
 ): Promise<CanonicalItem[]> {
   return invoke("get_canonical_catalog", { kind, genre, search, skip });
+}
+
+/** Canonical (Cinemeta) search (M43): the title-find half of the global search,
+ * folded in alongside the local provider catalog. Movies + series fetched
+ * concurrently; degrades to empty (never rejects) when Cinemeta is unreachable. */
+export function searchCanonical(query: string): Promise<CanonicalSearchResults> {
+  return invoke("search_canonical", { query });
 }
 
 /** Full canonical metadata for one title (long-TTL cached). */

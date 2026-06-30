@@ -6,11 +6,14 @@ import { startViewTransition } from "../../lib/viewTransition";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { useProgressStore } from "../../store/progressStore";
+import CanonicalCard from "../canonical/CanonicalCard";
 import ChannelCard from "../live/ChannelCard";
 import MovieCard from "../vod/MovieCard";
 import SeriesCard from "../vod/SeriesCard";
 import SearchBar from "./SearchBar";
 import type {
+  CanonicalItem,
+  CanonicalSearchResults,
   Category,
   LiveChannel,
   Movie,
@@ -52,6 +55,7 @@ export default function SearchResultsPage() {
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [results, setResults] = useState<SearchResultsData | null>(null);
+  const [canonical, setCanonical] = useState<CanonicalSearchResults | null>(null);
   const [loading, setLoading] = useState(false);
   /** The result card whose poster morphs into the detail view on navigation. */
   const [morph, setMorph] = useState<{ type: "movie" | "series"; id: string } | null>(
@@ -104,29 +108,47 @@ export default function SearchResultsPage() {
   }, [scopeKey]);
 
   useEffect(() => {
-    if (!hasProviders || query === "") {
+    if (query === "") {
       setResults(null);
+      setCanonical(null);
       setLoading(false);
       return;
     }
     const seq = ++requestSeq.current;
     setLoading(true);
+    // Local provider catalog (FTS5) — only meaningful with providers enabled.
+    if (hasProviders) {
+      void api
+        .search(providerIds, query, contentType, categoryId ?? undefined, RESULT_LIMIT)
+        .then(
+          (data) => {
+            if (requestSeq.current === seq) setResults(data);
+          },
+          () => {
+            if (requestSeq.current === seq)
+              setResults({ liveChannels: [], movies: [], series: [] });
+          },
+        );
+    } else {
+      setResults({ liveChannels: [], movies: [], series: [] });
+    }
+    // Canonical (Cinemeta) search runs regardless of providers (M43); it owns the
+    // loading flag as the slower, network-bound half.
     void api
-      .search(providerIds, query, contentType, categoryId ?? undefined, RESULT_LIMIT)
+      .searchCanonical(query)
       .then(
         (data) => {
-          if (requestSeq.current !== seq) return;
-          setResults(data);
-          setLoading(false);
+          if (requestSeq.current === seq) setCanonical(data);
         },
         () => {
-          if (requestSeq.current !== seq) return;
-          setResults({ liveChannels: [], movies: [], series: [] });
-          setLoading(false);
+          if (requestSeq.current === seq) setCanonical({ movies: [], series: [] });
         },
-      );
+      )
+      .finally(() => {
+        if (requestSeq.current === seq) setLoading(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, query, contentType, categoryId]);
+  }, [scopeKey, query, contentType, categoryId, hasProviders]);
 
   const playChannel = (channel: LiveChannel) => {
     void usePlayerStore.getState().openContent({
@@ -151,12 +173,31 @@ export default function SearchResultsPage() {
       navigate("/shows", { state: { openSeries: series } }),
     );
   };
+  // Canonical hit → its kind's page, which opens the canonical detail + picker
+  // from nav state (M43). No poster morph (canonical cards aren't morph sources).
+  const openCanonical = (item: CanonicalItem) => {
+    navigate(item.kind === "movie" ? "/movies" : "/shows", {
+      state: { openCanonical: item },
+    });
+  };
+
+  // Canonical (Cinemeta) hits under "All Sources", filtered by the content-type
+  // tab (Live has no canonical equivalent).
+  const canonicalItems: CanonicalItem[] =
+    !canonical || contentType === "live"
+      ? []
+      : contentType === "movies"
+        ? canonical.movies
+        : contentType === "series"
+          ? canonical.series
+          : [...canonical.movies, ...canonical.series];
 
   const empty =
-    results !== null &&
-    results.liveChannels.length === 0 &&
-    results.movies.length === 0 &&
-    results.series.length === 0;
+    (results === null ||
+      (results.liveChannels.length === 0 &&
+        results.movies.length === 0 &&
+        results.series.length === 0)) &&
+    canonicalItems.length === 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -173,15 +214,11 @@ export default function SearchResultsPage() {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {!hasProviders ? (
-          <p className="py-16 text-center text-sm text-zinc-600">
-            Enable a provider in Settings to search your catalog.
-          </p>
-        ) : query === "" ? (
+        {query === "" ? (
           <p className="py-16 text-center text-sm text-zinc-600">
             Type a query to search live TV, movies, and series.
           </p>
-        ) : results === null ? (
+        ) : empty && loading ? (
           <p className="py-16 text-center text-sm text-zinc-600">Searching…</p>
         ) : empty && !loading ? (
           <div data-testid="search-page-no-results" className="py-16 text-center">
@@ -196,10 +233,10 @@ export default function SearchResultsPage() {
           <div className="space-y-8">
             <ResultSection
               title="Live TV"
-              count={results.liveChannels.length}
+              count={results?.liveChannels.length ?? 0}
               layout="list"
               testId="results-page-live"
-              items={results.liveChannels}
+              items={results?.liveChannels ?? []}
               getKey={(c) => `${c.providerId}:${c.id}`}
               renderItem={(channel) => (
                 <ChannelCard
@@ -212,10 +249,10 @@ export default function SearchResultsPage() {
             />
             <ResultSection
               title="Movies"
-              count={results.movies.length}
+              count={results?.movies.length ?? 0}
               layout="grid"
               testId="results-page-movies"
-              items={results.movies}
+              items={results?.movies ?? []}
               getKey={(m) => `${m.providerId}:${m.id}`}
               renderItem={(movie) => (
                 <MovieCard
@@ -228,10 +265,10 @@ export default function SearchResultsPage() {
             />
             <ResultSection
               title="Series"
-              count={results.series.length}
+              count={results?.series.length ?? 0}
               layout="grid"
               testId="results-page-series"
-              items={results.series}
+              items={results?.series ?? []}
               getKey={(s) => `${s.providerId}:${s.id}`}
               renderItem={(series) => (
                 <SeriesCard
@@ -239,6 +276,17 @@ export default function SearchResultsPage() {
                   onActivate={openSeries}
                   morphActive={morph?.type === "series" && morph.id === series.id}
                 />
+              )}
+            />
+            <ResultSection
+              title="All Sources"
+              count={canonicalItems.length}
+              layout="grid"
+              testId="results-page-canonical"
+              items={canonicalItems}
+              getKey={(it) => it.imdbId}
+              renderItem={(item) => (
+                <CanonicalCard item={item} onActivate={openCanonical} />
               )}
             />
           </div>

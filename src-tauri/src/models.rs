@@ -306,6 +306,17 @@ pub struct CanonicalItem {
     pub release_year: Option<i64>,
 }
 
+/// Canonical (Cinemeta) search hits, split by kind (M43): folded into the global
+/// search alongside the local provider catalog so addon-/multi-source-streamable
+/// titles are findable via search, not only Browse. `Default` (both empty) is the
+/// graceful-degradation result when Cinemeta is unreachable.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalSearchResults {
+    pub movies: Vec<CanonicalItem>,
+    pub series: Vec<CanonicalItem>,
+}
+
 /// Full canonical title metadata (Cinemeta `/meta`), loaded on detail open.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

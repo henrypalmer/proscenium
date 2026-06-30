@@ -196,8 +196,9 @@ async fn get_json(url: &str) -> Result<Value, String> {
 }
 
 /// `/catalog/{kind}/top[/{extra}].json`; `extra` is `key=value` pairs joined by
-/// `&` (Stremio addon convention), e.g. `genre=Action&skip=100`.
-fn catalog_url(kind: &str, genre: Option<&str>, search: Option<&str>, skip: i64) -> String {
+/// `&` (Stremio addon convention), e.g. `genre=Action&skip=100`. `pub` so the M43
+/// search wiring (search URL construction/encoding) is unit-testable.
+pub fn catalog_url(kind: &str, genre: Option<&str>, search: Option<&str>, skip: i64) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(g) = genre.filter(|s| !s.is_empty()) {
         parts.push(format!("genre={}", pct(g)));
