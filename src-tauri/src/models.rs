@@ -317,6 +317,28 @@ pub struct CanonicalSearchResults {
     pub series: Vec<CanonicalItem>,
 }
 
+/// One canonical ("All Sources") search hit, minimized for the M44 dedup: the
+/// keys the matcher needs to decide whether a provider hit is the same title.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DedupCanonical {
+    pub imdb_id: String,
+    pub name: String,
+    pub year: Option<i64>,
+}
+
+/// One provider search hit, minimized for the M44 dedup. `key` (the frontend's
+/// `providerId:id` group key) is echoed back when the hit is a duplicate to hide.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DedupProviderHit {
+    pub key: String,
+    pub provider_id: String,
+    pub content_id: String,
+    pub name: String,
+    pub year: Option<i64>,
+}
+
 /// Full canonical title metadata (Cinemeta `/meta`), loaded on detail open.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

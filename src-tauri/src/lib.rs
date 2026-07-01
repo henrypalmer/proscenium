@@ -109,6 +109,7 @@ pub fn run() {
             commands::canonical::get_canonical_genres,
             commands::canonical::get_canonical_catalog,
             commands::canonical::search_canonical,
+            commands::canonical::dedup_search_hits,
             commands::canonical::get_canonical_meta,
             commands::canonical::resolve_sources,
             commands::canonical::set_manual_match,

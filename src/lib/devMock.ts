@@ -13,6 +13,8 @@ import type {
   CanonicalMeta,
   CanonicalSearchResults,
   CanonicalVideo,
+  DedupCanonical,
+  DedupProviderHit,
   CatalogSummary,
   Category,
   ConnectionTestResult,
@@ -306,6 +308,49 @@ function mockCanonicalMeta(kind: "movie" | "series", imdbId: string): CanonicalM
     tmdbId: 100000 + seed,
     videos,
   };
+}
+
+// --- M44 search dedup (name+year; the mock has no content_match table) ---
+
+const DEDUP_NOISE = new Set([
+  "the", "a", "an", "uhd", "hd", "sd", "fhd", "4k", "1080p", "720p", "480p",
+  "2160p", "multi", "vf", "vo", "vostfr", "hevc", "x264", "x265", "web", "dl",
+]);
+
+function dedupTokens(s: string): Set<string> {
+  const cleaned = s
+    .replace(/[([{][^)\]}]*[)\]}]/g, " ") // drop bracketed segments
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ");
+  return new Set(cleaned.split(/\s+/).filter((t) => t && !DEDUP_NOISE.has(t)));
+}
+
+/** Token-set Jaccard similarity, mirroring the backend `title_similarity`. */
+function dedupSimilarity(a: string, b: string): number {
+  const sa = dedupTokens(a);
+  const sb = dedupTokens(b);
+  if (sa.size === 0 || sb.size === 0) return 0;
+  let inter = 0;
+  for (const t of sa) if (sb.has(t)) inter++;
+  return inter / (sa.size + sb.size - inter);
+}
+
+function dedupYearOk(c: number | null, t: number | null): boolean {
+  return c == null || t == null || Math.abs(c - t) <= 1;
+}
+
+function mockDedupSearchHits(
+  canonical: DedupCanonical[],
+  provider: DedupProviderHit[],
+): string[] {
+  if (!canonical.length || !provider.length) return [];
+  return provider
+    .filter((p) =>
+      canonical.some(
+        (c) => dedupYearOk(p.year, c.year) && dedupSimilarity(p.name, c.name) >= 0.6,
+      ),
+    )
+    .map((p) => p.key);
 }
 
 /** Fake source resolution: candidates point at real mock movies (so the play
@@ -980,6 +1025,11 @@ export async function mockInvoke<T>(cmd: string, args?: unknown): Promise<T> {
         series: mockCanonicalCatalog("series", undefined, q, 0),
       } satisfies CanonicalSearchResults as T;
     }
+    case "dedup_search_hits":
+      return mockDedupSearchHits(
+        (a.canonical as DedupCanonical[]) ?? [],
+        (a.provider as DedupProviderHit[]) ?? [],
+      ) satisfies string[] as T;
     case "test_provider_connection":
       return {
         success: true,

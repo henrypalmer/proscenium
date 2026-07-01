@@ -141,6 +141,23 @@ export interface CanonicalSearchResults {
   series: CanonicalItem[];
 }
 
+/** Minimal canonical hit for the M44 search dedup (what the matcher needs). */
+export interface DedupCanonical {
+  imdbId: string;
+  name: string;
+  year: number | null;
+}
+
+/** Minimal provider search hit for the M44 dedup; `key` (`providerId:id`) is
+ * echoed back when the hit duplicates a canonical one and should be hidden. */
+export interface DedupProviderHit {
+  key: string;
+  providerId: string;
+  contentId: string;
+  name: string;
+  year: number | null;
+}
+
 /** One canonical episode (Cinemeta `videos[]`). Season 0 = specials. */
 export interface CanonicalVideo {
   id: string; // "tt…:season:episode"

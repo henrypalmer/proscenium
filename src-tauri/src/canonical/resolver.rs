@@ -13,7 +13,9 @@ use crate::db::canonical::ContentMatch;
 use crate::db::{self};
 use crate::iptv::xtream;
 use crate::keychain;
-use crate::models::{Provider, ProviderType, SearchContentType, StreamCandidate};
+use crate::models::{
+    DedupCanonical, Provider, ProviderType, SearchContentType, StreamCandidate,
+};
 use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -108,6 +110,27 @@ pub fn classify_match(
     } else {
         None
     }
+}
+
+/// Is a provider search hit the same title as one of the canonical ("All
+/// Sources") hits — i.e. a duplicate to hide from the provider group (M44)? A
+/// recorded `content_match` imdb is authoritative: a dupe iff that id is among
+/// the canonical hits (and, when it isn't, *not* a dupe — the confirmed identity
+/// overrides a coincidental name/year lookalike). With no recorded match, a
+/// name+year match against any canonical hit decides — the same signals the
+/// resolver uses (`title_similarity` ≥ threshold, year within ±1).
+pub fn is_search_dupe(
+    prov_name: &str,
+    prov_year: Option<i64>,
+    matched_imdb: Option<&str>,
+    canonical: &[DedupCanonical],
+) -> bool {
+    if let Some(imdb) = matched_imdb {
+        return canonical.iter().any(|c| c.imdb_id == imdb);
+    }
+    canonical.iter().any(|c| {
+        year_ok(prov_year, c.year) && title_similarity(prov_name, &c.name) >= NAME_SIM_THRESHOLD
+    })
 }
 
 /// Parse a quality tag from a provider title ("… 1080p", "[2160p]", "4K").

@@ -9,7 +9,8 @@ use crate::commands::catalog::get_enabled_provider_ids;
 use crate::db::{self, Db};
 use crate::keychain;
 use crate::models::{
-    AvailabilityInfo, CanonicalItem, CanonicalMeta, CanonicalSearchResults, StreamCandidate,
+    AvailabilityInfo, CanonicalItem, CanonicalMeta, CanonicalSearchResults, DedupCanonical,
+    DedupProviderHit, StreamCandidate,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::SqlitePool;
@@ -151,6 +152,44 @@ pub async fn search_canonical(
         movies: movies.unwrap_or_default(),
         series: series.unwrap_or_default(),
     })
+}
+
+/// Which provider search hits duplicate a canonical ("All Sources") hit and
+/// should be hidden from the provider group (M44). For each provider hit, an
+/// authoritative `content_match` imdb (when recorded) decides; otherwise the
+/// resolver's name+year match against the canonical hits does. Returns the hit
+/// `key`s to hide. `kind` is "movie" | "series"; live TV is never deduped.
+pub async fn dedup_search_hits_impl(
+    pool: &SqlitePool,
+    kind: &str,
+    canonical: &[DedupCanonical],
+    provider: &[DedupProviderHit],
+) -> Vec<String> {
+    if canonical.is_empty() || provider.is_empty() {
+        return Vec::new();
+    }
+    let mut hide = Vec::new();
+    for p in provider {
+        let matched = db::canonical::match_get(pool, &p.provider_id, kind, &p.content_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|m| m.imdb_id);
+        if resolver::is_search_dupe(&p.name, p.year, matched.as_deref(), canonical) {
+            hide.push(p.key.clone());
+        }
+    }
+    hide
+}
+
+#[tauri::command]
+pub async fn dedup_search_hits(
+    state: State<'_, Db>,
+    kind: String,
+    canonical: Vec<DedupCanonical>,
+    provider: Vec<DedupProviderHit>,
+) -> Result<Vec<String>, String> {
+    Ok(dedup_search_hits_impl(&state.0, &kind, &canonical, &provider).await)
 }
 
 /// Full canonical metadata for one title (poster/backdrop/overview/cast and, for

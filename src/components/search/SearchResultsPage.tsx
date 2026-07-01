@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import * as api from "../../lib/tauri";
 import { startViewTransition } from "../../lib/viewTransition";
+import { applyHideKeys, computeSearchHideKeys } from "../../lib/searchDedup";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { useProgressStore } from "../../store/progressStore";
@@ -56,6 +57,8 @@ export default function SearchResultsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [results, setResults] = useState<SearchResultsData | null>(null);
   const [canonical, setCanonical] = useState<CanonicalSearchResults | null>(null);
+  /** Provider hit keys hidden as duplicates of a canonical hit (M44). */
+  const [hideKeys, setHideKeys] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   /** The result card whose poster morphs into the detail view on navigation. */
   const [morph, setMorph] = useState<{ type: "movie" | "series"; id: string } | null>(
@@ -150,6 +153,18 @@ export default function SearchResultsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey, query, contentType, categoryId, hasProviders]);
 
+  // Hide provider hits that duplicate a canonical ("All Sources") hit (M44),
+  // once both sides are in — the canonical entry with its picker is kept.
+  useEffect(() => {
+    let cancelled = false;
+    void computeSearchHideKeys(results, canonical).then((keys) => {
+      if (!cancelled) setHideKeys(keys);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [results, canonical]);
+
   const playChannel = (channel: LiveChannel) => {
     void usePlayerStore.getState().openContent({
       providerId: channel.providerId,
@@ -192,11 +207,17 @@ export default function SearchResultsPage() {
           ? canonical.series
           : [...canonical.movies, ...canonical.series];
 
+  // Provider results with canonical duplicates removed (M44).
+  const dedupedResults = useMemo(
+    () => applyHideKeys(results, hideKeys),
+    [results, hideKeys],
+  );
+
   const empty =
-    (results === null ||
-      (results.liveChannels.length === 0 &&
-        results.movies.length === 0 &&
-        results.series.length === 0)) &&
+    (dedupedResults === null ||
+      (dedupedResults.liveChannels.length === 0 &&
+        dedupedResults.movies.length === 0 &&
+        dedupedResults.series.length === 0)) &&
     canonicalItems.length === 0;
 
   return (
@@ -233,10 +254,10 @@ export default function SearchResultsPage() {
           <div className="space-y-8">
             <ResultSection
               title="Live TV"
-              count={results?.liveChannels.length ?? 0}
+              count={dedupedResults?.liveChannels.length ?? 0}
               layout="list"
               testId="results-page-live"
-              items={results?.liveChannels ?? []}
+              items={dedupedResults?.liveChannels ?? []}
               getKey={(c) => `${c.providerId}:${c.id}`}
               renderItem={(channel) => (
                 <ChannelCard
@@ -249,10 +270,10 @@ export default function SearchResultsPage() {
             />
             <ResultSection
               title="Movies"
-              count={results?.movies.length ?? 0}
+              count={dedupedResults?.movies.length ?? 0}
               layout="grid"
               testId="results-page-movies"
-              items={results?.movies ?? []}
+              items={dedupedResults?.movies ?? []}
               getKey={(m) => `${m.providerId}:${m.id}`}
               renderItem={(movie) => (
                 <MovieCard
@@ -265,10 +286,10 @@ export default function SearchResultsPage() {
             />
             <ResultSection
               title="Series"
-              count={results?.series.length ?? 0}
+              count={dedupedResults?.series.length ?? 0}
               layout="grid"
               testId="results-page-series"
-              items={results?.series ?? []}
+              items={dedupedResults?.series ?? []}
               getKey={(s) => `${s.providerId}:${s.id}`}
               renderItem={(series) => (
                 <SeriesCard

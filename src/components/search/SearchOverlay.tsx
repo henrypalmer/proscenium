@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../../lib/tauri";
 import { useWindowKeydown } from "../../lib/keyboard";
+import { applyHideKeys, computeSearchHideKeys } from "../../lib/searchDedup";
 import { useCatalogStore } from "../../store/catalogStore";
 import { usePlayerStore } from "../../store/playerStore";
 import { useSearchStore } from "../../store/searchStore";
@@ -60,6 +61,8 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [results, setResults] = useState<SearchResultsData | null>(null);
   const [canonical, setCanonical] = useState<CanonicalSearchResults | null>(null);
+  /** Provider hit keys hidden as duplicates of a canonical hit (M44). */
+  const [hideKeys, setHideKeys] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   /** Bumped per search so stale responses can't overwrite newer ones. */
   const requestSeq = useRef(0);
@@ -140,6 +143,19 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey, query, contentType, categoryId, hasProviders]);
 
+  // Once both the provider and canonical results are in, hide provider hits that
+  // duplicate a canonical ("All Sources") hit (M44) — the canonical entry, with
+  // its cross-source picker, is the one kept. Recomputed as either side updates.
+  useEffect(() => {
+    let cancelled = false;
+    void computeSearchHideKeys(results, canonical).then((keys) => {
+      if (!cancelled) setHideKeys(keys);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [results, canonical]);
+
   const playChannel = (channel: LiveChannel) => {
     onClose();
     void usePlayerStore.getState().openContent({
@@ -175,6 +191,12 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
     return [...canonical.movies, ...canonical.series];
   }, [canonical, contentType]);
 
+  // Provider results with canonical duplicates removed (M44).
+  const dedupedResults = useMemo(
+    () => applyHideKeys(results, hideKeys),
+    [results, hideKeys],
+  );
+
   // Spec §5.5: Enter commits the search — close the overlay and navigate to
   // the full, sectioned results screen, carrying the active filters in the URL.
   // A blank/whitespace query does nothing.
@@ -198,20 +220,20 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
 
   const navItems = useMemo<NavItem[]>(() => {
     return [
-      ...(results?.liveChannels ?? [])
+      ...(dedupedResults?.liveChannels ?? [])
         .slice(0, INLINE_LIMIT)
         .map((item): NavItem => ({ kind: "live", item })),
-      ...(results?.movies ?? [])
+      ...(dedupedResults?.movies ?? [])
         .slice(0, INLINE_LIMIT)
         .map((item): NavItem => ({ kind: "movie", item })),
-      ...(results?.series ?? [])
+      ...(dedupedResults?.series ?? [])
         .slice(0, INLINE_LIMIT)
         .map((item): NavItem => ({ kind: "series", item })),
       ...canonicalItems
         .slice(0, INLINE_LIMIT)
         .map((item): NavItem => ({ kind: "canonical", item })),
     ];
-  }, [results, canonicalItems]);
+  }, [dedupedResults, canonicalItems]);
 
   const [activeIndex, setActiveIndex] = useState(-1);
   // Reset the highlight whenever the result set changes (new query/filter).
@@ -283,7 +305,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
           <SearchResults
             query={query}
             loading={loading}
-            results={results}
+            results={dedupedResults}
             canonicalItems={canonicalItems}
             onPlayChannel={playChannel}
             onOpenMovie={openMovie}

@@ -10,6 +10,8 @@ import type {
   Category,
   ConnectionTestResult,
   ContinueWatchingItem,
+  DedupCanonical,
+  DedupProviderHit,
   EpisodesBySeason,
   ListContentType,
   ListSummary,
@@ -287,6 +289,17 @@ export function getCanonicalCatalog(
  * concurrently; degrades to empty (never rejects) when Cinemeta is unreachable. */
 export function searchCanonical(query: string): Promise<CanonicalSearchResults> {
   return invoke("search_canonical", { query });
+}
+
+/** Which provider search hits (`providerId:id` keys) duplicate a canonical hit
+ * and should be hidden from the provider group (M44). Authoritative `content_match`
+ * imdb when recorded, else a name+year match. Returns the keys to hide. */
+export function dedupSearchHits(
+  kind: "movie" | "series",
+  canonical: DedupCanonical[],
+  provider: DedupProviderHit[],
+): Promise<string[]> {
+  return invoke("dedup_search_hits", { kind, canonical, provider });
 }
 
 /** Full canonical metadata for one title (long-TTL cached). */
